@@ -1,7 +1,7 @@
 # Phase 0: Scaffold + Test Harness + Git-State Infra Port
 
 **Change ID:** phase0-scaffold
-**Status:** Proposed
+**Status:** Implemented (T01-T17 complete; awaiting reviews T18-T22)
 **Created:** 2026-04-13
 **Author:** Senior Product Manager
 
@@ -218,7 +218,7 @@ section (required, not optional).
   - No `gitState.enabled` toggle (it is always on)
 - [ ] `charts/thekraken/values-mirantis.yaml` overlay exists with
       `gitState.repoUrl` set to the mirantis-tentacle-workflows repo
-- [ ] `helm lint charts/thekraken` passes
+- [ ] `helm lint charts/thekraken --set gitState.repoUrl=https://github.com/test/repo.git --set gitState.credentialsSecret=test-secret` passes (the `--set` flags satisfy the `required()` template guards)
 - [ ] Deployment template mounts git credentials Secret, sets gitState
       env vars, mounts PVC for `/app/data`
 

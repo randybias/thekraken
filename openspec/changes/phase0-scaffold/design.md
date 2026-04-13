@@ -1,7 +1,7 @@
 # Phase 0: Scaffold + Test Harness + Git-State Infra Port — Design
 
 **Change ID:** phase0-scaffold
-**Status:** Draft
+**Status:** Implemented (T01-T17 complete; awaiting reviews T18-T22)
 **Created:** 2026-04-13
 **Author:** Senior Architect
 
@@ -1079,9 +1079,20 @@ done
 mock `enclaves/test-enclave/test-tentacle/workflow.yaml`, stages a change, runs
 the hook script, and asserts the version was incremented.
 
-**Note on `sed -i''`:** This syntax works on both GNU sed (`-i''` is a no-op
-suffix) and BSD sed (macOS, where `-i ''` with space is also accepted). In the
-Docker container (Debian-based `node:22`), GNU sed is used, so this is safe.
+**Note on sed (Implementation Divergence):** The original design above used
+`sed -i'' "s/..."` which is non-portable across BSD/GNU sed. The actual
+implementation in `kraken-hooks/pre-commit` uses a portable temp-file
+approach instead:
+
+```bash
+sed "s/^version: *${current_version}$/version: ${new_version}/" \
+  "$workflow_file" > "$tmp_file" && mv "$tmp_file" "$workflow_file"
+```
+
+This works identically on both BSD sed (macOS dev) and GNU sed (Docker
+container), with no platform-specific flags. Treat the implementation as
+authoritative; the design block above is preserved for historical context
+but should not be copied verbatim.
 
 ---
 
