@@ -140,7 +140,10 @@ describe('buildManagerPrompt', () => {
   });
 
   it('includes enclave memory when provided', () => {
-    const prompt = buildManagerPrompt({ ...BASE_ROLE_OPTS, enclaveMemory: 'ENCLAVE_DATA' });
+    const prompt = buildManagerPrompt({
+      ...BASE_ROLE_OPTS,
+      enclaveMemory: 'ENCLAVE_DATA',
+    });
     expect(prompt).toContain('ENCLAVE_DATA');
   });
 
@@ -150,14 +153,20 @@ describe('buildManagerPrompt', () => {
   });
 
   it('includes skills when provided', () => {
-    const prompt = buildManagerPrompt({ ...BASE_ROLE_OPTS, skills: 'SKILL_DATA' });
+    const prompt = buildManagerPrompt({
+      ...BASE_ROLE_OPTS,
+      skills: 'SKILL_DATA',
+    });
     expect(prompt).toContain('SKILL_DATA');
   });
 });
 
 describe('buildBuilderPrompt', () => {
   it('includes Role: Builder header', () => {
-    const prompt = buildBuilderPrompt({ ...BASE_ROLE_OPTS, taskDescription: 'Write a tentacle' });
+    const prompt = buildBuilderPrompt({
+      ...BASE_ROLE_OPTS,
+      taskDescription: 'Write a tentacle',
+    });
     expect(prompt).toContain('Role: Builder');
   });
 
@@ -170,12 +179,18 @@ describe('buildBuilderPrompt', () => {
   });
 
   it('includes enclave name', () => {
-    const prompt = buildBuilderPrompt({ ...BASE_ROLE_OPTS, taskDescription: 'task' });
+    const prompt = buildBuilderPrompt({
+      ...BASE_ROLE_OPTS,
+      taskDescription: 'task',
+    });
     expect(prompt).toContain('marketing-analytics');
   });
 
   it('includes [CONTEXT] block with user identity (D6)', () => {
-    const prompt = buildBuilderPrompt({ ...BASE_ROLE_OPTS, taskDescription: 'task' });
+    const prompt = buildBuilderPrompt({
+      ...BASE_ROLE_OPTS,
+      taskDescription: 'task',
+    });
     expect(prompt).toContain('[CONTEXT]');
     expect(prompt).toContain('U12345');
     expect(prompt).toContain('alice@example.com');
@@ -183,7 +198,10 @@ describe('buildBuilderPrompt', () => {
   });
 
   it('mentions edit/write tools as available', () => {
-    const prompt = buildBuilderPrompt({ ...BASE_ROLE_OPTS, taskDescription: 'task' });
+    const prompt = buildBuilderPrompt({
+      ...BASE_ROLE_OPTS,
+      taskDescription: 'task',
+    });
     expect(prompt).toContain('edit');
     expect(prompt).toContain('write');
   });
@@ -191,7 +209,10 @@ describe('buildBuilderPrompt', () => {
 
 describe('buildDeployerPrompt', () => {
   it('includes Role: Deployer header', () => {
-    const prompt = buildDeployerPrompt({ ...BASE_ROLE_OPTS, taskDescription: 'Deploy v4' });
+    const prompt = buildDeployerPrompt({
+      ...BASE_ROLE_OPTS,
+      taskDescription: 'Deploy v4',
+    });
     expect(prompt).toContain('Role: Deployer');
   });
 
@@ -204,20 +225,29 @@ describe('buildDeployerPrompt', () => {
   });
 
   it('includes [CONTEXT] block with user identity (D6)', () => {
-    const prompt = buildDeployerPrompt({ ...BASE_ROLE_OPTS, taskDescription: 'Deploy v4' });
+    const prompt = buildDeployerPrompt({
+      ...BASE_ROLE_OPTS,
+      taskDescription: 'Deploy v4',
+    });
     expect(prompt).toContain('[CONTEXT]');
     expect(prompt).toContain('U12345');
     expect(prompt).toContain('[/CONTEXT]');
   });
 
   it('includes tntc deploy and wf_apply in deploy flow', () => {
-    const prompt = buildDeployerPrompt({ ...BASE_ROLE_OPTS, taskDescription: 'task' });
+    const prompt = buildDeployerPrompt({
+      ...BASE_ROLE_OPTS,
+      taskDescription: 'task',
+    });
     expect(prompt).toContain('tntc deploy');
     expect(prompt).toContain('wf_apply');
   });
 
   it('explicitly says NO edit/write tools', () => {
-    const prompt = buildDeployerPrompt({ ...BASE_ROLE_OPTS, taskDescription: 'task' });
+    const prompt = buildDeployerPrompt({
+      ...BASE_ROLE_OPTS,
+      taskDescription: 'task',
+    });
     expect(prompt).toContain('NO edit, write tools');
   });
 });

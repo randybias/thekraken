@@ -14,7 +14,13 @@
  * - Partial lines at EOF are buffered and emitted on the next read call.
  */
 
-import { appendFileSync, closeSync, openSync, readSync, statSync } from 'node:fs';
+import {
+  appendFileSync,
+  closeSync,
+  openSync,
+  readSync,
+  statSync,
+} from 'node:fs';
 import { createChildLogger } from '../logger.js';
 
 const log = createChildLogger({ module: 'ndjson' });
@@ -93,7 +99,10 @@ export class NdjsonReader {
         try {
           records.push(JSON.parse(trimmed) as object);
         } catch {
-          log.warn({ line: trimmed.slice(0, 80) }, 'ndjson: skipping invalid JSON line');
+          log.warn(
+            { line: trimmed.slice(0, 80) },
+            'ndjson: skipping invalid JSON line',
+          );
         }
       }
       return records;

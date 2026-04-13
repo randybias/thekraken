@@ -121,7 +121,11 @@ export class OutboundPoller {
   }
 
   private async pollTeam(enclaveName: string): Promise<void> {
-    const outboundPath = join(this.deps.config.teamsDir, enclaveName, 'outbound.ndjson');
+    const outboundPath = join(
+      this.deps.config.teamsDir,
+      enclaveName,
+      'outbound.ndjson',
+    );
 
     // Get or create a reader for this team (persists offset across cycles)
     let reader = this.readers.get(enclaveName);
@@ -147,7 +151,12 @@ export class OutboundPoller {
 
       try {
         // Dedup check: skip if already posted (pod restart protection)
-        if (this.deps.tracker.hasOutboundInThread(record.channelId, record.threadTs)) {
+        if (
+          this.deps.tracker.hasOutboundInThread(
+            record.channelId,
+            record.threadTs,
+          )
+        ) {
           // Record exists — but we may have more messages in this thread.
           // Use message ID for stronger dedup in Phase 2. For now, check
           // if the specific record text was already posted by hash.
@@ -198,7 +207,10 @@ export class OutboundPoller {
           code: SpanStatusCode.ERROR,
           message: err instanceof Error ? err.message : String(err),
         });
-        log.error({ err, enclaveName, recordId: record.id }, 'failed to post outbound record');
+        log.error(
+          { err, enclaveName, recordId: record.id },
+          'failed to post outbound record',
+        );
       } finally {
         span.end();
       }

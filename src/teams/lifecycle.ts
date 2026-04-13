@@ -14,7 +14,7 @@
  * Teams write outbound.ndjson; OutboundPoller reads it.
  */
 
-import { mkdirSync } from 'node:fs';
+import { mkdirSync, readdirSync, statSync, rmSync, existsSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { spawn, type ChildProcess } from 'node:child_process';
 import type Database from 'better-sqlite3';
@@ -191,10 +191,16 @@ export class TeamLifecycleManager {
 
     // Drain stderr to prevent buffer blocking
     proc.stderr?.on('data', (chunk: Buffer) => {
-      log.debug({ enclaveName, stderr: chunk.toString('utf8').slice(0, 200) }, 'team stderr');
+      log.debug(
+        { enclaveName, stderr: chunk.toString('utf8').slice(0, 200) },
+        'team stderr',
+      );
     });
 
-    log.info({ enclaveName, teamDir, userId: initiatingUserId }, 'team spawned');
+    log.info(
+      { enclaveName, teamDir, userId: initiatingUserId },
+      'team spawned',
+    );
   }
 
   /**
@@ -202,6 +208,15 @@ export class TeamLifecycleManager {
    */
   isTeamActive(enclaveName: string): boolean {
     return this.teams.has(enclaveName);
+  }
+
+  /**
+   * Returns the names of all active enclave teams (those with a running
+   * manager subprocess). Used by OutboundPoller to know which team
+   * directories to poll.
+   */
+  getActiveTeamNames(): string[] {
+    return Array.from(this.teams.keys());
   }
 
   /**
@@ -271,7 +286,6 @@ export class TeamLifecycleManager {
    * Called periodically or on startup. Leaves directories of active teams.
    */
   gcStaleTeams(): void {
-    const { readdirSync, statSync, rmSync, existsSync } = require('node:fs') as typeof import('node:fs');
     const teamsDir = this.config.teamsDir;
 
     if (!existsSync(teamsDir)) return;
@@ -294,7 +308,10 @@ export class TeamLifecycleManager {
         const ageMs = now - stat.mtimeMs;
         if (ageMs > GC_STALE_THRESHOLD_MS) {
           rmSync(dir, { recursive: true, force: true });
-          log.info({ enclaveName: name, ageMs }, 'GC: removed stale team directory');
+          log.info(
+            { enclaveName: name, ageMs },
+            'GC: removed stale team directory',
+          );
         }
       } catch {
         // Non-fatal — directory may have been removed by another process
@@ -306,7 +323,10 @@ export class TeamLifecycleManager {
     const now = Date.now();
     for (const [name, state] of this.teams) {
       if (now - state.lastActivity > IDLE_TIMEOUT_MS) {
-        log.info({ enclaveName: name, idleMs: now - state.lastActivity }, 'idle timeout, sending SIGTERM');
+        log.info(
+          { enclaveName: name, idleMs: now - state.lastActivity },
+          'idle timeout, sending SIGTERM',
+        );
         state.proc.kill('SIGTERM');
         this.teams.delete(name);
       }

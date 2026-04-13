@@ -23,7 +23,12 @@ function makeDeps(
       lookupEnclave: (channelId: string) => {
         const name = boundChannels[channelId];
         if (!name) return null;
-        return { channelId, enclaveName: name, ownerSlackId: 'U_OWNER', channelName: name };
+        return {
+          channelId,
+          enclaveName: name,
+          ownerSlackId: 'U_OWNER',
+          channelName: name,
+        };
       },
     },
     teams: {
@@ -55,17 +60,26 @@ describe('parseCommand', () => {
 
   it('parses "add @user" after bot mention', () => {
     const result = parseCommand('<@UBOT123> add <@UABC456>');
-    expect(result).toEqual({ type: 'enclave_sync_add', targetUserId: 'UABC456' });
+    expect(result).toEqual({
+      type: 'enclave_sync_add',
+      targetUserId: 'UABC456',
+    });
   });
 
   it('parses "remove @user" after bot mention', () => {
     const result = parseCommand('<@UBOT123> remove <@UABC456>');
-    expect(result).toEqual({ type: 'enclave_sync_remove', targetUserId: 'UABC456' });
+    expect(result).toEqual({
+      type: 'enclave_sync_remove',
+      targetUserId: 'UABC456',
+    });
   });
 
   it('parses "transfer @user" after bot mention', () => {
     const result = parseCommand('<@UBOT123> transfer <@UABC456>');
-    expect(result).toEqual({ type: 'enclave_sync_transfer', targetUserId: 'UABC456' });
+    expect(result).toEqual({
+      type: 'enclave_sync_transfer',
+      targetUserId: 'UABC456',
+    });
   });
 
   it('parses add without leading bot mention', () => {
@@ -101,7 +115,9 @@ describe('routeEvent — deterministic path', () => {
     const event = makeEvent({ botId: 'B12345' });
     const result = routeEvent(event, deps);
     expect(result.path).toBe('deterministic');
-    expect(result.path === 'deterministic' && result.action.type).toBe('ignore_bot');
+    expect(result.path === 'deterministic' && result.action.type).toBe(
+      'ignore_bot',
+    );
   });
 
   it('ignores messages in unbound non-DM channels (criterion 2)', () => {
@@ -165,7 +181,10 @@ describe('routeEvent — deterministic path', () => {
 
   it('forwards to active team when team is running (criterion 7)', () => {
     const deps = makeDeps({ C_BOUND: 'my-enclave' }, ['my-enclave']);
-    const event = makeEvent({ channelId: 'C_BOUND', text: 'build a sentiment analyser' });
+    const event = makeEvent({
+      channelId: 'C_BOUND',
+      text: 'build a sentiment analyser',
+    });
     const result = routeEvent(event, deps);
     expect(result.path).toBe('deterministic');
     if (result.path === 'deterministic') {
@@ -178,7 +197,10 @@ describe('routeEvent — deterministic path', () => {
 
   it('spawns new team when team is not running (criterion 8)', () => {
     const deps = makeDeps({ C_BOUND: 'my-enclave' }, []);
-    const event = makeEvent({ channelId: 'C_BOUND', text: 'build a sentiment analyser' });
+    const event = makeEvent({
+      channelId: 'C_BOUND',
+      text: 'build a sentiment analyser',
+    });
     const result = routeEvent(event, deps);
     expect(result.path).toBe('deterministic');
     if (result.path === 'deterministic') {

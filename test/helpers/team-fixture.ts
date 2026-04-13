@@ -48,10 +48,7 @@ export interface TeamFixture {
  * @returns A TeamFixture with helpers and path refs.
  */
 export function createTeamFixture(enclaveName: string): TeamFixture {
-  const teamsDir = join(
-    tmpdir(),
-    `kraken-teams-${process.pid}-${Date.now()}`,
-  );
+  const teamsDir = join(tmpdir(), `kraken-teams-${process.pid}-${Date.now()}`);
   const dir = join(teamsDir, enclaveName);
 
   // Create the directory structure

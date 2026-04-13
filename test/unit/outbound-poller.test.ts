@@ -25,9 +25,17 @@ import type { KrakenConfig } from '../../src/config.js';
 function makeConfig(teamsDir: string): KrakenConfig {
   return {
     teamsDir,
-    gitState: { repoUrl: 'https://github.com/x/y.git', branch: 'main', dir: '/tmp/git-state' },
+    gitState: {
+      repoUrl: 'https://github.com/x/y.git',
+      branch: 'main',
+      dir: '/tmp/git-state',
+    },
     slack: { botToken: 'xoxb-test', mode: 'http' },
-    oidc: { issuer: 'https://keycloak', clientId: 'kraken', clientSecret: 'sec' },
+    oidc: {
+      issuer: 'https://keycloak',
+      clientId: 'kraken',
+      clientSecret: 'sec',
+    },
     mcp: { url: 'http://mcp:8080', port: 8080, serviceToken: 'svc-token' },
     llm: {
       defaultProvider: 'anthropic',
@@ -60,7 +68,11 @@ function makeOutboundRecord(overrides: object = {}): object {
 
 describe('OutboundPoller', () => {
   const fixtures: ReturnType<typeof createTeamFixture>[] = [];
-  let postedMessages: Array<{ channel: string; thread_ts?: string; text: string }>;
+  let postedMessages: Array<{
+    channel: string;
+    thread_ts?: string;
+    text: string;
+  }>;
   let poller: OutboundPoller;
 
   beforeEach(() => {
@@ -152,15 +164,21 @@ describe('OutboundPoller', () => {
     const f2 = createTeamFixture('enc-two');
     fixtures.push(f1, f2);
 
-    f1.appendOutbound(makeOutboundRecord({ text: 'from enc-one', channelId: 'C_ONE' }));
-    f2.appendOutbound(makeOutboundRecord({ text: 'from enc-two', channelId: 'C_TWO' }));
+    f1.appendOutbound(
+      makeOutboundRecord({ text: 'from enc-one', channelId: 'C_ONE' }),
+    );
+    f2.appendOutbound(
+      makeOutboundRecord({ text: 'from enc-two', channelId: 'C_TWO' }),
+    );
 
-    // Create a merged teamsDir — both fixtures live in their own teamsDir
-    // For multi-team test, use f1's teamsDir and place enc-two inside it
-    const { mkdirSync, cpSync } = await import('node:fs');
-    const twoDir = f1.teamsDir + '/enc-two';
-    mkdirSync(twoDir, { recursive: true });
-    cpSync(f2.dir, twoDir, { recursive: true });
+    // Create a merged teamsDir — both fixtures live in their own teamsDir.
+    // We need enc-two's outbound.ndjson visible under f1's teamsDir.
+    // Use symlink to avoid src===dest issue when dirs overlap in /tmp.
+    const { symlinkSync, existsSync } = await import('node:fs');
+    const twoLink = f1.teamsDir + '/enc-two';
+    if (!existsSync(twoLink)) {
+      symlinkSync(f2.dir, twoLink);
+    }
 
     const db = createDatabase(':memory:');
     const tracker = new OutboundTracker(db);
@@ -222,7 +240,9 @@ describe('OutboundPoller', () => {
     poller.start();
 
     // Write a record after start
-    f.appendOutbound(makeOutboundRecord({ text: 'async record', threadTs: '5555.000' }));
+    f.appendOutbound(
+      makeOutboundRecord({ text: 'async record', threadTs: '5555.000' }),
+    );
 
     // Wait for it to be picked up
     await waitForRecord(

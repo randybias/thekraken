@@ -44,7 +44,10 @@ describe('ndjson helpers', () => {
     appendRecord(f.mailboxPath, { type: 'b', n: 2 });
     appendRecord(f.mailboxPath, { type: 'a', n: 3 });
 
-    const aOnly = readRecords(f.mailboxPath, (r) => (r as { type: string }).type === 'a');
+    const aOnly = readRecords(
+      f.mailboxPath,
+      (r) => (r as { type: string }).type === 'a',
+    );
     expect(aOnly).toHaveLength(2);
   });
 
@@ -53,7 +56,10 @@ describe('ndjson helpers', () => {
     fixtures.push(f);
 
     // Write the record after a short delay
-    setTimeout(() => appendRecord(f.outboundPath, { type: 'done', id: 'x1' }), 50);
+    setTimeout(
+      () => appendRecord(f.outboundPath, { type: 'done', id: 'x1' }),
+      50,
+    );
 
     const rec = await waitForRecord(
       f.outboundPath,
@@ -104,7 +110,11 @@ describe('createTeamFixture', () => {
     const f = createTeamFixture('enc2');
     fixtures.push(f);
 
-    f.appendMailbox({ id: '1', type: 'user_message', message: 'build something' });
+    f.appendMailbox({
+      id: '1',
+      type: 'user_message',
+      message: 'build something',
+    });
     const records = f.readMailbox();
     expect(records).toHaveLength(1);
   });
@@ -173,7 +183,11 @@ describe('createIdentityFixture', () => {
 
     f.writeMailboxForUserA('build', '1111.000');
     // Write an outbound record that does NOT contain the token
-    f.fixture.appendOutbound({ type: 'slack_message', text: 'done', user: 'U_ALICE' });
+    f.fixture.appendOutbound({
+      type: 'slack_message',
+      text: 'done',
+      user: 'U_ALICE',
+    });
 
     // Should not throw
     f.assertTokenNotLeaked(f.userA.token);

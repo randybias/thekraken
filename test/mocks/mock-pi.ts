@@ -40,7 +40,12 @@ function appendNdjson(path: string, record: object): void {
   appendFileSync(path, JSON.stringify(record) + '\n', 'utf8');
 }
 
-function writeOutbound(type: string, text: string, channelId = 'C_TEST', threadTs = '1111111111.000'): void {
+function writeOutbound(
+  type: string,
+  text: string,
+  channelId = 'C_TEST',
+  threadTs = '1111111111.000',
+): void {
   if (!TEAM_DIR) return;
   appendNdjson(join(TEAM_DIR, 'outbound.ndjson'), {
     id: `out-${Date.now()}`,
@@ -70,7 +75,9 @@ function readMailbox(): object[] {
   if (!TEAM_DIR) return [];
   const path = join(TEAM_DIR, 'mailbox.ndjson');
   if (!existsSync(path)) return [];
-  const lines = readFileSync(path, 'utf8').split('\n').filter((l) => l.trim());
+  const lines = readFileSync(path, 'utf8')
+    .split('\n')
+    .filter((l) => l.trim());
   return lines.map((l) => JSON.parse(l) as object);
 }
 
@@ -91,7 +98,10 @@ async function run(): Promise<void> {
       // Read mailbox, write a completion signal + outbound message
       const messages = readMailbox();
       writeSignal('task_started', 'Mock builder starting');
-      writeSignal('task_completed', `Mock builder done. Processed ${messages.length} mailbox messages.`);
+      writeSignal(
+        'task_completed',
+        `Mock builder done. Processed ${messages.length} mailbox messages.`,
+      );
       writeOutbound('slack_message', 'Build complete! (mock)');
       process.exit(0);
       break;
@@ -125,7 +135,9 @@ async function run(): Promise<void> {
     case 'idle-exit':
     default: {
       // Wait for idle timeout then exit cleanly
-      await new Promise<void>((resolve) => setTimeout(resolve, IDLE_TIMEOUT_MS));
+      await new Promise<void>((resolve) =>
+        setTimeout(resolve, IDLE_TIMEOUT_MS),
+      );
       writeOutbound('slack_message', 'Mock pi idle exit (mock)');
       process.exit(0);
       break;

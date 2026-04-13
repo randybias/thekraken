@@ -1,9 +1,12 @@
 /**
- * Slack bot unit tests.
+ * Slack bot unit tests (post-pivot: dispatcher routing).
  *
  * Tests focus on the event handler logic without a real Slack connection.
  * We mock the Bolt App's event registration to intercept handlers and
  * invoke them directly with synthetic event payloads.
+ *
+ * The bot now calls routeEvent() and executes the returned RouteDecision
+ * rather than calling AgentRunner.handleMessage() directly.
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
@@ -26,11 +29,12 @@ vi.mock('@slack/bolt', () => ({
     }
     start = vi.fn().mockResolvedValue(undefined);
     stop = vi.fn().mockResolvedValue(undefined);
+    client = {
+      chat: { postMessage: vi.fn().mockResolvedValue({ ts: 'out-ts' }) },
+    };
   },
   ExpressReceiver: class MockExpressReceiver {
-    router = {
-      get: vi.fn(),
-    };
+    router = { get: vi.fn() };
   },
 }));
 
@@ -38,19 +42,12 @@ vi.mock('@slack/bolt', () => ({
 // Mock dependencies
 // ---------------------------------------------------------------------------
 
-const mockResponse = 'Test response from agent';
-const mockRunner = {
-  handleMessage: vi.fn().mockResolvedValue(mockResponse),
-  hasThread: vi.fn().mockReturnValue(false),
-  shutdown: vi.fn().mockResolvedValue(undefined),
-};
-
-const mockBinding = {
-  channelId: 'C001',
-  enclaveName: 'test-enclave',
-  ownerSlackId: 'U_OWNER',
-  status: 'active' as const,
-  createdAt: '2026-01-01T00:00:00.000Z',
+const mockTeams = {
+  isTeamActive: vi.fn().mockReturnValue(false),
+  sendToTeam: vi.fn(),
+  getActiveTeamNames: vi.fn().mockReturnValue([]),
+  spawnTeam: vi.fn().mockResolvedValue(undefined),
+  shutdownAll: vi.fn(),
 };
 
 const mockBindings = {
@@ -63,6 +60,8 @@ const mockOutbound = {
   hasOutboundInThread: vi.fn().mockReturnValue(false),
 };
 
+const mockSmartPath = vi.fn().mockResolvedValue('Smart response');
+
 const baseConfig = {
   slack: {
     botToken: 'xoxb-test',
@@ -70,7 +69,7 @@ const baseConfig = {
     mode: 'http' as const,
   },
   server: { port: 3000 },
-  mcp: { url: 'http://mcp:8080', port: 8080, serviceToken: 'token' },
+  mcp: { url: 'http://mcp:8080', port: 8080, serviceToken: 'svc-token' },
   oidc: {
     issuer: 'http://keycloak',
     clientId: 'kraken',
@@ -89,6 +88,7 @@ const baseConfig = {
     branch: 'main',
     dir: '/app/data',
   },
+  teamsDir: '/tmp/kraken-teams-test',
   observability: { otlpEndpoint: '', logLevel: 'info' },
 };
 
@@ -100,9 +100,10 @@ async function getSlackBot() {
   const { createSlackBot } = await import('../../src/slack/bot.js');
   return createSlackBot({
     config: baseConfig as any,
-    runner: mockRunner as any,
     bindings: mockBindings as any,
     outbound: mockOutbound as any,
+    teams: mockTeams as any,
+    onSmartPath: mockSmartPath,
   });
 }
 
@@ -110,16 +111,15 @@ async function getSlackBot() {
 // Tests
 // ---------------------------------------------------------------------------
 
-describe('createSlackBot event handlers', () => {
+describe('createSlackBot event handlers (post-pivot)', () => {
   beforeEach(() => {
     vi.resetModules();
     vi.clearAllMocks();
-    // Reset registered handlers
     for (const key of Object.keys(registeredHandlers)) {
       delete registeredHandlers[key];
     }
-    mockRunner.hasThread.mockReturnValue(false);
     mockBindings.lookupEnclave.mockReturnValue(null);
+    mockTeams.isTeamActive.mockReturnValue(false);
   });
 
   it('registers app_mention and message event handlers', async () => {
@@ -129,7 +129,7 @@ describe('createSlackBot event handlers', () => {
   });
 
   describe('app_mention handler', () => {
-    it('ignores mentions in unbound channels', async () => {
+    it('ignores mentions in unbound channels (deterministic: ignore_unbound)', async () => {
       await getSlackBot();
       mockBindings.lookupEnclave.mockReturnValue(null);
 
@@ -138,225 +138,156 @@ describe('createSlackBot event handlers', () => {
         event: {
           type: 'app_mention',
           channel: 'C_UNBOUND',
-          user: 'U001',
-          text: '@kraken hello',
-          ts: '1234567890.000001',
+          user: 'U_USER',
+          text: '<@BOTID> hello',
+          ts: '1234.5678',
         },
         say,
       });
 
-      expect(mockRunner.handleMessage).not.toHaveBeenCalled();
       expect(say).not.toHaveBeenCalled();
+      expect(mockTeams.sendToTeam).not.toHaveBeenCalled();
     });
 
-    it('dispatches to runner when channel is bound', async () => {
+    it('forwards mentions in enclave channels to team (deterministic: spawn_and_forward)', async () => {
       await getSlackBot();
-      mockBindings.lookupEnclave.mockReturnValue(mockBinding);
+      mockBindings.lookupEnclave.mockReturnValue({
+        channelId: 'C_ENC',
+        enclaveName: 'marketing-analytics',
+        ownerSlackId: 'U_OWNER',
+        status: 'active',
+      });
+      mockTeams.isTeamActive.mockReturnValue(false);
 
-      const sayResult = { ts: '1234567891.000002' };
-      const say = vi.fn().mockResolvedValue(sayResult);
-
+      const say = vi.fn();
       await registeredHandlers['app_mention']!({
         event: {
           type: 'app_mention',
-          channel: 'C001',
-          user: 'U001',
-          text: '@kraken list workflows',
-          ts: '1234567890.000001',
+          channel: 'C_ENC',
+          user: 'U_ALICE',
+          text: '<@BOTID> deploy my workflow',
+          ts: '1000.1',
         },
         say,
       });
 
-      expect(mockRunner.handleMessage).toHaveBeenCalledWith(
-        'C001:1234567890.000001',
-        '@kraken list workflows',
-        {
-          enclaveName: 'test-enclave',
-          slackUserId: 'U001',
-          mode: 'enclave',
-        },
-      );
-      expect(say).toHaveBeenCalledWith({
-        text: mockResponse,
-        thread_ts: '1234567890.000001',
-      });
-      expect(mockOutbound.store).toHaveBeenCalledWith(
-        'C001',
-        '1234567890.000001',
-        '1234567891.000002',
-        mockResponse,
+      // Should forward to the team, not call say directly
+      expect(mockTeams.sendToTeam).toHaveBeenCalledWith(
+        'marketing-analytics',
+        expect.objectContaining({
+          type: 'user_message',
+          channelId: 'C_ENC',
+          userSlackId: 'U_ALICE',
+          message: expect.stringContaining('deploy my workflow'),
+        }),
       );
     });
 
-    it('uses thread_ts from event when replying to a threaded mention', async () => {
-      await getSlackBot();
-      mockBindings.lookupEnclave.mockReturnValue(mockBinding);
-      const say = vi.fn().mockResolvedValue({ ts: '1234567892.000000' });
-
-      await registeredHandlers['app_mention']!({
-        event: {
-          type: 'app_mention',
-          channel: 'C001',
-          user: 'U001',
-          text: '@kraken follow up',
-          ts: '1234567891.000000',
-          thread_ts: '1234567890.000000', // Parent thread
-        },
-        say,
-      });
-
-      expect(mockRunner.handleMessage).toHaveBeenCalledWith(
-        'C001:1234567890.000000', // Thread key uses thread_ts, not event ts
-        expect.any(String),
-        expect.any(Object),
-      );
-    });
-
-    it('ignores bot messages (bot_id present)', async () => {
+    it('ignores bot-originated mentions', async () => {
       await getSlackBot();
       const say = vi.fn();
-
       await registeredHandlers['app_mention']!({
         event: {
           type: 'app_mention',
-          bot_id: 'B001',
-          channel: 'C001',
-          text: 'bot message',
-          ts: '1234567890.000001',
+          channel: 'C_ENC',
+          user: 'U_BOT',
+          text: 'bot mention',
+          ts: '1000.2',
+          bot_id: 'B123',
         },
         say,
       });
 
-      expect(mockRunner.handleMessage).not.toHaveBeenCalled();
+      expect(say).not.toHaveBeenCalled();
+      expect(mockTeams.sendToTeam).not.toHaveBeenCalled();
     });
   });
 
   describe('message handler', () => {
-    it('handles DM messages', async () => {
+    it('routes DMs to the smart path', async () => {
       await getSlackBot();
-      const say = vi.fn().mockResolvedValue({ ts: '1234567891.000000' });
 
+      const say = vi.fn().mockResolvedValue({ ts: 'dm-out' });
       await registeredHandlers['message']!({
         event: {
           type: 'message',
-          channel: 'D001',
+          channel: 'D_DM',
           channel_type: 'im',
-          user: 'U001',
-          text: 'hello kraken',
-          ts: '1234567890.000001',
+          user: 'U_ALICE',
+          text: 'how are my enclaves?',
+          ts: '2000.1',
         },
         say,
       });
 
-      expect(mockRunner.handleMessage).toHaveBeenCalledWith(
-        'D001:1234567890.000001',
-        'hello kraken',
-        { enclaveName: null, slackUserId: 'U001', mode: 'dm' },
+      expect(mockSmartPath).toHaveBeenCalledWith(
+        expect.objectContaining({
+          mode: 'dm',
+          userId: 'U_ALICE',
+          text: 'how are my enclaves?',
+        }),
+      );
+      expect(say).toHaveBeenCalledWith(
+        expect.objectContaining({
+          text: 'Smart response',
+        }),
       );
     });
 
-    it('ignores top-level messages in non-enclave channels', async () => {
+    it('ignores messages in non-enclave channels', async () => {
       await getSlackBot();
       mockBindings.lookupEnclave.mockReturnValue(null);
-      const say = vi.fn();
-
-      await registeredHandlers['message']!({
-        event: {
-          type: 'message',
-          channel: 'C_UNBOUND',
-          channel_type: 'channel',
-          user: 'U001',
-          text: 'hello',
-          ts: '1234567890.000001',
-          // No thread_ts — top-level message
-        },
-        say,
-      });
-
-      expect(mockRunner.handleMessage).not.toHaveBeenCalled();
-    });
-
-    it('ignores thread replies when no session exists', async () => {
-      await getSlackBot();
-      mockBindings.lookupEnclave.mockReturnValue(mockBinding);
-      mockRunner.hasThread.mockReturnValue(false); // No active session
 
       const say = vi.fn();
       await registeredHandlers['message']!({
         event: {
           type: 'message',
-          channel: 'C001',
+          channel: 'C_RANDOM',
           channel_type: 'channel',
-          user: 'U001',
-          text: 'reply',
-          ts: '1234567891.000000',
-          thread_ts: '1234567890.000000',
+          user: 'U_USER',
+          text: 'random chatter',
+          ts: '3000.1',
         },
         say,
       });
 
-      expect(mockRunner.handleMessage).not.toHaveBeenCalled();
+      expect(say).not.toHaveBeenCalled();
+      expect(mockTeams.sendToTeam).not.toHaveBeenCalled();
     });
 
-    it('dispatches thread reply when session exists', async () => {
-      await getSlackBot();
-      mockBindings.lookupEnclave.mockReturnValue(mockBinding);
-      mockRunner.hasThread.mockReturnValue(true); // Session exists
-
-      const say = vi.fn().mockResolvedValue({ ts: '1234567892.000000' });
-      await registeredHandlers['message']!({
-        event: {
-          type: 'message',
-          channel: 'C001',
-          channel_type: 'channel',
-          user: 'U001',
-          text: 'follow up question',
-          ts: '1234567891.000000',
-          thread_ts: '1234567890.000000',
-        },
-        say,
-      });
-
-      expect(mockRunner.handleMessage).toHaveBeenCalledWith(
-        'C001:1234567890.000000',
-        'follow up question',
-        { enclaveName: 'test-enclave', slackUserId: 'U001', mode: 'enclave' },
-      );
-    });
-
-    it('ignores messages with subtype (bot_message, etc.)', async () => {
+    it('ignores messages with subtypes (bot_message, etc.)', async () => {
       await getSlackBot();
       const say = vi.fn();
-
       await registeredHandlers['message']!({
         event: {
           type: 'message',
           subtype: 'bot_message',
-          channel: 'C001',
+          channel: 'C_ENC',
           text: 'bot output',
-          ts: '1234567890.000001',
+          ts: '4000.1',
         },
         say,
       });
 
-      expect(mockRunner.handleMessage).not.toHaveBeenCalled();
+      expect(say).not.toHaveBeenCalled();
     });
 
-    it('ignores messages without user field', async () => {
+    it('ignores messages from bots', async () => {
       await getSlackBot();
       const say = vi.fn();
-
       await registeredHandlers['message']!({
         event: {
           type: 'message',
-          channel: 'C001',
-          text: 'no user',
-          ts: '1234567890.000001',
+          channel: 'C_ENC',
+          user: 'U_BOT',
+          text: 'bot text',
+          ts: '5000.1',
+          bot_id: 'B456',
         },
         say,
       });
 
-      expect(mockRunner.handleMessage).not.toHaveBeenCalled();
+      expect(say).not.toHaveBeenCalled();
     });
   });
 });

@@ -1,146 +1,147 @@
 /**
- * The Kraken v2 — main entry point.
+ * The Kraken v2 — Dispatcher entry point (post-pivot).
  *
- * Startup sequence:
- *   1. loadConfig()              — fail fast with all missing vars listed
- *   2. initTelemetry()           — OTel SDK (graceful degradation if no collector)
- *   3. initDatabase(config)      — SQLite with migrations applied
- *   4. createMcpConnection()     — MCP HTTP client, tool list from server
- *   5. resolveModel(config)      — Map config.llm to a pi Model object
- *   6. Create subsystems         — EnclaveBindingEngine, OutboundTracker, AgentRunner
- *   7. createSlackBot().start()  — HTTP or Socket Mode transport
- *   8. Log startup banner        — version, mode, MCP URL, enclave count
- *   9. SIGTERM/SIGINT handlers   — drain queues, close MCP, stop Slack, flush OTel
+ * The Kraken is a specialized pi-coding-agent running in a custom
+ * "Slack mode." This entry point:
+ *
+ *   1. loadConfig()                — fail fast with all missing vars
+ *   2. initTelemetry()             — OTel SDK + graceful degradation
+ *   3. initDatabase()              — SQLite with FK enforcement
+ *   4. TeamLifecycleManager        — per-enclave team spawn/monitor/GC
+ *   5. OutboundPoller              — polls team outbound.ndjson → Slack
+ *   6. EnclaveBindingEngine        — channel → enclave lookup
+ *   7. createSlackBot()            — Bolt app with routeEvent() dispatch
+ *   8. Slack connect + startup banner
+ *
+ * Smart path: When the dispatcher router (D4) decides an event needs
+ * LLM reasoning, it invokes onSmartPath() — which in Phase 1 is a
+ * placeholder (logs + returns a "coming soon" message). Phase 2+
+ * wires this to a real pi AgentSession via createAgentSession().
+ *
+ * D6: Every enclave team subprocess carries the initiating user's
+ * OIDC token. Phase 1 uses MCP_SERVICE_TOKEN as a placeholder.
+ * Phase 2 OIDC replaces this with per-user device-flow tokens.
  */
 
-import { getModel } from '@mariozechner/pi-ai';
-import type { Model } from '@mariozechner/pi-ai';
 import { loadConfig } from './config.js';
-import type { KrakenConfig } from './config.js';
 import { initTelemetry, shutdownTelemetry } from './telemetry.js';
-import { logger } from './logger.js';
+import { createChildLogger } from './logger.js';
 import { initDatabase } from './db/index.js';
-import { createMcpConnection } from './agent/mcp-connection.js';
-import { AgentRunner } from './agent/runner.js';
-import { createSlackBot } from './slack/bot.js';
 import { EnclaveBindingEngine } from './enclave/binding.js';
 import { OutboundTracker } from './slack/outbound.js';
+import { TeamLifecycleManager } from './teams/lifecycle.js';
+import { OutboundPoller } from './teams/outbound-poller.js';
+import { createSlackBot } from './slack/bot.js';
 
-/**
- * Resolve the pi Model object from config.
- *
- * Uses pi-ai's built-in model registry to look up the model by provider
- * and ID. Throws if the model is not found.
- */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-function resolveModel(config: KrakenConfig): Model<any> {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const model = getModel(
-    config.llm.defaultProvider as any,
-    config.llm.defaultModel,
-  ) as Model<any> | undefined;
-  if (!model) {
-    throw new Error(
-      `Unknown model: provider="${config.llm.defaultProvider}" id="${config.llm.defaultModel}". ` +
-        'Check LLM_DEFAULT_PROVIDER and LLM_DEFAULT_MODEL.',
-    );
-  }
-  return model;
-}
-
-/**
- * Return the API key for the given provider name from config.
- *
- * Returns undefined if no key is configured (caller decides whether to throw).
- * NEVER logs or stores the returned key.
- */
-async function resolveApiKey(
-  config: KrakenConfig,
-  provider: string,
-): Promise<string | undefined> {
-  switch (provider) {
-    case 'anthropic':
-      return config.llm.anthropicApiKey;
-    case 'openai':
-      return config.llm.openaiApiKey;
-    case 'google':
-      return config.llm.geminiApiKey;
-    default:
-      return undefined;
-  }
-}
+const log = createChildLogger({ module: 'main' });
 
 async function main(): Promise<void> {
-  // 1. Load config (fails fast with all missing vars listed)
+  // 1. Config
   const config = loadConfig();
+  log.info('Config loaded');
 
-  // 2. Initialize OTel (before anything else creates spans)
+  // 2. OTel
   initTelemetry();
+  log.info('Telemetry initialized');
 
-  // 3. Initialize SQLite with migrations
+  // 3. SQLite
   const db = initDatabase(config);
+  log.info('Database initialized');
 
-  // 4. Create MCP connection (fetches tool list from server)
-  const mcp = await createMcpConnection(
-    config.mcp.url,
-    config.mcp.serviceToken,
-  );
-
-  // 5. Resolve LLM model from pi-ai registry
-  const model = resolveModel(config);
-
-  // 6. Create subsystems
+  // 4. Subsystems
   const bindings = new EnclaveBindingEngine(db);
   const outbound = new OutboundTracker(db);
-  const runner = new AgentRunner({
-    db,
-    mcp,
-    model,
-    getApiKey: (provider) => resolveApiKey(config, provider),
+  const teams = new TeamLifecycleManager(config, db);
+
+  // 5. Slack bot (created first so poller can reference its client)
+  const slackBot = createSlackBot({
+    config,
+    bindings,
+    outbound,
+    teams,
+    onSmartPath: async (ctx) => {
+      // Phase 1 placeholder: smart path returns a static message.
+      // Phase 2+ wires this to a real pi AgentSession via
+      // createAgentSession() with dispatcher-specific tools.
+      log.info(
+        {
+          reason: 'smart_path',
+          channelId: ctx.channelId,
+          mode: ctx.mode,
+          userId: ctx.userId,
+        },
+        'smart path invoked (Phase 1 placeholder)',
+      );
+      if (ctx.mode === 'dm') {
+        return "I can see your message, but my full reasoning capabilities aren't wired up yet. This will be available soon.";
+      }
+      return 'I heard you, but I need my full reasoning to help with that. Coming soon.';
+    },
   });
 
-  // 7. Create and start Slack bot
-  const bot = createSlackBot({ config, runner, bindings, outbound });
-  await bot.start();
+  // 6. Outbound poller (uses Slack bot's client for posting)
+  const poller = new OutboundPoller({
+    config,
+    teams,
+    slack: {
+      postMessage: async (params: {
+        channel: string;
+        text: string;
+        thread_ts?: string;
+      }) => {
+        return slackBot.app.client.chat.postMessage({
+          channel: params.channel,
+          text: params.text,
+          thread_ts: params.thread_ts,
+        }) as Promise<{ ts?: string }>;
+      },
+    },
+    tracker: outbound,
+    getActiveTeams: () => teams.getActiveTeamNames(),
+  });
 
-  // 8. Log startup banner
+  // 7. Start services
+  poller.start();
+  await slackBot.start();
+
   const enclaveCount = bindings.count();
-  logger.info(
+  log.info(
     {
-      version: '2.0.0',
       mode: config.slack.mode,
+      port: config.server.port,
       mcpUrl: config.mcp.url,
-      enclaves: enclaveCount,
+      enclaveCount,
+      teamsDir: config.teamsDir,
+      version: '2.0.0',
     },
     'The Kraken v2 started',
   );
 
-  // 9. Graceful shutdown handler
+  // 8. Graceful shutdown
   let shuttingDown = false;
-  const shutdown = async (signal: string): Promise<void> => {
+  const shutdown = async (signal: string) => {
     if (shuttingDown) return;
     shuttingDown = true;
+    log.info({ signal }, 'Shutdown initiated');
 
-    logger.info({ signal }, 'shutting down');
     try {
-      await bot.stop();
-      await runner.shutdown();
-      await mcp.close();
-      db.close();
+      poller.stop();
+      await slackBot.stop();
+      teams.shutdownAll();
       await shutdownTelemetry();
-      logger.info('shutdown complete');
+      db.close();
+      log.info('Shutdown complete');
     } catch (err) {
-      logger.error({ err }, 'error during shutdown');
-    } finally {
-      process.exit(0);
+      log.error({ err }, 'Error during shutdown');
     }
+    process.exit(0);
   };
 
-  process.on('SIGTERM', () => void shutdown('SIGTERM'));
-  process.on('SIGINT', () => void shutdown('SIGINT'));
+  process.on('SIGTERM', () => shutdown('SIGTERM'));
+  process.on('SIGINT', () => shutdown('SIGINT'));
 }
 
 main().catch((err) => {
-  logger.fatal({ err }, 'startup failed');
+  console.error('Fatal startup error:', err);
   process.exit(1);
 });

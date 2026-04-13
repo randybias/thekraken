@@ -70,7 +70,9 @@ describe('appendNdjson', () => {
 
 describe('NdjsonReader', () => {
   it('returns empty array when file does not exist', () => {
-    const reader = new NdjsonReader('/tmp/this-file-does-not-exist-kraken-test.ndjson');
+    const reader = new NdjsonReader(
+      '/tmp/this-file-does-not-exist-kraken-test.ndjson',
+    );
     expect(reader.readNew()).toEqual([]);
   });
 
@@ -117,11 +119,7 @@ describe('NdjsonReader', () => {
   it('skips invalid JSON lines and continues reading valid ones', () => {
     const path = tempFile();
     // Write two valid + one invalid line
-    writeFileSync(
-      path,
-      '{"n":1}\nNOT_VALID_JSON\n{"n":3}\n',
-      'utf8',
-    );
+    writeFileSync(path, '{"n":1}\nNOT_VALID_JSON\n{"n":3}\n', 'utf8');
     const reader = new NdjsonReader(path);
     const records = reader.readNew();
     expect(records).toHaveLength(2);

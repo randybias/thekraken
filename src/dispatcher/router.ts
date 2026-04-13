@@ -113,7 +113,8 @@ export function parseCommand(text: string): DeterministicAction | null {
     const targetUserId = userVerb[2]!;
     if (verb === 'add') return { type: 'enclave_sync_add', targetUserId };
     if (verb === 'remove') return { type: 'enclave_sync_remove', targetUserId };
-    if (verb === 'transfer') return { type: 'enclave_sync_transfer', targetUserId };
+    if (verb === 'transfer')
+      return { type: 'enclave_sync_transfer', targetUserId };
   }
 
   // Match: no-argument commands (help, whoami, members, archive)
@@ -141,7 +142,8 @@ function classifySmartReason(event: InboundEvent): SmartReason {
   if (event.channelType === 'im') return 'dm_query';
 
   const lower = (event.text ?? '').toLowerCase();
-  if (/what('s| is) (happening|going on|the status|up)/.test(lower)) return 'status_check';
+  if (/what('s| is) (happening|going on|the status|up)/.test(lower))
+    return 'status_check';
   if (/^help\b|^\/help/.test(lower)) return 'help_request';
   return 'ambiguous_input';
 }
@@ -170,7 +172,10 @@ function classifySmartReason(event: InboundEvent): SmartReason {
  *   D. Help request
  *   E. Novel phrasing not matching deterministic patterns
  */
-export function routeEvent(event: InboundEvent, deps: RouterDeps): RouteDecision {
+export function routeEvent(
+  event: InboundEvent,
+  deps: RouterDeps,
+): RouteDecision {
   // Criterion 1: Bot/self message -> ignore
   if (event.botId) {
     return { path: 'deterministic', action: { type: 'ignore_bot' } };
@@ -180,7 +185,10 @@ export function routeEvent(event: InboundEvent, deps: RouterDeps): RouteDecision
   if (event.type === 'member_left_channel') {
     const binding = deps.bindings.lookupEnclave(event.channelId);
     if (binding) {
-      return { path: 'deterministic', action: { type: 'drift_sync', channelId: event.channelId } };
+      return {
+        path: 'deterministic',
+        action: { type: 'drift_sync', channelId: event.channelId },
+      };
     }
     return { path: 'deterministic', action: { type: 'ignore_unbound' } };
   }
@@ -204,7 +212,10 @@ export function routeEvent(event: InboundEvent, deps: RouterDeps): RouteDecision
     if (teamActive) {
       return {
         path: 'deterministic',
-        action: { type: 'forward_to_active_team', enclaveName: binding.enclaveName },
+        action: {
+          type: 'forward_to_active_team',
+          enclaveName: binding.enclaveName,
+        },
       };
     }
     return {

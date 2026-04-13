@@ -29,17 +29,24 @@ let spawnCalls: Array<{
   env: Record<string, string | undefined>;
 }> = [];
 
-const mockProcHandlers = new Map<string, { exitHandler?: (code: number, signal: string | null) => void }>();
+const mockProcHandlers = new Map<
+  string,
+  { exitHandler?: (code: number, signal: string | null) => void }
+>();
 
 function makeProc(enclaveName: string) {
-  const handlers: { exit?: (code: number | null, sig: string | null) => void; error?: (err: Error) => void } = {};
+  const handlers: {
+    exit?: (code: number | null, sig: string | null) => void;
+    error?: (err: Error) => void;
+  } = {};
   const stderrHandlers: Array<(data: Buffer) => void> = [];
 
   const proc = {
     pid: Math.floor(Math.random() * 10000) + 1000,
     killed: false,
     stderr: {
-      on: (_event: string, handler: (data: Buffer) => void) => stderrHandlers.push(handler),
+      on: (_event: string, handler: (data: Buffer) => void) =>
+        stderrHandlers.push(handler),
     },
     on: (event: string, handler: unknown) => {
       if (event === 'exit') handlers.exit = handler as typeof handlers.exit;
@@ -52,21 +59,31 @@ function makeProc(enclaveName: string) {
       proc.killed = true;
       // Simulate async exit
       setTimeout(() => {
-        if (handlers.exit) handlers.exit(signal === 'SIGTERM' ? 0 : 1, signal ?? null);
+        if (handlers.exit)
+          handlers.exit(signal === 'SIGTERM' ? 0 : 1, signal ?? null);
       }, 0);
       return true;
     }),
   };
-  mockProcHandlers.set(enclaveName, { exitHandler: (code, sig) => handlers.exit?.(code, sig) });
+  mockProcHandlers.set(enclaveName, {
+    exitHandler: (code, sig) => handlers.exit?.(code, sig),
+  });
   return proc;
 }
 
 vi.mock('node:child_process', () => ({
-  spawn: vi.fn((command: string, args: string[], options: { env: Record<string, string | undefined> }) => {
-    const enclaveName = (options.env['KRAKEN_ENCLAVE_NAME'] as string) ?? 'unknown';
-    spawnCalls.push({ command, args, env: options.env });
-    return makeProc(enclaveName);
-  }),
+  spawn: vi.fn(
+    (
+      command: string,
+      args: string[],
+      options: { env: Record<string, string | undefined> },
+    ) => {
+      const enclaveName =
+        (options.env['KRAKEN_ENCLAVE_NAME'] as string) ?? 'unknown';
+      spawnCalls.push({ command, args, env: options.env });
+      return makeProc(enclaveName);
+    },
+  ),
 }));
 
 // ---------------------------------------------------------------------------
@@ -80,9 +97,17 @@ import type { KrakenConfig } from '../../src/config.js';
 function makeConfig(teamsDir: string): KrakenConfig {
   return {
     teamsDir,
-    gitState: { repoUrl: 'https://github.com/x/y.git', branch: 'main', dir: '/tmp/git-state' },
+    gitState: {
+      repoUrl: 'https://github.com/x/y.git',
+      branch: 'main',
+      dir: '/tmp/git-state',
+    },
     slack: { botToken: 'xoxb-test', mode: 'http' },
-    oidc: { issuer: 'https://keycloak', clientId: 'kraken', clientSecret: 'sec' },
+    oidc: {
+      issuer: 'https://keycloak',
+      clientId: 'kraken',
+      clientSecret: 'sec',
+    },
     mcp: { url: 'http://mcp:8080', port: 8080, serviceToken: 'svc-token' },
     llm: {
       defaultProvider: 'anthropic',
@@ -185,7 +210,9 @@ describe('TeamLifecycleManager', () => {
 
     const records = fixture.readMailbox();
     expect(records).toHaveLength(1);
-    expect((records[0] as { message: string }).message).toBe('build a sentiment analyser');
+    expect((records[0] as { message: string }).message).toBe(
+      'build a sentiment analyser',
+    );
   });
 
   it('sendToTeam() can write to team that is not yet spawned (lazy dir creation)', async () => {
@@ -260,7 +287,10 @@ describe('TeamLifecycleManager', () => {
     });
 
     // Read mailbox and verify both records have their correct tokens
-    const records = fixture.readMailbox() as Array<{ userSlackId: string; userToken: string }>;
+    const records = fixture.readMailbox() as Array<{
+      userSlackId: string;
+      userToken: string;
+    }>;
     expect(records).toHaveLength(2);
 
     const aliceRec = records.find((r) => r.userSlackId === 'U_ALICE')!;
