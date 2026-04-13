@@ -1,6 +1,12 @@
 namespace:
+  # If true, render a Namespace resource whose name MATCHES .Release.Namespace
+  # (i.e., the namespace passed via `helm install --namespace=<name>`).
+  # Set to false if Helm creates the namespace itself (`--create-namespace`)
+  # or if it already exists.
+  # The `name` field was removed — namespace is always .Release.Namespace to
+  # avoid Helm-rendered resources landing in the wrong namespace. Use
+  # `--namespace=<name>` to control where things go.
   create: true
-  name: tentacular-kraken
 
 replicaCount: 1
 

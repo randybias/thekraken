@@ -164,4 +164,77 @@ describe('pre-commit hook', () => {
     expect(readFileSync(marketingWorkflow, 'utf8')).toContain('version: 4');
     expect(readFileSync(engineeringWorkflow, 'utf8')).toContain('version: 1');
   });
+
+  // Codex review T22 caught: hook was not idempotent across retried commits.
+
+  it('does not re-bump when the hook is run twice on the same staged set', () => {
+    const mainTs = join(
+      tmpRepo,
+      'enclaves',
+      'marketing',
+      'sentiment-analyzer',
+      'main.ts',
+    );
+    const workflowFile = join(
+      tmpRepo,
+      'enclaves',
+      'marketing',
+      'sentiment-analyzer',
+      'workflow.yaml',
+    );
+
+    // First hook run: user staged main.ts, hook bumps v3 -> v4.
+    writeFileSync(mainTs, 'export const v = 2;\n');
+    git('add enclaves/marketing/sentiment-analyzer/main.ts', tmpRepo);
+    execSync(`bash "${HOOK_PATH}"`, { cwd: tmpRepo });
+    expect(readFileSync(workflowFile, 'utf8')).toContain('version: 4');
+
+    // Simulate aborted commit: workflow.yaml is now staged at v4, main.ts
+    // also still staged. User retries `git commit`. Hook should NOT bump
+    // again because v4 (staged) > v3 (HEAD).
+    execSync(`bash "${HOOK_PATH}"`, { cwd: tmpRepo });
+    expect(readFileSync(workflowFile, 'utf8')).toContain('version: 4');
+
+    // Run a third time for good measure
+    execSync(`bash "${HOOK_PATH}"`, { cwd: tmpRepo });
+    expect(readFileSync(workflowFile, 'utf8')).toContain('version: 4');
+  });
+
+  it('respects a manual version bump (does not double-bump)', () => {
+    const workflowFile = join(
+      tmpRepo,
+      'enclaves',
+      'marketing',
+      'sentiment-analyzer',
+      'workflow.yaml',
+    );
+
+    // User manually bumps version from 3 -> 5 (skipping 4 entirely) and
+    // stages the workflow.yaml change. Hook should leave it alone because
+    // staged (5) > HEAD (3).
+    writeFileSync(workflowFile, 'name: sentiment-analyzer\nversion: 5\n');
+    git('add enclaves/marketing/sentiment-analyzer/workflow.yaml', tmpRepo);
+    execSync(`bash "${HOOK_PATH}"`, { cwd: tmpRepo });
+    expect(readFileSync(workflowFile, 'utf8')).toContain('version: 5');
+  });
+
+  it('uses HEAD+1 not staged+1 to compute the new version', () => {
+    // If a user somehow staged a workflow.yaml with version BELOW HEAD
+    // (e.g., a botched merge), the hook should bring it back to HEAD+1
+    // rather than bumping the wrong value.
+    const workflowFile = join(
+      tmpRepo,
+      'enclaves',
+      'marketing',
+      'sentiment-analyzer',
+      'workflow.yaml',
+    );
+
+    // Stage a regression: workflow.yaml shows v1 but HEAD has v3.
+    writeFileSync(workflowFile, 'name: sentiment-analyzer\nversion: 1\n');
+    git('add enclaves/marketing/sentiment-analyzer/workflow.yaml', tmpRepo);
+    execSync(`bash "${HOOK_PATH}"`, { cwd: tmpRepo });
+    // Hook sees staged (1) <= HEAD (3), so it bumps to HEAD+1 = 4.
+    expect(readFileSync(workflowFile, 'utf8')).toContain('version: 4');
+  });
 });

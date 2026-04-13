@@ -138,9 +138,34 @@ export function loadConfig(): KrakenConfig {
     return process.env[name] ?? defaultVal;
   }
 
+  const errors: string[] = [];
+
+  function validatedEnum<T extends string>(
+    name: string,
+    raw: string,
+    allowed: readonly T[],
+  ): T {
+    if ((allowed as readonly string[]).includes(raw)) return raw as T;
+    errors.push(`${name}="${raw}" is not one of [${allowed.join(', ')}]`);
+    return allowed[0] as T;
+  }
+
+  function validatedPort(name: string, raw: string): number {
+    const n = Number(raw);
+    if (!Number.isInteger(n) || n < 1 || n > 65535) {
+      errors.push(`${name}="${raw}" must be an integer in [1, 65535]`);
+      return 0;
+    }
+    return n;
+  }
+
   // Slack
   const botToken = required('SLACK_BOT_TOKEN');
-  const slackMode = optional('SLACK_MODE', 'http') as 'http' | 'socket';
+  const slackMode = validatedEnum<'http' | 'socket'>(
+    'SLACK_MODE',
+    optional('SLACK_MODE', 'http'),
+    ['http', 'socket'] as const,
+  );
   const appToken =
     slackMode === 'socket'
       ? required('SLACK_APP_TOKEN')
@@ -161,17 +186,12 @@ export function loadConfig(): KrakenConfig {
   // Git state (mandatory — no opt-in toggle)
   const gitStateRepoUrl = required('GIT_STATE_REPO_URL');
 
-  if (missing.length > 0) {
-    throw new Error(
-      `KrakenConfig: missing required environment variables: ${missing.join(', ')}`,
-    );
-  }
-
-  // LLM
-  const defaultProvider = optional('LLM_DEFAULT_PROVIDER', 'anthropic') as
-    | 'anthropic'
-    | 'openai'
-    | 'google';
+  // LLM (validate defaultProvider before composing config)
+  const defaultProvider = validatedEnum<'anthropic' | 'openai' | 'google'>(
+    'LLM_DEFAULT_PROVIDER',
+    optional('LLM_DEFAULT_PROVIDER', 'anthropic'),
+    ['anthropic', 'openai', 'google'] as const,
+  );
   const defaultModel = optional('LLM_DEFAULT_MODEL', 'claude-sonnet-4-6');
   const allowedProviders = optional(
     'LLM_ALLOWED_PROVIDERS',
@@ -207,7 +227,7 @@ export function loadConfig(): KrakenConfig {
     },
     mcp: {
       url: mcpUrl,
-      port: parseInt(optional('MCP_PORT', '8080'), 10),
+      port: validatedPort('MCP_PORT', optional('MCP_PORT', '8080')),
     },
     llm: {
       defaultProvider,
@@ -222,9 +242,19 @@ export function loadConfig(): KrakenConfig {
       dir: optional('GIT_STATE_DIR', '/app/data/git-state'),
     },
     server: {
-      port: parseInt(optional('PORT', '3000'), 10),
+      port: validatedPort('PORT', optional('PORT', '3000')),
     },
   };
+
+  // Throw a single combined error covering both missing-required and invalid
+  // values, so an operator sees the full picture in one shot.
+  const issues = [
+    ...missing.map((n) => `missing required env var: ${n}`),
+    ...errors,
+  ];
+  if (issues.length > 0) {
+    throw new Error(`KrakenConfig: ${issues.join('; ')}`);
+  }
 
   return Object.freeze(config) as KrakenConfig;
 }

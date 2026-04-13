@@ -1,8 +1,21 @@
+{{- /*
+  Create a Namespace whose name MATCHES .Release.Namespace so all other
+  templates (Deployment, Service, ConfigMap, Secret) — which deploy into
+  .Release.Namespace by default — land in this Namespace.
+
+  Codex review (Phase 0) flagged the previous version which used a
+  separate .Values.namespace.name field that would silently desync from
+  the install namespace.
+
+  To install into a custom namespace: pass --namespace=<name> to
+  helm install/upgrade, or --create-namespace to let helm create it
+  itself (in which case set namespace.create=false here).
+*/ -}}
 {{- if .Values.namespace.create -}}
 apiVersion: v1
 kind: Namespace
 metadata:
-  name: {{ .Values.namespace.name }}
+  name: {{ .Release.Namespace }}
   labels:
     {{- include "thekraken.labels" . | nindent 4 }}
 {{- end }}

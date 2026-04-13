@@ -45,24 +45,45 @@ for tentacle_dir in "${unique_dirs[@]}"; do
     continue
   fi
 
-  # Read current version
-  current_version=$(sed -n 's/^version: *\([0-9]*\)$/\1/p' "${workflow_file}")
+  # Read the version currently STAGED for this commit (working tree).
+  staged_version=$(sed -n 's/^version: *\([0-9]*\)$/\1/p' "${workflow_file}")
 
-  if [ -z "${current_version}" ]; then
+  if [ -z "${staged_version}" ]; then
     echo "WARNING: No 'version:' field found in ${workflow_file}, skipping bump" >&2
     continue
   fi
 
-  new_version=$((current_version + 1))
+  # Read the version in HEAD (last committed) for this file. If the file
+  # doesn't exist in HEAD (new tentacle), treat HEAD version as 0.
+  if git cat-file -e "HEAD:${workflow_file}" 2>/dev/null; then
+    head_version=$(git show "HEAD:${workflow_file}" \
+      | sed -n 's/^version: *\([0-9]*\)$/\1/p')
+    if [ -z "${head_version}" ]; then
+      head_version=0
+    fi
+  else
+    head_version=0
+  fi
 
-  # Replace version line in place — use temp file for BSD (macOS) + GNU sed compatibility.
-  # sed -i'' behaves differently on macOS BSD sed vs GNU sed; tmp-file approach is portable.
+  # Idempotence: if a previous hook run (in an aborted commit attempt) has
+  # already bumped the version above HEAD, don't bump again.
+  # Also handle the legitimate "manual version bump" case the same way:
+  # if the user explicitly bumped, respect it.
+  if [ "${staged_version}" -gt "${head_version}" ]; then
+    echo "pre-commit: ${workflow_file} already at v${staged_version} (HEAD: v${head_version}), no bump needed"
+    continue
+  fi
+
+  new_version=$((head_version + 1))
+
+  # Replace version line — temp file for BSD (macOS) + GNU sed compatibility.
+  # sed -i'' behaves differently on macOS vs GNU; tmp-file approach is portable.
   tmp_file=$(mktemp)
-  sed "s/^version: *${current_version}$/version: ${new_version}/" "${workflow_file}" > "${tmp_file}"
+  sed "s/^version: *${staged_version}$/version: ${new_version}/" "${workflow_file}" > "${tmp_file}"
   mv "${tmp_file}" "${workflow_file}"
 
   # Re-stage the bumped file
   git add "${workflow_file}"
 
-  echo "pre-commit: bumped ${workflow_file} from v${current_version} to v${new_version}"
+  echo "pre-commit: bumped ${workflow_file} from v${staged_version} to v${new_version}"
 done

@@ -56,9 +56,7 @@ afterEach(() => {
 
 describe('loadConfig', () => {
   it('throws listing ALL missing required vars', () => {
-    expect(() => loadConfig()).toThrow(
-      /missing required environment variables:/,
-    );
+    expect(() => loadConfig()).toThrow(/missing required env var:/);
 
     try {
       loadConfig();
@@ -151,5 +149,63 @@ describe('loadConfig', () => {
     expect(config.gitState.dir).toBe('/data/state');
     expect(config.server.port).toBe(8000);
     expect(config.mcp.port).toBe(9090);
+  });
+
+  // Negative validation tests — Codex review T22 caught these gaps.
+
+  it('rejects an unknown SLACK_MODE value', () => {
+    setRequiredEnv();
+    process.env['SLACK_MODE'] = 'bogus';
+    expect(() => loadConfig()).toThrow(/SLACK_MODE.*bogus.*not one of/);
+  });
+
+  it('rejects an unknown LLM_DEFAULT_PROVIDER value', () => {
+    setRequiredEnv();
+    process.env['LLM_DEFAULT_PROVIDER'] = 'mistral';
+    expect(() => loadConfig()).toThrow(
+      /LLM_DEFAULT_PROVIDER.*mistral.*not one of/,
+    );
+  });
+
+  it('rejects a non-numeric PORT', () => {
+    setRequiredEnv();
+    process.env['PORT'] = 'abc';
+    expect(() => loadConfig()).toThrow(/PORT.*abc.*integer/);
+  });
+
+  it('rejects a non-numeric MCP_PORT', () => {
+    setRequiredEnv();
+    process.env['MCP_PORT'] = 'eighty';
+    expect(() => loadConfig()).toThrow(/MCP_PORT.*eighty.*integer/);
+  });
+
+  it('rejects PORT out of range', () => {
+    setRequiredEnv();
+    process.env['PORT'] = '70000';
+    expect(() => loadConfig()).toThrow(/PORT.*70000.*\[1, 65535\]/);
+  });
+
+  it('rejects PORT of zero', () => {
+    setRequiredEnv();
+    process.env['PORT'] = '0';
+    expect(() => loadConfig()).toThrow(/PORT.*0.*\[1, 65535\]/);
+  });
+
+  it('combines missing required and invalid value errors in one throw', () => {
+    setRequiredEnv();
+    delete process.env['TENTACULAR_MCP_URL']; // missing required
+    process.env['SLACK_MODE'] = 'bogus'; // invalid enum
+    process.env['PORT'] = '999999'; // invalid range
+    let err: unknown;
+    try {
+      loadConfig();
+    } catch (e) {
+      err = e;
+    }
+    expect(err).toBeInstanceOf(Error);
+    const message = (err as Error).message;
+    expect(message).toMatch(/TENTACULAR_MCP_URL/);
+    expect(message).toMatch(/SLACK_MODE/);
+    expect(message).toMatch(/PORT/);
   });
 });
