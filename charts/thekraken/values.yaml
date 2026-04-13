@@ -109,6 +109,14 @@ gitState:
   userEmail: "kraken@tentacular.dev"
   dir: "/app/data/git-state"
 
+observability:
+  # OTLP HTTP endpoint for OpenTelemetry trace export.
+  # Empty string disables OTel (graceful degradation).
+  # Example: "http://otel-collector.tentacular-observability:4318"
+  otlpEndpoint: ""
+  # Pino structured log level: trace | debug | info | warn | error | fatal
+  logLevel: "info"
+
 networkPolicy:
   enabled: true
 

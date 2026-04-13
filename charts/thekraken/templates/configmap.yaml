@@ -6,15 +6,15 @@ metadata:
   labels:
     {{- include "thekraken.labels" . | nindent 4 }}
 data:
-  TENTACULAR_MCP_URL: {{ .Values.mcp.url | quote }}
+  TENTACULAR_MCP_URL: {{ required "mcp.url is required" .Values.mcp.url | quote }}
   MCP_PORT: {{ .Values.mcp.port | quote }}
   KRAKEN_DATA_DIR: "/app/data"
-  OIDC_ISSUER: {{ .Values.oidc.issuer | quote }}
-  OIDC_CLIENT_ID: {{ .Values.oidc.clientId | quote }}
+  OIDC_ISSUER: {{ required "oidc.issuer is required" .Values.oidc.issuer | quote }}
+  OIDC_CLIENT_ID: {{ required "oidc.clientId is required" .Values.oidc.clientId | quote }}
   TNTC_REGISTRY: "ghcr.io/randybias"
   SLACK_MODE: {{ .Values.slack.mode | quote }}
   # Git-backed state — always enabled in v2 (no enabled toggle)
-  GIT_STATE_REPO_URL: {{ .Values.gitState.repoUrl | quote }}
+  GIT_STATE_REPO_URL: {{ required "gitState.repoUrl is required" .Values.gitState.repoUrl | quote }}
   GIT_STATE_BRANCH: {{ .Values.gitState.branch | default "main" | quote }}
   GIT_STATE_DIR: {{ .Values.gitState.dir | default "/app/data/git-state" | quote }}
   GIT_STATE_USER_NAME: {{ .Values.gitState.userName | default "The Kraken" | quote }}
@@ -25,3 +25,6 @@ data:
   LLM_ALLOWED_PROVIDERS: {{ .Values.llm.allowedProviders | quote }}
   LLM_ALLOWED_MODELS: {{ .Values.llm.allowedModels | quote }}
   LLM_DISALLOWED_MODELS: {{ .Values.llm.disallowedModels | quote }}
+  # Observability — OTel disabled when otlpEndpoint is empty
+  OTEL_EXPORTER_OTLP_ENDPOINT: {{ .Values.observability.otlpEndpoint | default "" | quote }}
+  LOG_LEVEL: {{ .Values.observability.logLevel | default "info" | quote }}

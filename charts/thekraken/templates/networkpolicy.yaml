@@ -65,4 +65,15 @@ spec:
     - ports:
         - protocol: TCP
           port: 22
+
+    {{- if .Values.observability.otlpEndpoint }}
+    # OTel OTLP HTTP exporter — to tentacular-observability namespace only
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: tentacular-observability
+      ports:
+        - protocol: TCP
+          port: 4318
+    {{- end }}
 {{- end }}
