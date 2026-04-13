@@ -101,6 +101,9 @@ async function main(): Promise<void> {
     getActiveTeams: () => teams.getActiveTeamNames(),
   });
 
+  // Wire team exit -> poller drain (Codex fix #3)
+  teams.setOnTeamExited((enclaveName) => poller.notifyTeamExited(enclaveName));
+
   // 7. Start services
   poller.start();
   await slackBot.start();

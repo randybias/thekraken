@@ -5,16 +5,19 @@
  * Design:
  * - Polls all active team outbound.ndjson files every 1 second.
  * - Posts records to the correct Slack channel/thread.
- * - Deduplicates via OutboundTracker (SQLite) to survive pod restarts.
+ * - Per-record dedup via content hash (OutboundTracker) to survive restarts.
  * - Handles heartbeat records per Section 8 of the design doc (D5).
  * - Emits OTel spans per outbound post.
  * - Graceful shutdown: drains outstanding records on stop().
+ * - In-flight mutex prevents overlapping poll cycles (Codex fix #2).
+ * - Recently-exited teams remain pollable until drained (Codex fix #3).
  *
  * Heartbeat format (D5): type='heartbeat', friendly human-addressed text.
  * The poller posts heartbeat records the same way as slack_message records.
  * Rate-limiting is the manager's responsibility (30s floor).
  */
 
+import { createHash } from 'node:crypto';
 import { join } from 'node:path';
 import { trace, SpanStatusCode } from '@opentelemetry/api';
 import { createChildLogger } from '../logger.js';
@@ -72,6 +75,13 @@ export class OutboundPoller {
   private pollTimer: NodeJS.Timeout | undefined;
   private readers = new Map<string, NdjsonReader>();
   private running = false;
+  /** In-flight mutex: prevents overlapping poll cycles (Codex fix #2). */
+  private polling = false;
+  /**
+   * Teams that recently exited but may still have unread outbound records.
+   * Kept pollable for one extra cycle to drain final messages (Codex fix #3).
+   */
+  private drainingTeams = new Set<string>();
 
   constructor(private readonly deps: OutboundPollerDeps) {}
 
@@ -83,7 +93,7 @@ export class OutboundPoller {
   start(): void {
     if (this.running) return;
     this.running = true;
-    this.pollTimer = setInterval(() => void this.poll(), POLL_INTERVAL_MS);
+    this.pollTimer = setInterval(() => void this.safePoll(), POLL_INTERVAL_MS);
     this.pollTimer.unref?.();
     log.info({ intervalMs: POLL_INTERVAL_MS }, 'outbound poller started');
   }
@@ -100,21 +110,51 @@ export class OutboundPoller {
       clearInterval(this.pollTimer);
       this.pollTimer = undefined;
     }
-    // Final drain
+    // Final drain — bypass in-flight guard
+    this.polling = false;
     await this.poll();
     log.info('outbound poller stopped');
   }
 
+  /**
+   * Notify the poller that a team has exited. The poller will drain its
+   * outbound file one more time before removing the reader (Codex fix #3).
+   */
+  notifyTeamExited(enclaveName: string): void {
+    this.drainingTeams.add(enclaveName);
+  }
+
+  /**
+   * Safe poll wrapper: skips if a previous poll is still in-flight (Codex fix #2).
+   */
+  private async safePoll(): Promise<void> {
+    if (this.polling) {
+      log.debug('skipping poll cycle — previous still in flight');
+      return;
+    }
+    this.polling = true;
+    try {
+      await this.poll();
+    } finally {
+      this.polling = false;
+    }
+  }
+
   private async poll(): Promise<void> {
     const activeTeams = this.deps.getActiveTeams();
+    // Merge active teams with teams that need one more drain
+    const allTeams = new Set([...activeTeams, ...this.drainingTeams]);
 
-    for (const enclaveName of activeTeams) {
+    for (const enclaveName of allTeams) {
       await this.pollTeam(enclaveName);
     }
 
-    // GC readers for teams that are no longer active
+    // Draining teams got their final poll — remove them
+    this.drainingTeams.clear();
+
+    // GC readers for teams that are no longer active or draining
     for (const [name] of this.readers) {
-      if (!activeTeams.includes(name)) {
+      if (!allTeams.has(name)) {
         this.readers.delete(name);
       }
     }
@@ -150,31 +190,25 @@ export class OutboundPoller {
       span.setAttribute('slack.channel_id', record.channelId);
 
       try {
-        // Dedup check: skip if already posted (pod restart protection)
-        if (
-          this.deps.tracker.hasOutboundInThread(
-            record.channelId,
-            record.threadTs,
-          )
-        ) {
-          // Record exists — but we may have more messages in this thread.
-          // Use message ID for stronger dedup in Phase 2. For now, check
-          // if the specific record text was already posted by hash.
-          // Phase 1: simple dedup — skip if thread already has an outbound.
-          // TODO Phase 2: per-message ID dedup.
+        // Per-record dedup via content hash (Codex fix #1).
+        // This replaces the previous thread-level dedup which silently
+        // dropped all messages after the first post in a thread.
+        const text = record.mentionUser
+          ? `<@${record.mentionUser}> ${record.text}`
+          : record.text;
+        const contentHash = createHash('sha256')
+          .update(text, 'utf8')
+          .digest('hex');
+
+        if (this.deps.tracker.hasOutboundByHash(contentHash)) {
           log.debug(
             { enclaveName, recordId: record.id },
-            'skipping already-posted outbound record',
+            'skipping already-posted outbound record (content hash match)',
           );
           span.setStatus({ code: SpanStatusCode.OK });
           span.end();
           return;
         }
-
-        // Format the message (heartbeats get mentionUser prefix if set)
-        const text = record.mentionUser
-          ? `<@${record.mentionUser}> ${record.text}`
-          : record.text;
 
         // Post to Slack
         const result = await this.deps.slack.postMessage({
@@ -183,7 +217,7 @@ export class OutboundPoller {
           text,
         });
 
-        // Record in SQLite for dedup
+        // Record in SQLite for dedup (uses content hash, not thread-level)
         this.deps.tracker.store(
           record.channelId,
           record.threadTs,
@@ -209,7 +243,7 @@ export class OutboundPoller {
         });
         log.error(
           { err, enclaveName, recordId: record.id },
-          'failed to post outbound record',
+          'error posting outbound record',
         );
       } finally {
         span.end();

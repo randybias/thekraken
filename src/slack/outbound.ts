@@ -84,6 +84,28 @@ export class OutboundTracker {
 
     return row !== undefined;
   }
+
+  /**
+   * Check if a specific outbound record (by content hash) was already sent.
+   *
+   * Per-record dedup: prevents re-sending the exact same message after a pod
+   * restart, while allowing multiple different messages in the same thread.
+   * Fixes the thread-level dedup bug caught by Codex review (item 1).
+   *
+   * @param contentHash - SHA-256 hash of the message content.
+   * @returns True if this exact content was already posted.
+   */
+  hasOutboundByHash(contentHash: string): boolean {
+    const row = this.db
+      .prepare(
+        `SELECT 1 FROM outbound_messages
+         WHERE content_hash = ?
+         LIMIT 1`,
+      )
+      .get(contentHash);
+
+    return row !== undefined;
+  }
 }
 
 /**

@@ -109,6 +109,8 @@ async function securePath(path: string): Promise<void> {
 export class TeamLifecycleManager {
   private teams = new Map<string, TeamState>();
   private idleCheckInterval: NodeJS.Timeout;
+  /** Called when a team exits so the outbound poller can drain final records. */
+  private onTeamExited?: (enclaveName: string) => void;
 
   constructor(
     private readonly config: KrakenConfig,
@@ -117,6 +119,14 @@ export class TeamLifecycleManager {
     this.idleCheckInterval = setInterval(() => this.checkIdle(), 60_000);
     // Allow the process to exit even if the timer is pending
     this.idleCheckInterval.unref?.();
+  }
+
+  /**
+   * Register a callback for when a team exits (Codex fix #3).
+   * Used by the dispatcher to wire OutboundPoller.notifyTeamExited().
+   */
+  setOnTeamExited(cb: (enclaveName: string) => void): void {
+    this.onTeamExited = cb;
   }
 
   /**
@@ -202,11 +212,14 @@ export class TeamLifecycleManager {
     proc.on('exit', (code, signal) => {
       log.info({ enclaveName, code, signal }, 'team manager exited');
       this.teams.delete(enclaveName);
+      // Notify poller so it drains final outbound records (Codex fix #3)
+      this.onTeamExited?.(enclaveName);
     });
 
     proc.on('error', (err) => {
       log.error({ enclaveName, err }, 'team manager process error');
       this.teams.delete(enclaveName);
+      this.onTeamExited?.(enclaveName);
     });
 
     // Drain stderr to prevent buffer blocking
@@ -258,7 +271,8 @@ export class TeamLifecycleManager {
     const mailboxPath = join(teamDir, 'mailbox.ndjson');
     appendNdjson(mailboxPath, record);
 
-    // Set 0o600 on the mailbox to protect the embedded token (D6)
+    // Defense-in-depth: re-enforce 0o600 even though appendNdjson already
+    // creates the file with secure permissions (Codex fix #4).
     await securePath(mailboxPath);
 
     const team = this.teams.get(enclaveName);

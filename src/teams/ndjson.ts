@@ -20,6 +20,8 @@ import {
   openSync,
   readSync,
   statSync,
+  writeFileSync,
+  existsSync,
 } from 'node:fs';
 import { createChildLogger } from '../logger.js';
 
@@ -32,10 +34,19 @@ const log = createChildLogger({ module: 'ndjson' });
  * under the OS pipe-buffer size (~4 KB on Linux), this is atomic even under
  * concurrent writers.
  *
+ * Codex fix #4: If the file does not exist, creates it with 0o600 permissions
+ * BEFORE writing any content. This prevents a window where the file exists
+ * with default umask permissions (potentially world-readable) while containing
+ * sensitive data like user tokens in mailbox records.
+ *
  * @param path - Absolute path to the NDJSON file. Created if it does not exist.
  * @param record - Any JSON-serializable object.
  */
 export function appendNdjson(path: string, record: object): void {
+  // Ensure the file exists with secure permissions BEFORE writing
+  if (!existsSync(path)) {
+    writeFileSync(path, '', { mode: 0o600 });
+  }
   appendFileSync(path, JSON.stringify(record) + '\n', 'utf8');
 }
 
