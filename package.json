@@ -23,14 +23,22 @@
     "@mariozechner/pi-agent-core": "0.66.1",
     "@mariozechner/pi-ai": "0.66.1",
     "@mariozechner/pi-coding-agent": "0.66.1",
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "@opentelemetry/api": "^1.9.1",
+    "@opentelemetry/exporter-trace-otlp-http": "^0.214.0",
+    "@opentelemetry/resources": "^2.6.1",
+    "@opentelemetry/sdk-node": "^0.214.0",
+    "@opentelemetry/semantic-conventions": "^1.40.0",
     "@slack/bolt": "^4.6.0",
-    "better-sqlite3": "^11.8.1"
+    "better-sqlite3": "^11.8.1",
+    "pino": "^10.3.1"
   },
   "devDependencies": {
     "@copilotkit/aimock": "^1.13.0",
     "@eslint/js": "^9.35.0",
     "@types/better-sqlite3": "^7.6.12",
     "@types/node": "^22.10.0",
+    "@types/pino": "^7.0.4",
     "eslint": "^9.35.0",
     "eslint-plugin-no-catch-all": "^1.1.0",
     "globals": "^15.12.0",
