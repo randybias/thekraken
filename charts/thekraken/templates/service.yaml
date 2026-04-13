@@ -1,0 +1,18 @@
+{{- if eq .Values.slack.mode "http" -}}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "thekraken.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "thekraken.labels" . | nindent 4 }}
+spec:
+  type: ClusterIP
+  ports:
+    - port: 3000
+      targetPort: 3000
+      name: http
+      protocol: TCP
+  selector:
+    {{- include "thekraken.selectorLabels" . | nindent 4 }}
+{{- end }}

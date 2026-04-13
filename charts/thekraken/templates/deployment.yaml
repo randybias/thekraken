@@ -1,0 +1,86 @@
+{{/*
+v2 change: gitState is REQUIRED — no gitState.enabled toggle.
+Helm required() validates before pod creation.
+Removed: groups/ subPath mount, store/ subPath mount, gitState.enabled conditional.
+Added: required() validation for gitState.repoUrl and gitState.credentialsSecret.
+*/}}
+{{- $_ := required "gitState.repoUrl is required (The Kraken v2 requires git-backed state)" .Values.gitState.repoUrl -}}
+{{- $_ := required "gitState.credentialsSecret is required" .Values.gitState.credentialsSecret -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "thekraken.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "thekraken.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "thekraken.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "thekraken.labels" . | nindent 8 }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "thekraken.serviceAccountName" . }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: {{ .Chart.Name }}
+          image: {{ include "thekraken.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: 3000
+              protocol: TCP
+          envFrom:
+            - secretRef:
+                name: {{ include "thekraken.secretName" . }}
+            - configMapRef:
+                name: {{ include "thekraken.fullname" . }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          livenessProbe:
+            {{- toYaml .Values.livenessProbe | nindent 12 }}
+          readinessProbe:
+            {{- toYaml .Values.readinessProbe | nindent 12 }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            - name: data
+              mountPath: /app/data
+              subPath: data
+            - name: git-credentials
+              mountPath: /app/.git-credentials
+              readOnly: true
+      volumes:
+        - name: data
+          {{- if .Values.persistence.enabled }}
+          persistentVolumeClaim:
+            claimName: {{ include "thekraken.fullname" . }}-data
+          {{- else }}
+          emptyDir: {}
+          {{- end }}
+        - name: git-credentials
+          secret:
+            secretName: {{ .Values.gitState.credentialsSecret }}
+            defaultMode: 0400
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
