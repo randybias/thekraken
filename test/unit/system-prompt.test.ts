@@ -1,5 +1,10 @@
 import { describe, it, expect } from 'vitest';
-import { buildSystemPrompt } from '../../src/agent/system-prompt.js';
+import {
+  buildSystemPrompt,
+  buildManagerPrompt,
+  buildBuilderPrompt,
+  buildDeployerPrompt,
+} from '../../src/agent/system-prompt.js';
 
 describe('buildSystemPrompt', () => {
   it('returns a non-empty string with all-null inputs (placeholders)', () => {
@@ -84,5 +89,135 @@ describe('buildSystemPrompt', () => {
       skills: null,
     });
     expect(prompt).toContain('Placeholder');
+  });
+});
+
+// T08: Per-role prompt builder tests
+
+const BASE_ROLE_OPTS = {
+  enclaveName: 'marketing-analytics',
+  userSlackId: 'U12345',
+  userEmail: 'alice@example.com',
+};
+
+describe('buildManagerPrompt', () => {
+  it('includes enclave name in prompt', () => {
+    const prompt = buildManagerPrompt(BASE_ROLE_OPTS);
+    expect(prompt).toContain('marketing-analytics');
+  });
+
+  it('includes Role: Enclave Manager header', () => {
+    const prompt = buildManagerPrompt(BASE_ROLE_OPTS);
+    expect(prompt).toContain('Role: Enclave Manager');
+  });
+
+  it('includes [CONTEXT] block with user identity (D6)', () => {
+    const prompt = buildManagerPrompt(BASE_ROLE_OPTS);
+    expect(prompt).toContain('[CONTEXT]');
+    expect(prompt).toContain('U12345');
+    expect(prompt).toContain('alice@example.com');
+    expect(prompt).toContain('[/CONTEXT]');
+  });
+
+  it('[CONTEXT] block does NOT contain the token value', () => {
+    const prompt = buildManagerPrompt(BASE_ROLE_OPTS);
+    // Token is never in the prompt — only the env var name
+    expect(prompt).toContain('TNTC_ACCESS_TOKEN');
+    // Make sure it does not contain an actual token value
+    expect(prompt).not.toContain('eyJ');
+    expect(prompt).not.toContain('Bearer ');
+  });
+
+  it('includes instruction to fail on expired token (D6)', () => {
+    const prompt = buildManagerPrompt(BASE_ROLE_OPTS);
+    expect(prompt).toContain('FAIL');
+    expect(prompt).toContain('re-auth');
+  });
+
+  it('explicitly prohibits service identity fallback (D6)', () => {
+    const prompt = buildManagerPrompt(BASE_ROLE_OPTS);
+    expect(prompt).toContain('NEVER fall back to a service identity');
+  });
+
+  it('includes enclave memory when provided', () => {
+    const prompt = buildManagerPrompt({ ...BASE_ROLE_OPTS, enclaveMemory: 'ENCLAVE_DATA' });
+    expect(prompt).toContain('ENCLAVE_DATA');
+  });
+
+  it('uses placeholder enclave memory when not provided', () => {
+    const prompt = buildManagerPrompt(BASE_ROLE_OPTS);
+    expect(prompt).toContain('Enclave Context');
+  });
+
+  it('includes skills when provided', () => {
+    const prompt = buildManagerPrompt({ ...BASE_ROLE_OPTS, skills: 'SKILL_DATA' });
+    expect(prompt).toContain('SKILL_DATA');
+  });
+});
+
+describe('buildBuilderPrompt', () => {
+  it('includes Role: Builder header', () => {
+    const prompt = buildBuilderPrompt({ ...BASE_ROLE_OPTS, taskDescription: 'Write a tentacle' });
+    expect(prompt).toContain('Role: Builder');
+  });
+
+  it('includes the task description', () => {
+    const prompt = buildBuilderPrompt({
+      ...BASE_ROLE_OPTS,
+      taskDescription: 'Build the sentiment analysis pipeline',
+    });
+    expect(prompt).toContain('Build the sentiment analysis pipeline');
+  });
+
+  it('includes enclave name', () => {
+    const prompt = buildBuilderPrompt({ ...BASE_ROLE_OPTS, taskDescription: 'task' });
+    expect(prompt).toContain('marketing-analytics');
+  });
+
+  it('includes [CONTEXT] block with user identity (D6)', () => {
+    const prompt = buildBuilderPrompt({ ...BASE_ROLE_OPTS, taskDescription: 'task' });
+    expect(prompt).toContain('[CONTEXT]');
+    expect(prompt).toContain('U12345');
+    expect(prompt).toContain('alice@example.com');
+    expect(prompt).toContain('[/CONTEXT]');
+  });
+
+  it('mentions edit/write tools as available', () => {
+    const prompt = buildBuilderPrompt({ ...BASE_ROLE_OPTS, taskDescription: 'task' });
+    expect(prompt).toContain('edit');
+    expect(prompt).toContain('write');
+  });
+});
+
+describe('buildDeployerPrompt', () => {
+  it('includes Role: Deployer header', () => {
+    const prompt = buildDeployerPrompt({ ...BASE_ROLE_OPTS, taskDescription: 'Deploy v4' });
+    expect(prompt).toContain('Role: Deployer');
+  });
+
+  it('includes the task description', () => {
+    const prompt = buildDeployerPrompt({
+      ...BASE_ROLE_OPTS,
+      taskDescription: 'Deploy tentacle version 4 to production',
+    });
+    expect(prompt).toContain('Deploy tentacle version 4 to production');
+  });
+
+  it('includes [CONTEXT] block with user identity (D6)', () => {
+    const prompt = buildDeployerPrompt({ ...BASE_ROLE_OPTS, taskDescription: 'Deploy v4' });
+    expect(prompt).toContain('[CONTEXT]');
+    expect(prompt).toContain('U12345');
+    expect(prompt).toContain('[/CONTEXT]');
+  });
+
+  it('includes tntc deploy and wf_apply in deploy flow', () => {
+    const prompt = buildDeployerPrompt({ ...BASE_ROLE_OPTS, taskDescription: 'task' });
+    expect(prompt).toContain('tntc deploy');
+    expect(prompt).toContain('wf_apply');
+  });
+
+  it('explicitly says NO edit/write tools', () => {
+    const prompt = buildDeployerPrompt({ ...BASE_ROLE_OPTS, taskDescription: 'task' });
+    expect(prompt).toContain('NO edit, write tools');
   });
 });
