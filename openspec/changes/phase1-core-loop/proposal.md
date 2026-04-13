@@ -1,10 +1,40 @@
 # Phase 1: Core Loop — Slack + Pi Agent + MCP Wrapper + Enclave Binding
 
 **Change ID:** phase1-core-loop
-**Status:** DRAFT
+**Status:** REVISED (2026-04-13 pivot — see design.md for the authoritative post-pivot architecture)
 **Created:** 2026-04-13
-**Author:** Senior Product Manager
+**Revised:** 2026-04-13 (dispatcher + per-enclave-team pivot)
+**Author:** Senior Product Manager (initial), Senior Architect (revised)
 **Branch:** feature/phase1-core-loop
+
+---
+
+## 🚨 POST-PIVOT NOTICE (2026-04-13)
+
+This proposal was written before the architectural pivot. The deliverables
+D1-D12 listed below are **still the right things to ship**, but the
+technical shape of how they're delivered changed significantly:
+
+- **Architecture is now dispatcher + per-enclave teams**, not a custom
+  daemon with bare pi-agent-core. Kraken is a pi-coding-agent in a custom
+  Kraken-owned "slack" mode that spawns per-enclave teams via
+  `pi-mono-team-mode` + `pi-subagents` patterns.
+- **Extensions are standard pi-coding-agent extensions** (not our own
+  hook system). Tool-scoping, jargon-filter, context-injector are pi
+  extensions.
+- **Per-enclave teams** (not per-thread agents) with filesystem NDJSON
+  IPC (`mailbox.ndjson`, `outbound.ndjson`, `signals.ndjson`).
+- **User-identity hard partition**: every spawned subprocess carries the
+  initiating user's OIDC token. No service identities for enclave work.
+
+**Authoritative technical reference:** `design.md` (~1,539 lines, post-pivot).
+**Authoritative task list:** `tasks.md` (revised, includes T22-T26 for new
+test infrastructure and PIV1-PIV7 scenario tests).
+
+The deliverables and followups below still stand, but always cross-reference
+design.md for current implementation shape.
+
+---
 
 ---
 

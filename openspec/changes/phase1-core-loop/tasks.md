@@ -1,9 +1,10 @@
-# Phase 1: Core Loop — Tasks
+# Phase 1: Core Loop — Tasks (REVISED for Dispatcher + Team Pivot)
 
 **Change ID:** phase1-core-loop
-**Status:** DRAFT
+**Status:** DRAFT (post-pivot 2026-04-13)
 **Created:** 2026-04-13
-**Author:** Senior Product Manager
+**Revised:** 2026-04-13 (dispatcher + per-enclave-team pivot)
+**Author:** Senior Product Manager (initial), Senior Architect (revised)
 
 ---
 
@@ -11,6 +12,12 @@
 
 Tasks numbered in execution order. **[PARALLEL]** marks concurrent tasks.
 Each task group commits + passes pre-push gates before the next begins.
+Task definitions reference the authoritative design in
+`design.md` (post-pivot, ~1,539 lines).
+
+Pre-pivot task numbering preserved for traceability. DoD items that no
+longer apply have their original language in `~~strikethrough~~` for
+reference; new DoD items marked `[NEW]`.
 
 ---
 
@@ -18,256 +25,268 @@ Each task group commits + passes pre-push gates before the next begins.
 
 **Owner:** Developer
 
-Add pino, `@opentelemetry/api`, `@opentelemetry/sdk-node`,
-`@opentelemetry/exporter-trace-otlp-http`, `@opentelemetry/semantic-conventions`,
-`@opentelemetry/instrumentation-http`, `@modelcontextprotocol/sdk`.
+Add `pi-mono-team-mode` (as dev-dep reference for type definitions).
+Add/confirm `@mariozechner/pi-coding-agent@0.66.1` (provides the `pi` CLI
+binary via `node_modules/.bin/pi` — no global install needed; resolves F20).
+Confirm `pino`, `@opentelemetry/*`, `@modelcontextprotocol/sdk` already
+present from pre-pivot Phase 1 work.
 
 **DoD:**
-- [ ] All packages added with appropriate versions
-- [ ] `npm ci` succeeds, `npx tsc --noEmit` clean, `npm test` passes (Phase 0
-      tests unbroken)
+- [ ] `package.json` includes all required runtime deps
+- [ ] `node_modules/.bin/pi` resolves after `npm ci`
+- [ ] Dockerfile confirms `pi` binary is reachable at runtime path
+- [ ] `npm ci` succeeds, `npx tsc --noEmit` clean, `npm test` passes
 
 ---
 
-### T02: Implement Pino Structured Logger
+### T02: Pino Structured Logger
+
+**Status:** DONE (existing `src/logger.ts` survives the pivot).
+
+---
+
+### T03: OTel SDK Initialization
+
+**Status:** DONE (existing `src/telemetry.ts` survives the pivot).
+
+---
+
+### T04: LLM API Key Validation + Teams Dir Config
 
 **Owner:** Developer
 
-Create `src/logger.ts` exporting a configured pino logger.
+Existing LLM key validation DONE. Extend config with teams directory.
 
 **DoD:**
-- [ ] JSON output with timestamp, level, module fields
-- [ ] Child logger factory: `logger.child({ module, threadKey?, enclave? })`
-- [ ] `LOG_LEVEL` env var (default: 'info')
-- [ ] Unit test validates JSON structure
+- [x] LLM API key validation (existing)
+- [ ] [NEW] `KRAKEN_TEAMS_DIR` env var (default: `/app/data/teams`)
+- [ ] [NEW] `KrakenConfig.teamsDir: string` exposed
+- [ ] [NEW] Unit test verifies default + override
 
 ---
 
-### T03: Implement OTel SDK Initialization
+### T05: Enclave Binding Engine (Read-Only)
 
-**Owner:** Developer **[PARALLEL with T02]**
-
-Create `src/telemetry.ts` initializing OTel NodeSDK with OTLP HTTP exporter.
-
-**DoD:**
-- [ ] `initTelemetry()` and `shutdownTelemetry()` exported
-- [ ] `OTEL_EXPORTER_OTLP_ENDPOINT` env var (empty = disabled)
-- [ ] Service name: `thekraken`
-- [ ] Exporter failure logged as warning, no crash
-- [ ] Unit test with in-memory exporter validates span creation
-- [ ] `LOG_LEVEL`, `OTEL_EXPORTER_OTLP_ENDPOINT` added to config.ts
+**Status:** DONE (existing `src/enclave/binding.ts` survives the pivot).
 
 ---
 
-### T04: Implement LLM API Key Validation (F3)
+### T06: Per-Thread Queue
 
-**Owner:** Developer **[PARALLEL with T03]**
-
-Add LLM API key validation to `src/config.ts`.
-
-**DoD:**
-- [ ] `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GEMINI_API_KEY` added to
-      config type as optional
-- [ ] Validation: `defaultProvider` key required; each `allowedProvider` key
-      required
-- [ ] Combined into Phase 0 multi-error throw pattern
-- [ ] Unit tests for each provider/key combination
-- [ ] Phase 0 config tests still pass
+**Status:** DONE (existing `src/agent/queue.ts` may be used by the dispatcher
+smart-path for serialization within a single Slack thread; no work needed
+unless a new use case emerges).
 
 ---
 
-### T05: Implement Enclave Binding Engine (Read-Only)
-
-**Owner:** Developer **[PARALLEL with T03, T04]**
-
-Implement `src/enclave/binding.ts`.
-
-**DoD:**
-- [ ] `lookupEnclave(db, channelId): EnclaveBinding | null`
-- [ ] Queries `enclave_bindings WHERE channel_id = ? AND status = 'active'`
-- [ ] `EnclaveBinding` type exported from `src/types.ts`
-- [ ] Unit tests with in-memory SQLite
-
----
-
-### T06: Implement Per-Thread Queue
-
-**Owner:** Developer **[PARALLEL with T03, T04, T05]**
-
-Implement `src/agent/queue.ts`.
-
-**DoD:**
-- [ ] `ThreadQueue` class: `enqueue(threadKey, fn): Promise`
-- [ ] Same threadKey: serial FIFO; different threadKeys: concurrent
-- [ ] `drain(timeoutMs)` waits for in-flight, rejects new
-- [ ] Unit tests validate serial + concurrent + drain behaviors
-
----
-
-### T07: Implement MCP HTTP Wrapper
+### T07: NDJSON Protocol Layer **[NEW — replaces MCP HTTP Wrapper in dispatcher]**
 
 **Owner:** Developer
 
-Implement `src/agent/mcp-connection.ts` — ~100 LOC thin wrapper on
-`@modelcontextprotocol/sdk`.
+~~Implement `src/agent/mcp-connection.ts` in the dispatcher.~~ (MCP calls
+now live inside spawned team subprocesses with user tokens.)
+
+Implement `src/teams/ndjson.ts` — append-only NDJSON writer + reader with
+byte-offset tracking. Backs all three team protocol files
+(`mailbox.ndjson`, `outbound.ndjson`, `signals.ndjson`).
 
 **DoD:**
-- [ ] `createMcpConnection(url, bearerToken)` returns MCP client
-- [ ] Bearer token in Authorization header
-- [ ] Tool category constants exported: `ENCLAVE_SCOPED`,
-      `BLOCKED_IN_ENCLAVE`, `DM_ALLOWED`, `ALWAYS_ALLOWED` per design §13.5
-- [ ] Tool definitions exposed in pi-Agent-consumable format
-- [ ] Health check method
-- [ ] Reconnection on transient failure (1 retry with backoff)
-- [ ] OTel span per tool call (attrs: tool.name, tool.status,
-      tool.duration_ms)
-- [ ] Unit tests with MCPMock from Phase 0
-- [ ] Implementation ~100 LOC (thin, not a framework)
+- [ ] `appendNdjson(path, record)` appends atomically (fsync semantics)
+- [ ] `NdjsonReader` class with `readNew()` returning new records since
+      last read; tracks byte offset
+- [ ] Handles missing file gracefully (returns empty array)
+- [ ] Handles partial lines at EOF (buffered, waits for next read)
+- [ ] Records with invalid JSON are logged and skipped (corruption
+      recovery)
+- [ ] Unit tests for concurrent write + read
+- [ ] Unit tests for reader resuming after restart (offset reset)
+- [ ] Unit tests for atomic append under simulated crash
 
 ---
 
-### T08: Implement System Prompt Builder
-
-**Owner:** Developer **[PARALLEL with T07]**
-
-Implement `src/agent/system-prompt.ts`.
-
-**DoD:**
-- [ ] `buildSystemPrompt(globalMemory, enclaveMemory?, skills?)` returns
-      string
-- [ ] Concatenates layers with clear delimiters
-- [ ] Placeholder content for Phase 1
-- [ ] Unit tests validate structure and ordering
-
----
-
-### T09: Implement [CONTEXT] Block Injector
-
-**Owner:** Developer **[PARALLEL with T07, T08]**
-
-Implement `src/extensions/context-injector.ts` as a pi extension.
-
-**DoD:**
-- [ ] Pi extension hooks `input` or `before_agent_start` event (architect
-      determines exact hook in design)
-- [ ] Block format matches design §13.4 exactly:
-      `[CONTEXT]\nenclave: ...\nuser_email: ...\nslack_user_id: ...\nmode: ...\n[/CONTEXT]`
-- [ ] Enclave mode: enclave name from binding lookup
-- [ ] DM mode: `mode=dm`, `enclave=none`
-- [ ] `user_email` placeholder "unknown" in Phase 1
-- [ ] Unit tests for both modes
-
----
-
-### T10: Implement Per-Thread Pi Agent Runner
+### T08: System Prompt Builder (Per-Role)
 
 **Owner:** Developer
 
-Depends on T06, T07, T08, T09. Implement `src/agent/runner.ts`.
+Existing `src/agent/system-prompt.ts` survives as base builder. Extend with
+role-specific builders for manager/builder/deployer.
 
 **DoD:**
-- [ ] `AgentRunner` manages Map of `threadKey -> Agent`
-- [ ] `handleMessage(threadKey, message, context)` queues via ThreadQueue,
-      creates agent if needed, invokes pi Agent
-- [ ] Agent configured: LLM provider/model, MCP tools, system prompt,
-      context injector
-- [ ] Response text returned (caller posts to Slack)
-- [ ] Thread session recorded in `thread_sessions` table
-- [ ] OTel span per agent invocation (attrs: enclave.name, llm.provider,
-      llm.model, agent.thread_id)
-- [ ] GenAI span attrs: model ID, token counts (no content)
-- [ ] Idle thread cleanup: prune `last_active_at > 7 days`
-- [ ] Unit tests with AIMock + MCPMock
+- [x] `buildSystemPrompt()` exists (placeholder layers)
+- [ ] [NEW] `buildManagerPrompt(enclaveName, userEmail, config)` —
+      manager role prompt including tentacular skill, Kraken skill,
+      enclave MEMORY.md, `[CONTEXT]` block with user identity
+- [ ] [NEW] `buildBuilderPrompt(taskDescription, enclaveName, userEmail)` —
+      builder role prompt (coding-focused)
+- [ ] [NEW] `buildDeployerPrompt(taskDescription, enclaveName, userEmail)` —
+      deployer role prompt (deploy-flow focused)
+- [ ] Every role prompt includes the user identity block (D6)
+- [ ] Unit tests for all three role prompts + `[CONTEXT]` format assertion
 
 ---
 
-### T11: Implement Outbound Message Tracking
-
-**Owner:** Developer **[PARALLEL with T10]**
-
-Implement outbound message tracking using `outbound_messages` schema.
-
-**DoD:**
-- [ ] `storeOutboundMessage(db, channelId, threadTs, messageTs,
-      contentHash)` inserts row
-- [ ] `hasOutboundInThread(db, channelId, threadTs)` returns boolean
-- [ ] Content hash via SHA-256
-- [ ] Unit tests validate store + dedup-after-restart
-
----
-
-### T12: Implement Slack Bot (Dual-Mode)
+### T09: Dispatcher Router **[NEW — replaces CONTEXT injector extension]**
 
 **Owner:** Developer
 
-Depends on T10, T05, T11. Implement `src/slack/bot.ts`.
+~~Implement `src/extensions/context-injector.ts` as a pi extension.~~
+(`[CONTEXT]` block now assembled inside system prompt builders; see T08.)
+
+Implement `src/dispatcher/router.ts` — deterministic vs smart routing.
+This is the contract for **D4 (hybrid paths)**.
 
 **DoD:**
-- [ ] `createSlackBot(config, deps)` returns Bolt App
-- [ ] HTTP mode: ExpressReceiver, `/slack/events`, `/healthz` composed via
-      Phase 0 `healthHandler`
-- [ ] Socket mode: SocketModeReceiver, standalone health server via Phase 0
-      `createHealthServer`
-- [ ] `app_mention` handler: lookup enclave -> if bound, dispatch to runner
-      -> post in thread
-- [ ] `message` handler: in active threads dispatch; in DMs dispatch in DM
-      mode; in non-enclave channels ignore
+- [ ] `routeEvent(event, deps): RouteDecision` function
+- [ ] All deterministic admission criteria from design Section 2.5
+      implemented (enclave @mention → `deliver_to_team`, DM unknown →
+      `smart_response`, `@kraken add` → `enclave_sync`, etc.)
+- [ ] Smart path fallthrough for DMs and ambiguous events
+- [ ] Command parser: `parseCommand(text)` for `@kraken add/remove/
+      transfer/archive/whoami/members/help`
+- [ ] 100% branch coverage on routing logic
+- [ ] Unit tests: `test/unit/dispatcher-router.test.ts` table-driven
+      with every event type → expected path + outcome
+
+---
+
+### T10: TeamLifecycleManager **[NEW — replaces per-thread Agent runner]**
+
+**Owner:** Developer
+
+~~Implement `src/agent/runner.ts` — per-thread Agent lifecycle.~~
+
+Implement `src/teams/lifecycle.ts` — per-enclave team spawn/monitor/GC.
+
+**DoD:**
+- [ ] `TeamLifecycleManager` class: `spawnTeam(enclaveName, initialContext)`,
+      `sendToTeam(enclaveName, record)`, `isTeamActive(enclaveName)`,
+      `shutdownAll()`, `gcStaleTeams()`
+- [ ] Manager subprocess spawned via `child_process.spawn` using
+      `node_modules/.bin/pi` (F20 resolution)
+- [ ] User's OIDC token passed in subprocess env as `TNTC_ACCESS_TOKEN`
+      (D6) — NEVER a service token, NEVER a fallback
+- [ ] `PI_SUBAGENT_DEPTH` + `PI_SUBAGENT_MAX_DEPTH` set (depth guard
+      to prevent recursive subagent spawning)
+- [ ] Team state directory creation (`{KRAKEN_TEAMS_DIR}/{enclave}/`)
+- [ ] Idle timeout: 30 minutes of no mailbox activity → SIGTERM (D7)
+- [ ] Process exit monitoring with directory state preservation
+- [ ] `gcStaleTeams()` sweeps directories older than 7 days with no
+      live PID
+- [ ] Token expiration detection: mailbox record with expired token
+      triggers clean task failure (D6 — no fallback)
+- [ ] Unit tests with mock `pi` binary (see T22)
+- [ ] Unit tests for cross-user token isolation: two mailbox records
+      for the same enclave, different users, each spawns its own
+      subprocess (Phase 1) or serializes with correct per-record
+      token (Phase 3) — Phase 1 serial is acceptable
+
+---
+
+### T11: Outbound Poller **[NEW — replaces outbound message tracking standalone]**
+
+**Owner:** Developer
+
+~~Standalone `src/slack/outbound.ts` tracking.~~ (SQLite dedup survives;
+the polling layer is new.)
+
+Implement `src/teams/outbound-poller.ts` — polls every active team's
+`outbound.ndjson` and posts records to Slack via Bolt client.
+
+**DoD:**
+- [ ] `OutboundPoller` class with `start()` and `stop()`
+- [ ] Polls each active team's `outbound.ndjson` every 1 second
+- [ ] Posts messages to correct Slack channel/thread
+- [ ] Records outbound messages in SQLite for restart dedup (reuses
+      existing `OutboundTracker`)
+- [ ] Handles heartbeat records per design Section 8 (friendly
+      human-addressed format, 30-60s floor, manager-decided significance)
+- [ ] OTel span per outbound post
+- [ ] Graceful shutdown: drains outstanding records on stop
+- [ ] Unit tests with mock Slack client
+
+---
+
+### T12: Slack Bot (Revised — Dispatcher Routing)
+
+**Owner:** Developer
+
+Refactor `src/slack/bot.ts` from the pre-pivot implementation. Same dual-mode
+HTTP + Socket transport. Event handlers now call `routeEvent()` and execute
+the returned `RouteDecision`.
+
+**DoD:**
+- [ ] `createSlackBot(config, deps)` returns Bolt App (dual-mode
+      preserved)
+- [ ] `app_mention` handler calls `routeEvent()` and executes result
+- [ ] `message` handler calls `routeEvent()` (DMs + thread replies)
+- [ ] Deterministic path: spawn/forward to team, NO LLM call
+- [ ] Smart path: invoke dispatcher's `AgentSession.prompt()`
 - [ ] Bot/self messages ignored
-- [ ] All outbound messages tracked via T11
-- [ ] OTel span per Slack event (attrs: event.type, channel, thread_ts, user)
-- [ ] Structured pino logging per event
-- [ ] Graceful shutdown: stop + queue drain
-- [ ] Unit tests with mock Slack client + event simulator
+- [ ] Non-enclave channels: silent (D2)
+- [ ] OTel spans per event; structured pino logging per event
+- [ ] Graceful shutdown
+- [ ] Unit tests with mock Slack client + Phase 0 event simulator
 
 ---
 
-### T13: Implement Main Entry Point
+### T13: Dispatcher Entry Point (Revised)
 
 **Owner:** Developer
 
-Depends on T12, T03, T02. Replace Phase 0 stub `src/index.ts`.
+Replace pre-pivot `src/index.ts` with dispatcher boot.
 
 **DoD:**
-- [x] Loads config with LLM key validation
-- [x] Initializes pino, OTel, SQLite (with migrations)
-- [x] Creates MCP connection, Slack bot, agent runner
-- [x] Starts health endpoint (mode-aware), connects to Slack
-- [x] Logs startup banner: version, mode, MCP URL, enclave count
-- [x] SIGTERM/SIGINT: drain queues, close MCP, stop Slack, flush OTel,
-      exit 0
-- [x] Integration test: startup + shutdown with mocks
+- [ ] Loads config with LLM key validation
+- [ ] Initializes pino, OTel, SQLite (with migrations)
+- [ ] Creates `AgentSession` via `pi-coding-agent`'s `createAgentSession()`
+      with dispatcher custom tools (T15)
+- [ ] Creates `TeamLifecycleManager`, `OutboundPoller`,
+      `EnclaveBindingEngine`
+- [ ] Creates Slack bot with dispatcher deps
+- [ ] Starts health endpoint, outbound poller, Slack bot
+- [ ] Logs startup banner (version, mode, MCP URL, enclave count,
+      teamsDir)
+- [ ] SIGTERM/SIGINT: stop poller, stop bot, shutdown all teams,
+      flush OTel, exit 0
+- [ ] Integration test: startup + shutdown with mocks (mock Slack,
+      mock pi binary)
 
 ---
 
-### T14: Add Helm Required Guards (F14)
+### T14: Helm Required Guards + Teams PVC
 
 **Owner:** Developer **[PARALLEL with T13]**
 
-Values validation in Helm chart.
+Existing required() guards survive. Add teams directory config + PVC
+mount.
 
 **DoD:**
-- [x] `values.schema.json` + `required()` guards: SLACK_BOT_TOKEN (always),
-      SLACK_SIGNING_SECRET (http mode), SLACK_APP_TOKEN (socket mode),
-      OIDC_ISSUER, OIDC_CLIENT_ID, TENTACULAR_MCP_URL
-- [ ] At least one LLM API key required (Phase 2 — runtime validated by loadConfig)
-- [x] `OTEL_EXPORTER_OTLP_ENDPOINT` added as optional Helm value
-- [x] NetworkPolicy egress: port 4318, tentacular-observability namespace
-- [x] `helm lint` passes with valid values; fails with missing required
-- [ ] Chart README updated with required values table (T20 owner)
+- [x] `values.schema.json` guards (existing)
+- [ ] [NEW] `KRAKEN_TEAMS_DIR` in ConfigMap (default `/app/data/teams`)
+- [ ] [NEW] PVC mount for teams directory (sub-path of existing PVC)
+- [x] NetworkPolicy egress: port 4318 to tentacular-observability
+      (existing)
+- [x] `helm lint` passes with valid values
 
 ---
 
-### T15: OTel Helm Chart Updates
+### T15: Dispatcher Tools (Pi ToolDefinitions)
 
-**Owner:** Developer **[PARALLEL with T14]**
+**Owner:** Developer **[PARALLEL with T13]**
 
-Add OTel env vars and NetworkPolicy to Helm.
+Implement `src/tools/dispatcher-tools.ts` — custom tools for the
+dispatcher's `AgentSession` (used on the smart path).
 
 **DoD:**
-- [x] `OTEL_EXPORTER_OTLP_ENDPOINT` added to ConfigMap (optional)
-- [x] `LOG_LEVEL` added to ConfigMap (default: info)
-- [x] NetworkPolicy egress to tentacular-observability:4318
-- [x] `helm template` renders correctly with/without OTel endpoint
+- [ ] `spawn_enclave_team` tool: delegates to TeamLifecycleManager
+- [ ] `send_to_team` tool: appends to mailbox.ndjson via NDJSON writer
+- [ ] `check_team_status` tool: reads team signals.ndjson + outbound.ndjson
+      and returns structured status summary
+- [ ] `post_to_slack` tool: direct Slack WebClient call (for
+      dispatcher-originated messages like ephemeral auth cards)
+- [ ] All tools registered as pi `ToolDefinition`s and exposed to the
+      dispatcher's AgentSession
+- [ ] Unit tests for each tool
 
 ---
 
@@ -275,13 +294,145 @@ Add OTel env vars and NetworkPolicy to Helm.
 
 **Owner:** Developer
 
-Run complete pipeline end-to-end.
+**DoD:**
+- [ ] `npm ci`, `npx tsc --noEmit`, `npm run build`, `npm test`,
+      `npm run lint`, `npm run format:check` all clean
+- [ ] `helm lint charts/thekraken --set gitState.repoUrl=https://github.com/x/y.git --set gitState.credentialsSecret=x`
+      passes
+- [ ] `shellcheck scripts/entrypoint.sh kraken-hooks/pre-commit` clean
+
+---
+
+## New Testing Infrastructure Tasks (T22–T26)
+
+The pivot requires additional test infrastructure beyond what Phase 0
+provided. These tasks build reusable test helpers that T01-T16 and future
+phases will depend on.
+
+### T22: Mock Pi Binary for Tests **[NEW]**
+
+**Owner:** Developer
+
+Create `test/mocks/mock-pi.ts` — a small TypeScript program mimicking the
+`pi` CLI surface for unit/integration tests. Reads mailbox, writes
+outbound and signals according to scripted behavior, idle-exits. Avoids
+real LLM calls or real subprocess pi execution.
 
 **DoD:**
-- [x] `npm ci`, `npx tsc --noEmit`, `npm run build`, `npm test`,
-      `npm run lint`, `npm run format:check` all clean
-- [x] `helm lint charts/thekraken` passes
-- [x] `shellcheck scripts/entrypoint.sh` passes
+- [ ] Mock pi supports `--mode json`, `-p`, `--append-system-prompt`
+- [ ] Scriptable behavior via env var (e.g., `MOCK_PI_SCENARIO=build-ok`)
+- [ ] Reads `mailbox.ndjson`, writes `outbound.ndjson` + `signals.ndjson`
+- [ ] Idle-exits after no mailbox activity for configurable time
+- [ ] Unit tests for the mock itself
+- [ ] Docs in `test/mocks/README.md`
+
+---
+
+### T23: NDJSON Test Helpers **[NEW]**
+
+**Owner:** Developer
+
+Create `test/helpers/ndjson.ts` — utilities for NDJSON-based test
+assertions.
+
+**DoD:**
+- [ ] `appendRecord(path, record)` helper
+- [ ] `readRecords(path, filter?)` helper
+- [ ] `waitForRecord(path, matcher, timeoutMs)` helper (polls)
+- [ ] Used by at least 3 other test files (T07, T10, T11)
+
+---
+
+### T24: Team State Dir Fixture **[NEW]**
+
+**Owner:** Developer
+
+Create `test/helpers/team-fixture.ts` — creates + cleans up temp team
+directories matching `~/.pi/teams/{name}/` layout.
+
+**DoD:**
+- [ ] `createTeamFixture(enclaveName): TeamFixture` returns dir + helpers
+- [ ] `TeamFixture.mailbox`, `.outbound`, `.signals` writers/readers
+- [ ] `TeamFixture.cleanup()` removes temp dir
+- [ ] Integrates with vitest `afterEach`
+
+---
+
+### T25: Dispatcher Routing Matrix Test **[NEW]**
+
+**Owner:** Developer
+
+Create `test/unit/dispatcher-router.test.ts` — table-driven assertion
+for every Slack event type → expected routing path (deterministic or
+smart) + expected outcome. This IS the contract for D4.
+
+**DoD:**
+- [ ] At least 13 admission criteria tested (8 deterministic + 5 smart)
+- [ ] Each row: event payload, expected path label, expected action
+- [ ] 100% branch coverage on `routeEvent()`
+- [ ] Test fails if a new Slack event type is added without an
+      admission criterion
+
+---
+
+### T26: Identity Propagation Fixture **[NEW]**
+
+**Owner:** Developer
+
+Create `test/helpers/identity-fixture.ts` — test utility to spawn the
+mock pi with a known user token, intercept all outbound writes and MCP
+calls, and verify the token appears in every subprocess spawn.
+
+**DoD:**
+- [ ] `withUserIdentity(userToken, fn)` runs test under a spawned
+      fixture; asserts token propagates to mailbox env + subprocess env
+- [ ] Cross-user leak test: user A spawns team, then user B engages;
+      assert B's subprocess env does NOT contain A's token
+- [ ] Used by PIV1 and PIV5 scenario tests
+
+---
+
+## Scenario Tests (PIV1–PIV7) **[NEW]**
+
+Add the following scenario tests per the execution plan's revised
+Testing Strategy. Scenarios P1–P18 and N1–N20 from the design doc §9
+still apply but run through the dispatcher/team architecture.
+
+### PIV1: Two users engage same enclave simultaneously
+- [ ] Mailbox records interleave with different user tokens
+- [ ] Each processed with correct per-record token (Phase 1: serial)
+- [ ] No cross-user state bleed in subprocess env
+
+### PIV2: Long-running build with heartbeat
+- [ ] Builder runs > 60s, emits progress signals
+- [ ] Manager emits heartbeat at 30-60s floor, friendly format
+- [ ] Dispatcher posts the heartbeat to the originating thread
+- [ ] Fewer than N/60 heartbeats per N-second task
+
+### PIV3: Status check mid-build
+- [ ] User asks "what's happening?" while builder runs
+- [ ] Dispatcher smart path reads signals, summarizes
+- [ ] Builder is NOT interrupted
+
+### PIV4: Manager idle timeout
+- [ ] No mailbox records for > 30 min
+- [ ] Manager gracefully exits
+- [ ] Next engagement spawns fresh team
+- [ ] MEMORY.md survives on PVC
+
+### PIV5: Token expires mid-task
+- [ ] Manager detects failure, posts re-auth prompt
+- [ ] Task fails cleanly
+- [ ] NO fallback to service identity (D6)
+
+### PIV6: Team directory GC
+- [ ] Stale dir (> 7 days, no PID) swept
+- [ ] Active team dirs preserved
+
+### PIV7: Kraken pod restart
+- [ ] Teams die with the pod (no resume)
+- [ ] New dispatcher pod starts fresh
+- [ ] First engagement after restart spawns fresh team
 
 ---
 
@@ -290,13 +441,19 @@ Run complete pipeline end-to-end.
 **Owner:** Code Reviewer
 
 **DoD:**
-- [ ] Slack bot dual-mode reviewed
-- [ ] Agent runner lifecycle reviewed (memory leaks, thread cleanup)
-- [ ] MCP wrapper reviewed (security: Bearer token handling, no logging)
-- [ ] OTel reviewed (no PII in spans, graceful degradation)
-- [ ] Context injector format matches design §13.4
-- [ ] Outbound dedup logic reviewed
-- [ ] Conventional Commits used; no stale TODOs
+- [ ] Dispatcher routing logic reviewed (deterministic vs smart boundary
+      is clearly named)
+- [ ] Team lifecycle reviewed (spawn, idle, GC, token handling, process
+      exit monitoring)
+- [ ] NDJSON protocol reviewed (atomicity, concurrency, partial-line
+      handling)
+- [ ] Outbound poller reviewed (polling interval, error handling,
+      dedup correctness)
+- [ ] Identity propagation reviewed (D6 compliance — no token leakage
+      across users, no service-token fallback)
+- [ ] No token logged in any span, log line, or error message
+- [ ] No unused deps, no stale Phase-0 TODOs
+- [ ] Conventional Commits used throughout
 - [ ] Sign-off recorded
 
 ---
@@ -306,13 +463,15 @@ Run complete pipeline end-to-end.
 **Owner:** Senior Security Architect
 
 **DoD:**
-- [ ] MCP Bearer token never logged/stored in SQLite/exposed in errors
-- [ ] OTel spans contain no prompt/response content, no PII
-- [ ] Service token from env (no hardcoding); document Phase 2 migration
-- [ ] No new secrets in ConfigMap
-- [ ] NetworkPolicy changes scoped correctly (OTel egress)
-- [ ] Helm required guards reviewed for completeness
-- [ ] No authz bypass paths Phase 2 cannot close
+- [ ] D6 compliance: user token flows from mailbox → subprocess env,
+      NEVER falls back to service identity for enclave work
+- [ ] Team state directory permissions: `0o700` for the dir, `0o600`
+      for all ndjson files
+- [ ] User token never appears in `outbound.ndjson` or `signals.ndjson`
+      (only in `mailbox.ndjson` and subprocess env)
+- [ ] Subprocess env isolation (spawn creates fresh copy; no PATH
+      injection)
+- [ ] PVC forensics: stale team dirs cleanly GC'd after 7 days (D7)
 - [ ] Sign-off recorded
 
 ---
@@ -322,14 +481,14 @@ Run complete pipeline end-to-end.
 **Owner:** Senior QA Engineer
 
 **DoD:**
-- [ ] All unit tests pass (Phase 0 + Phase 1)
-- [ ] Agent runner tests cover create/reuse/idle cleanup
-- [ ] MCP wrapper tests cover connect/call/reconnect/auth
-- [ ] Slack bot tests cover both modes/mention/thread/DM/ignore
-- [ ] Context injector tests cover enclave + DM modes
-- [ ] Outbound dedup tests cover restart simulation
-- [ ] OTel tests cover span creation + graceful degradation
-- [ ] No flaky tests
+- [ ] All Phase 0 + Phase 1 tests pass
+- [ ] Router tests cover all 13 admission criteria (T25)
+- [ ] Team lifecycle tests cover spawn/idle/shutdown/GC
+- [ ] NDJSON tests cover concurrent access + crash recovery
+- [ ] Outbound poller tests cover poll + post + dedup
+- [ ] PIV1–PIV7 scenario tests all pass
+- [ ] Identity propagation fixture exercises cross-user leak tests
+- [ ] No flaky tests (100 consecutive runs green)
 - [ ] Sign-off recorded
 
 ---
@@ -339,12 +498,12 @@ Run complete pipeline end-to-end.
 **Owner:** Senior Technical Writer
 
 **DoD:**
-- [ ] README updated: deps, env vars (LOG_LEVEL,
-      OTEL_EXPORTER_OTLP_ENDPOINT, LLM keys), startup behavior
-- [ ] Project CLAUDE.md created (Phase 1 architecture)
-- [ ] Chart README updated with required values per mode
+- [ ] README updated: dispatcher + team architecture, env vars
+      (KRAKEN_TEAMS_DIR, OTEL_*, LOG_LEVEL, LLM keys), filesystem layout
+- [ ] Project CLAUDE.md created (Phase 1 dispatcher + team architecture,
+      references design doc §6 for file map)
+- [ ] Chart README updated with required values per mode + teamsDir docs
 - [ ] JSDoc on all public functions in new modules
-- [ ] No stale `TODO(phase1)` comments in implemented modules
 - [ ] Sign-off recorded
 
 ---
@@ -357,5 +516,5 @@ Run complete pipeline end-to-end.
 
 **DoD:**
 - [ ] Codex reviewed full Phase 1 diff
-- [ ] Findings addressed or documented as followups
+- [ ] Critical findings addressed; non-critical logged as followups
 - [ ] Review logged (verdict + timestamp)
