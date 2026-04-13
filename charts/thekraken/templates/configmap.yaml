@@ -25,6 +25,8 @@ data:
   LLM_ALLOWED_PROVIDERS: {{ .Values.llm.allowedProviders | quote }}
   LLM_ALLOWED_MODELS: {{ .Values.llm.allowedModels | quote }}
   LLM_DISALLOWED_MODELS: {{ .Values.llm.disallowedModels | quote }}
+  # Team lifecycle — per-enclave team state directory
+  KRAKEN_TEAMS_DIR: {{ .Values.teamsDir | default "/app/data/teams" | quote }}
   # Observability — OTel disabled when otlpEndpoint is empty
   OTEL_EXPORTER_OTLP_ENDPOINT: {{ .Values.observability.otlpEndpoint | default "" | quote }}
   LOG_LEVEL: {{ .Values.observability.logLevel | default "info" | quote }}

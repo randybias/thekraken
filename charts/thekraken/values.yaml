@@ -99,6 +99,9 @@ llm:
   allowedModels: "anthropic:claude-sonnet-4-6|claude-opus-4-6|claude-sonnet-4-6-thinking,openai:gpt-5.3-chat-latest|gpt-5.4,google:gemini-3-pro-preview|gemini-3.1-pro"
   disallowedModels: "gpt-4o,o3,o4-mini,gpt-5-nano,gpt-5-mini,gemini-2.5-pro"
 
+# Per-enclave team state directory
+teamsDir: "/app/data/teams"
+
 # Git-backed state — REQUIRED in v2 (no enabled toggle)
 # Both repoUrl and credentialsSecret are validated by Helm required() before pod creation.
 gitState:
