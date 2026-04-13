@@ -1,0 +1,240 @@
+/**
+ * OutboundPoller unit tests (T11).
+ *
+ * Coverage:
+ * - start() begins polling
+ * - stop() performs final drain
+ * - Records from outbound.ndjson are posted to Slack
+ * - Heartbeat records are posted like normal messages
+ * - Dedup: already-posted records are skipped
+ * - Multiple teams polled in each cycle
+ */
+
+import { describe, it, expect, afterEach, beforeEach, vi } from 'vitest';
+import { createTeamFixture } from '../helpers/team-fixture.js';
+import { waitForRecord } from '../helpers/ndjson.js';
+import { OutboundPoller } from '../../src/teams/outbound-poller.js';
+import { createDatabase } from '../../src/db/migrations.js';
+import { OutboundTracker } from '../../src/slack/outbound.js';
+import type { KrakenConfig } from '../../src/config.js';
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+function makeConfig(teamsDir: string): KrakenConfig {
+  return {
+    teamsDir,
+    gitState: { repoUrl: 'https://github.com/x/y.git', branch: 'main', dir: '/tmp/git-state' },
+    slack: { botToken: 'xoxb-test', mode: 'http' },
+    oidc: { issuer: 'https://keycloak', clientId: 'kraken', clientSecret: 'sec' },
+    mcp: { url: 'http://mcp:8080', port: 8080, serviceToken: 'svc-token' },
+    llm: {
+      defaultProvider: 'anthropic',
+      defaultModel: 'claude-sonnet-4-6',
+      allowedProviders: ['anthropic'],
+      allowedModels: {},
+      disallowedModels: [],
+      anthropicApiKey: 'sk-ant-test',
+    },
+    server: { port: 3000 },
+    observability: { otlpEndpoint: '', logLevel: 'silent' },
+  } as KrakenConfig;
+}
+
+function makeOutboundRecord(overrides: object = {}): object {
+  return {
+    id: `out-${Date.now()}`,
+    timestamp: new Date().toISOString(),
+    type: 'slack_message',
+    channelId: 'C_TEST',
+    threadTs: '1111.000',
+    text: 'Build complete!',
+    ...overrides,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
+
+describe('OutboundPoller', () => {
+  const fixtures: ReturnType<typeof createTeamFixture>[] = [];
+  let postedMessages: Array<{ channel: string; thread_ts?: string; text: string }>;
+  let poller: OutboundPoller;
+
+  beforeEach(() => {
+    postedMessages = [];
+  });
+
+  afterEach(async () => {
+    if (poller) await poller.stop();
+    for (const f of fixtures.splice(0)) f.cleanup();
+    vi.clearAllMocks();
+  });
+
+  function makePoller(
+    fixture: ReturnType<typeof createTeamFixture>,
+    activeTeams: string[],
+  ): OutboundPoller {
+    const db = createDatabase(':memory:');
+    const tracker = new OutboundTracker(db);
+
+    return new OutboundPoller({
+      config: makeConfig(fixture.teamsDir),
+      teams: {
+        isTeamActive: (name: string) => activeTeams.includes(name),
+      },
+      slack: {
+        postMessage: vi.fn(async (params) => {
+          postedMessages.push(params);
+          return { ts: `1234.${postedMessages.length}` };
+        }),
+      },
+      tracker,
+      getActiveTeams: () => activeTeams,
+    });
+  }
+
+  it('posts outbound records to Slack', async () => {
+    const f = createTeamFixture('test-enc');
+    fixtures.push(f);
+
+    // Write a record BEFORE starting the poller
+    f.appendOutbound(makeOutboundRecord({ text: 'hello from team' }));
+
+    poller = makePoller(f, ['test-enc']);
+    await poller.stop(); // immediate stop = drain
+
+    expect(postedMessages).toHaveLength(1);
+    expect(postedMessages[0]!.text).toBe('hello from team');
+    expect(postedMessages[0]!.channel).toBe('C_TEST');
+  });
+
+  it('posts heartbeat records to Slack (D5)', async () => {
+    const f = createTeamFixture('heartbeat-enc');
+    fixtures.push(f);
+
+    f.appendOutbound(
+      makeOutboundRecord({
+        type: 'heartbeat',
+        text: 'Your builder is working on the sentiment analyser.',
+        mentionUser: 'U_ALICE',
+      }),
+    );
+
+    poller = makePoller(f, ['heartbeat-enc']);
+    await poller.stop();
+
+    expect(postedMessages).toHaveLength(1);
+    // mentionUser should be prepended
+    expect(postedMessages[0]!.text).toContain('<@U_ALICE>');
+    expect(postedMessages[0]!.text).toContain('Your builder is working');
+  });
+
+  it('posts to correct thread_ts', async () => {
+    const f = createTeamFixture('thread-enc');
+    fixtures.push(f);
+
+    f.appendOutbound(
+      makeOutboundRecord({ channelId: 'C_CHAN', threadTs: '9999.123' }),
+    );
+
+    poller = makePoller(f, ['thread-enc']);
+    await poller.stop();
+
+    expect(postedMessages[0]!.thread_ts).toBe('9999.123');
+    expect(postedMessages[0]!.channel).toBe('C_CHAN');
+  });
+
+  it('polls multiple teams', async () => {
+    const f1 = createTeamFixture('enc-one');
+    const f2 = createTeamFixture('enc-two');
+    fixtures.push(f1, f2);
+
+    f1.appendOutbound(makeOutboundRecord({ text: 'from enc-one', channelId: 'C_ONE' }));
+    f2.appendOutbound(makeOutboundRecord({ text: 'from enc-two', channelId: 'C_TWO' }));
+
+    // Create a merged teamsDir — both fixtures live in their own teamsDir
+    // For multi-team test, use f1's teamsDir and place enc-two inside it
+    const { mkdirSync, cpSync } = await import('node:fs');
+    const twoDir = f1.teamsDir + '/enc-two';
+    mkdirSync(twoDir, { recursive: true });
+    cpSync(f2.dir, twoDir, { recursive: true });
+
+    const db = createDatabase(':memory:');
+    const tracker = new OutboundTracker(db);
+    poller = new OutboundPoller({
+      config: makeConfig(f1.teamsDir),
+      teams: { isTeamActive: () => true },
+      slack: {
+        postMessage: vi.fn(async (params) => {
+          postedMessages.push(params);
+          return { ts: `ts-${postedMessages.length}` };
+        }),
+      },
+      tracker,
+      getActiveTeams: () => ['enc-one', 'enc-two'],
+    });
+
+    await poller.stop(); // drain
+
+    const channels = postedMessages.map((m) => m.channel);
+    expect(channels).toContain('C_ONE');
+    expect(channels).toContain('C_TWO');
+  });
+
+  it('deduplicates records already in SQLite (pod restart)', async () => {
+    const f = createTeamFixture('dedup-enc');
+    fixtures.push(f);
+
+    f.appendOutbound(makeOutboundRecord({ text: 'first message' }));
+
+    // Pre-populate SQLite to simulate a prior post
+    const db = createDatabase(':memory:');
+    const tracker = new OutboundTracker(db);
+    tracker.store('C_TEST', '1111.000', 'ts-1', 'first message');
+
+    poller = new OutboundPoller({
+      config: makeConfig(f.teamsDir),
+      teams: { isTeamActive: () => true },
+      slack: {
+        postMessage: vi.fn(async (p) => {
+          postedMessages.push(p);
+          return { ts: 'ts-2' };
+        }),
+      },
+      tracker,
+      getActiveTeams: () => ['dedup-enc'],
+    });
+
+    await poller.stop();
+
+    // Should not post again — dedup says already posted
+    expect(postedMessages).toHaveLength(0);
+  });
+
+  it('start() and stop() lifecycle', async () => {
+    const f = createTeamFixture('lifecycle-enc');
+    fixtures.push(f);
+
+    poller = makePoller(f, ['lifecycle-enc']);
+    poller.start();
+
+    // Write a record after start
+    f.appendOutbound(makeOutboundRecord({ text: 'async record', threadTs: '5555.000' }));
+
+    // Wait for it to be picked up
+    await waitForRecord(
+      f.outboundPath,
+      (r) => (r as { text: string }).text === 'async record',
+      2000,
+    );
+
+    await poller.stop();
+
+    // Should have been posted
+    const texts = postedMessages.map((m) => m.text);
+    expect(texts).toContain('async record');
+  });
+});
