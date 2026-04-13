@@ -1,7 +1,7 @@
 # Phase 0: Scaffold + Test Harness + Git-State Infra Port — Tasks
 
 **Change ID:** phase0-scaffold
-**Status:** Implementation Complete (T01-T17 done; T18-T22 reviews pending)
+**Status:** COMPLETE — all tasks T01-T22 done, all reviews signed off
 **Created:** 2026-04-13
 **Author:** Senior Product Manager
 
@@ -333,13 +333,13 @@ mandatory (no `enabled` toggle). Add `values-mirantis.yaml` overlay.
 
 **Definition of Done:**
 
-- [ ] Package structure matches design §11
-- [ ] Config covers all env vars
-- [ ] SQLite schema matches design §4 and §14.5a
-- [ ] entrypoint.sh enforces git-state hard requirement
-- [ ] No unused dependencies, no stale TODOs
-- [ ] Conventional Commits used
-- [ ] Sign-off recorded
+- [x] Package structure matches design §11
+- [x] Config covers all env vars
+- [x] SQLite schema matches design §4 and §14.5a
+- [x] entrypoint.sh enforces git-state hard requirement
+- [x] No unused dependencies, no stale TODOs
+- [x] Conventional Commits used
+- [x] Sign-off recorded (verdict: PASS-WITH-NITS, all addressed in b7966fe)
 
 ---
 
@@ -349,12 +349,13 @@ mandatory (no `enabled` toggle). Add `values-mirantis.yaml` overlay.
 
 **Definition of Done:**
 
-- [ ] Git credentials via mounted Secret (no PAT on PVC disk)
-- [ ] Dockerfile non-root (UID 1000)
-- [ ] Helm Secrets not ConfigMaps for sensitive values
-- [ ] NetworkPolicy egress scoped to MCP + git HTTPS
-- [ ] No secrets in defaults or committed files
-- [ ] Sign-off recorded
+- [x] Git credentials via mounted Secret (no PAT on PVC disk)
+- [x] Dockerfile non-root (UID 1000)
+- [x] Helm Secrets not ConfigMaps for sensitive values
+- [x] NetworkPolicy egress scoped to MCP + git HTTPS
+- [x] No secrets in defaults or committed files
+- [x] Sign-off recorded (verdict: PASS-WITH-NITS, M1-M4 + L1-L3 tracked
+      as F5-F11; L5 .env.example added in b7966fe)
 
 ---
 
@@ -364,11 +365,11 @@ mandatory (no `enabled` toggle). Add `values-mirantis.yaml` overlay.
 
 **Definition of Done:**
 
-- [ ] All unit tests pass
-- [ ] AIMock, Slack mock, event simulator, hook, schema, config, health
+- [x] All unit tests pass (53/53 after Codex fixes; was 43/43)
+- [x] AIMock, Slack mock, event simulator, hook, schema, config, health
       each have tests
-- [ ] No flaky tests
-- [ ] Sign-off recorded
+- [x] No flaky tests
+- [x] Sign-off recorded (verdict: PASS)
 
 ---
 
@@ -378,10 +379,11 @@ mandatory (no `enabled` toggle). Add `values-mirantis.yaml` overlay.
 
 **Definition of Done:**
 
-- [ ] README accurate; openspec/project.md complete
-- [ ] JSDoc on config fields
-- [ ] No stale references to NanoClaw, task scheduling, main/admin channel
-- [ ] Sign-off recorded
+- [x] README accurate; openspec/project.md complete
+- [x] JSDoc on config fields
+- [x] No stale references to NanoClaw, task scheduling, main/admin channel
+- [x] Sign-off recorded (verdict: PASS-WITH-NITS, status headers + helm
+      lint flags + sed divergence note all addressed in b7966fe)
 
 ---
 
@@ -393,5 +395,7 @@ mandatory (no `enabled` toggle). Add `values-mirantis.yaml` overlay.
 
 **Definition of Done:**
 
-- [ ] Codex reviewed OR skip logged
-- [ ] Critical findings addressed; non-critical logged as issues
+- [x] Codex reviewed (verdict: APPROVED-WITH-RECOMMENDATIONS, 2026-04-13)
+- [x] Critical findings addressed (commit 52ea006: config validation,
+      .env.example format, hook idempotence, namespace mismatch)
+- [x] Non-critical findings logged as followups F13-F15
