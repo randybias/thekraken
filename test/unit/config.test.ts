@@ -280,4 +280,20 @@ describe('loadConfig', () => {
     const config = loadConfig();
     expect(config.observability.otlpEndpoint).toBe('http://otel:4318');
   });
+
+  // T04: teamsDir config tests
+  it('teamsDir defaults to /app/data/teams', () => {
+    setRequiredEnv();
+    delete process.env['KRAKEN_TEAMS_DIR'];
+    const config = loadConfig();
+    expect(config.teamsDir).toBe('/app/data/teams');
+  });
+
+  it('teamsDir is overrideable via KRAKEN_TEAMS_DIR', () => {
+    setRequiredEnv();
+    process.env['KRAKEN_TEAMS_DIR'] = '/custom/teams';
+    const config = loadConfig();
+    expect(config.teamsDir).toBe('/custom/teams');
+    delete process.env['KRAKEN_TEAMS_DIR'];
+  });
 });

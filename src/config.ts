@@ -97,6 +97,12 @@ export interface KrakenConfig {
   mcp: McpConfig;
   llm: LlmConfig;
   gitState: GitStateConfig;
+  /**
+   * Directory where per-enclave team state is stored.
+   * Each enclave gets a subdirectory: {teamsDir}/{enclaveName}/
+   * Defaults to /app/data/teams if unset.
+   */
+  teamsDir: string;
   server: ServerConfig;
   observability: ObservabilityConfig;
 }
@@ -299,6 +305,7 @@ export function loadConfig(): KrakenConfig {
       branch: optional('GIT_STATE_BRANCH', 'main'),
       dir: optional('GIT_STATE_DIR', '/app/data/git-state'),
     },
+    teamsDir: optional('KRAKEN_TEAMS_DIR', '/app/data/teams'),
     server: {
       port: validatedPort('PORT', optional('PORT', '3000')),
     },
