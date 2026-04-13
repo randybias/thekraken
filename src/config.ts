@@ -34,6 +34,12 @@ export interface McpConfig {
   url: string;
   /** Port for NetworkPolicy scoping. Default: 8080. */
   port: number;
+  /**
+   * Bearer token for MCP server authentication. From MCP_SERVICE_TOKEN env var
+   * (Kubernetes Secret). Never logged, never stored in SQLite, never in OTel spans.
+   * Phase 1: service token for all calls. Phase 2: per-user tokens added on top.
+   */
+  serviceToken: string;
 }
 
 export interface LlmConfig {
@@ -43,6 +49,12 @@ export interface LlmConfig {
   defaultModel: string;
   /** Allowed providers list. Default: ['anthropic', 'openai', 'google']. */
   allowedProviders: string[];
+  /** Anthropic API key. Required when 'anthropic' is in allowedProviders. */
+  anthropicApiKey?: string;
+  /** OpenAI API key. Required when 'openai' is in allowedProviders. */
+  openaiApiKey?: string;
+  /** Google Gemini API key. Required when 'google' is in allowedProviders. */
+  geminiApiKey?: string;
   /**
    * Allowed models per provider. If a provider key is absent, all models
    * from that provider are allowed (subject to disallowedModels).
@@ -69,6 +81,16 @@ export interface ServerConfig {
   port: number;
 }
 
+export interface ObservabilityConfig {
+  /**
+   * OTLP HTTP endpoint for OTel trace export (e.g. http://otel-collector:4318).
+   * Empty string = OTel disabled.
+   */
+  otlpEndpoint: string;
+  /** Pino log level. Default: 'info'. */
+  logLevel: string;
+}
+
 export interface KrakenConfig {
   slack: SlackConfig;
   oidc: OidcConfig;
@@ -76,6 +98,7 @@ export interface KrakenConfig {
   llm: LlmConfig;
   gitState: GitStateConfig;
   server: ServerConfig;
+  observability: ObservabilityConfig;
 }
 
 /**
@@ -182,6 +205,7 @@ export function loadConfig(): KrakenConfig {
 
   // MCP
   const mcpUrl = required('TENTACULAR_MCP_URL');
+  const mcpServiceToken = required('MCP_SERVICE_TOKEN');
 
   // Git state (mandatory — no opt-in toggle)
   const gitStateRepoUrl = required('GIT_STATE_REPO_URL');
@@ -213,6 +237,30 @@ export function loadConfig(): KrakenConfig {
     ),
   );
 
+  // LLM API keys (T04: validate that configured providers have their keys)
+  const anthropicApiKey = process.env['ANTHROPIC_API_KEY'] ?? undefined;
+  const openaiApiKey = process.env['OPENAI_API_KEY'] ?? undefined;
+  const geminiApiKey = process.env['GEMINI_API_KEY'] ?? undefined;
+
+  // Validate: defaultProvider must have its key. Each allowedProvider must have its key.
+  // Build combined set of required providers.
+  const requiredProviders = new Set([defaultProvider, ...allowedProviders]);
+  for (const provider of requiredProviders) {
+    if (provider === 'anthropic' && !anthropicApiKey) {
+      errors.push(`ANTHROPIC_API_KEY is required because 'anthropic' is in allowedProviders`);
+    }
+    if (provider === 'openai' && !openaiApiKey) {
+      errors.push(`OPENAI_API_KEY is required because 'openai' is in allowedProviders`);
+    }
+    if (provider === 'google' && !geminiApiKey) {
+      errors.push(`GEMINI_API_KEY is required because 'google' is in allowedProviders`);
+    }
+  }
+
+  // Observability
+  const otlpEndpoint = optional('OTEL_EXPORTER_OTLP_ENDPOINT', '');
+  const logLevel = optional('LOG_LEVEL', 'info');
+
   const config: KrakenConfig = {
     slack: {
       botToken,
@@ -228,6 +276,7 @@ export function loadConfig(): KrakenConfig {
     mcp: {
       url: mcpUrl,
       port: validatedPort('MCP_PORT', optional('MCP_PORT', '8080')),
+      serviceToken: mcpServiceToken,
     },
     llm: {
       defaultProvider,
@@ -235,6 +284,9 @@ export function loadConfig(): KrakenConfig {
       allowedProviders,
       allowedModels,
       disallowedModels,
+      anthropicApiKey,
+      openaiApiKey,
+      geminiApiKey,
     },
     gitState: {
       repoUrl: gitStateRepoUrl,
@@ -243,6 +295,10 @@ export function loadConfig(): KrakenConfig {
     },
     server: {
       port: validatedPort('PORT', optional('PORT', '3000')),
+    },
+    observability: {
+      otlpEndpoint,
+      logLevel,
     },
   };
 
