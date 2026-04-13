@@ -84,12 +84,17 @@ export function createSlackBot(deps: SlackBotDeps): SlackBot {
       } else {
         await app.start();
       }
-      log.info({ mode: config.slack.mode, port: config.server.port }, 'Slack bot started');
+      log.info(
+        { mode: config.slack.mode, port: config.server.port },
+        'Slack bot started',
+      );
     },
     async stop(): Promise<void> {
       await app.stop();
       if (healthServer) {
-        await new Promise<void>((resolve) => healthServer!.close(() => resolve()));
+        await new Promise<void>((resolve) =>
+          healthServer!.close(() => resolve()),
+        );
       }
       log.info('Slack bot stopped');
     },
@@ -121,7 +126,10 @@ function registerEventHandlers(app: App, deps: SlackBotDeps): void {
       span.setAttribute('slack.thread_ts', threadTs);
 
       try {
-        log.info({ channelId, threadTs, userId, event: 'app_mention' }, 'mention received');
+        log.info(
+          { channelId, threadTs, userId, event: 'app_mention' },
+          'mention received',
+        );
 
         const binding = bindings.lookupEnclave(channelId);
         if (!binding) {
@@ -133,11 +141,20 @@ function registerEventHandlers(app: App, deps: SlackBotDeps): void {
         const response = await runner.handleMessage(
           `${channelId}:${threadTs}`,
           event.text ?? '',
-          { enclaveName: binding.enclaveName, slackUserId: userId, mode: 'enclave' },
+          {
+            enclaveName: binding.enclaveName,
+            slackUserId: userId,
+            mode: 'enclave',
+          },
         );
 
         const result = await say({ text: response, thread_ts: threadTs });
-        outbound.store(channelId, threadTs, (result as { ts?: string }).ts ?? '', response);
+        outbound.store(
+          channelId,
+          threadTs,
+          (result as { ts?: string }).ts ?? '',
+          response,
+        );
 
         span.setStatus({ code: SpanStatusCode.OK });
       } catch (err) {
@@ -163,7 +180,9 @@ function registerEventHandlers(app: App, deps: SlackBotDeps): void {
     if ('bot_id' in event) return;
 
     const channelId = event.channel;
-    const threadTs = ('thread_ts' in event ? event.thread_ts : undefined) as string | undefined;
+    const threadTs = ('thread_ts' in event ? event.thread_ts : undefined) as
+      | string
+      | undefined;
     const userId = event.user as string;
 
     return tracer.startActiveSpan('slack.message', async (span) => {
@@ -182,12 +201,17 @@ function registerEventHandlers(app: App, deps: SlackBotDeps): void {
 
           const response = await runner.handleMessage(
             `${channelId}:${dmThreadTs}`,
-            ('text' in event ? event.text : undefined) as string ?? '',
+            (('text' in event ? event.text : undefined) as string) ?? '',
             { enclaveName: null, slackUserId: userId, mode: 'dm' },
           );
 
           const result = await say({ text: response, thread_ts: dmThreadTs });
-          outbound.store(channelId, dmThreadTs, (result as { ts?: string }).ts ?? '', response);
+          outbound.store(
+            channelId,
+            dmThreadTs,
+            (result as { ts?: string }).ts ?? '',
+            response,
+          );
 
           span.setStatus({ code: SpanStatusCode.OK });
           return;
@@ -210,16 +234,28 @@ function registerEventHandlers(app: App, deps: SlackBotDeps): void {
           return;
         }
 
-        log.info({ channelId, threadTs, userId, event: 'thread_reply' }, 'thread reply');
+        log.info(
+          { channelId, threadTs, userId, event: 'thread_reply' },
+          'thread reply',
+        );
 
         const response = await runner.handleMessage(
           `${channelId}:${threadTs}`,
-          ('text' in event ? event.text : undefined) as string ?? '',
-          { enclaveName: binding.enclaveName, slackUserId: userId, mode: 'enclave' },
+          (('text' in event ? event.text : undefined) as string) ?? '',
+          {
+            enclaveName: binding.enclaveName,
+            slackUserId: userId,
+            mode: 'enclave',
+          },
         );
 
         const result = await say({ text: response, thread_ts: threadTs });
-        outbound.store(channelId, threadTs, (result as { ts?: string }).ts ?? '', response);
+        outbound.store(
+          channelId,
+          threadTs,
+          (result as { ts?: string }).ts ?? '',
+          response,
+        );
 
         span.setStatus({ code: SpanStatusCode.OK });
       } catch (err) {

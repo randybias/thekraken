@@ -11,7 +11,8 @@ describe('telemetry', () => {
   });
 
   it('exports initTelemetry and shutdownTelemetry functions', async () => {
-    const { initTelemetry, shutdownTelemetry } = await import('../../src/telemetry.js');
+    const { initTelemetry, shutdownTelemetry } =
+      await import('../../src/telemetry.js');
     expect(typeof initTelemetry).toBe('function');
     expect(typeof shutdownTelemetry).toBe('function');
   });
@@ -28,7 +29,8 @@ describe('telemetry', () => {
   });
 
   it('initTelemetry does not crash when endpoint is set but collector is unreachable', async () => {
-    process.env['OTEL_EXPORTER_OTLP_ENDPOINT'] = 'http://nonexistent-collector:4318';
+    process.env['OTEL_EXPORTER_OTLP_ENDPOINT'] =
+      'http://nonexistent-collector:4318';
     vi.resetModules();
     const { initTelemetry } = await import('../../src/telemetry.js');
     // Should not throw even with an unreachable collector

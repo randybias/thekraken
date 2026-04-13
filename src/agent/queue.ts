@@ -37,7 +37,9 @@ export class ThreadQueue {
    */
   enqueue<T>(threadKey: string, fn: () => Promise<T>): Promise<T> {
     if (this.draining) {
-      return Promise.reject(new Error('Queue is draining; rejecting new tasks'));
+      return Promise.reject(
+        new Error('Queue is draining; rejecting new tasks'),
+      );
     }
 
     return new Promise<T>((resolve, reject) => {

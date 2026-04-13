@@ -23,7 +23,10 @@ describe('logger', () => {
 
   it('creates child loggers with contextual bindings', async () => {
     const { createChildLogger, logger } = await import('../../src/logger.js');
-    const child = createChildLogger({ module: 'test-module', threadKey: 'C1:ts1' });
+    const child = createChildLogger({
+      module: 'test-module',
+      threadKey: 'C1:ts1',
+    });
     // Child should be a pino logger (has info/error/warn methods)
     expect(typeof child.info).toBe('function');
     expect(typeof child.error).toBe('function');
@@ -51,9 +54,12 @@ describe('logger', () => {
     // We test this indirectly: pino's default level formatter returns { level: <number> },
     // but our custom formatter returns { level: <label> }.
     const captured: unknown[] = [];
-    const testLogger = logger.child({}, {
-      transport: undefined,
-    });
+    const testLogger = logger.child(
+      {},
+      {
+        transport: undefined,
+      },
+    );
     // Just confirm the logger has the custom formatter applied (level is a function)
     // We can't easily capture the output here, but we can verify the config by
     // checking that the formatters object is set on the pino instance.

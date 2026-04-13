@@ -71,7 +71,11 @@ const baseConfig = {
   },
   server: { port: 3000 },
   mcp: { url: 'http://mcp:8080', port: 8080, serviceToken: 'token' },
-  oidc: { issuer: 'http://keycloak', clientId: 'kraken', clientSecret: 'secret' },
+  oidc: {
+    issuer: 'http://keycloak',
+    clientId: 'kraken',
+    clientSecret: 'secret',
+  },
   llm: {
     defaultProvider: 'anthropic' as const,
     defaultModel: 'claude-sonnet-4-6',
@@ -80,7 +84,11 @@ const baseConfig = {
     disallowedModels: [],
     anthropicApiKey: 'sk-ant-test',
   },
-  gitState: { repoUrl: 'https://git.example.com/repo.git', branch: 'main', dir: '/app/data' },
+  gitState: {
+    repoUrl: 'https://git.example.com/repo.git',
+    branch: 'main',
+    dir: '/app/data',
+  },
   observability: { otlpEndpoint: '', logLevel: 'info' },
 };
 

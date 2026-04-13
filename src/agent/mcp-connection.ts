@@ -22,27 +22,46 @@ import { trace, SpanStatusCode } from '@opentelemetry/api';
 
 /** Tools that auto-inject enclave namespace. Phase 2 adds enforcement. */
 export const ENCLAVE_SCOPED = [
-  'wf_list', 'wf_describe', 'wf_status', 'wf_pods', 'wf_logs',
-  'wf_events', 'wf_jobs', 'wf_health', 'wf_health_ns', 'wf_apply',
-  'wf_run', 'wf_restart', 'wf_remove', 'permissions_get',
-  'permissions_set', 'audit_rbac', 'audit_netpol', 'audit_psa',
-  'enclave_info', 'enclave_sync',
+  'wf_list',
+  'wf_describe',
+  'wf_status',
+  'wf_pods',
+  'wf_logs',
+  'wf_events',
+  'wf_jobs',
+  'wf_health',
+  'wf_health_ns',
+  'wf_apply',
+  'wf_run',
+  'wf_restart',
+  'wf_remove',
+  'permissions_get',
+  'permissions_set',
+  'audit_rbac',
+  'audit_netpol',
+  'audit_psa',
+  'enclave_info',
+  'enclave_sync',
 ] as const;
 
 /** Tools blocked in enclave mode (DM or admin only). Phase 2 adds enforcement. */
 export const BLOCKED_IN_ENCLAVE = [
-  'ns_create', 'enclave_provision', 'enclave_deprovision',
-  'cluster_profile', 'cluster_preflight', 'proxy_status',
+  'ns_create',
+  'enclave_provision',
+  'enclave_deprovision',
+  'cluster_profile',
+  'cluster_preflight',
+  'proxy_status',
 ] as const;
 
 /** Tools allowed in DM mode for cross-enclave reads. */
-export const DM_ALLOWED = [
-  'enclave_list',
-] as const;
+export const DM_ALLOWED = ['enclave_list'] as const;
 
 /** Cluster-wide read-only tools, no scoping needed. */
 export const ALWAYS_ALLOWED = [
-  'health_cluster_summary', 'health_nodes', 'health_ns_usage',
+  'health_cluster_summary',
+  'health_nodes',
+  'health_ns_usage',
 ] as const;
 
 /** All registered tool names. */
@@ -93,16 +112,13 @@ export async function createMcpConnection(
   url: string,
   bearerToken: string,
 ): Promise<McpConnection> {
-  const transport = new StreamableHTTPClientTransport(
-    new URL(url),
-    {
-      requestInit: {
-        headers: {
-          Authorization: `Bearer ${bearerToken}`,
-        },
+  const transport = new StreamableHTTPClientTransport(new URL(url), {
+    requestInit: {
+      headers: {
+        Authorization: `Bearer ${bearerToken}`,
       },
     },
-  );
+  });
 
   const client = new Client(
     { name: 'thekraken', version: '2.0.0' },
@@ -169,7 +185,10 @@ function mcpToolToAgentTool(
         span.setAttribute('tool.call_id', toolCallId);
         try {
           const result = await client.callTool(
-            { name: mcpTool.name, arguments: params as Record<string, unknown> },
+            {
+              name: mcpTool.name,
+              arguments: params as Record<string, unknown>,
+            },
             undefined,
             { signal },
           );
@@ -179,7 +198,9 @@ function mcpToolToAgentTool(
 
           const textContent = Array.isArray(result.content)
             ? result.content
-                .filter((c): c is { type: 'text'; text: string } => c.type === 'text')
+                .filter(
+                  (c): c is { type: 'text'; text: string } => c.type === 'text',
+                )
                 .map((c) => c.text)
                 .join('\n')
             : String(result.content ?? '');

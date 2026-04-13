@@ -50,10 +50,16 @@ export class OutboundTracker {
         )
         .run(channelId, threadTs, messageTs, contentHash);
 
-      log.debug({ channelId, threadTs, messageTs }, 'outbound message recorded');
+      log.debug(
+        { channelId, threadTs, messageTs },
+        'outbound message recorded',
+      );
     } catch (err) {
       // Non-fatal — if recording fails, continue; dedup is best-effort.
-      log.warn({ err, channelId, threadTs }, 'failed to record outbound message');
+      log.warn(
+        { err, channelId, threadTs },
+        'failed to record outbound message',
+      );
     }
   }
 

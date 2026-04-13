@@ -12,13 +12,13 @@ describe('injectContext', () => {
 
     expect(result).toBe(
       '[CONTEXT]\n' +
-      'enclave: production\n' +
-      'user_email: alice@example.com\n' +
-      'slack_user_id: U012ABC\n' +
-      'mode: enclave\n' +
-      '[/CONTEXT]\n' +
-      '\n' +
-      'list workflows',
+        'enclave: production\n' +
+        'user_email: alice@example.com\n' +
+        'slack_user_id: U012ABC\n' +
+        'mode: enclave\n' +
+        '[/CONTEXT]\n' +
+        '\n' +
+        'list workflows',
     );
   });
 
@@ -32,13 +32,13 @@ describe('injectContext', () => {
 
     expect(result).toBe(
       '[CONTEXT]\n' +
-      'enclave: none\n' +
-      'user_email: unknown\n' +
-      'slack_user_id: U999XYZ\n' +
-      'mode: dm\n' +
-      '[/CONTEXT]\n' +
-      '\n' +
-      'what enclaves exist?',
+        'enclave: none\n' +
+        'user_email: unknown\n' +
+        'slack_user_id: U999XYZ\n' +
+        'mode: dm\n' +
+        '[/CONTEXT]\n' +
+        '\n' +
+        'what enclaves exist?',
     );
   });
 

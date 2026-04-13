@@ -155,7 +155,9 @@ export class AgentRunner {
 
         // Record GenAI span attributes (no prompt/response content — privacy)
         if (lastAssistant && 'usage' in lastAssistant) {
-          const usage = (lastAssistant as { usage?: { input?: number; output?: number } }).usage;
+          const usage = (
+            lastAssistant as { usage?: { input?: number; output?: number } }
+          ).usage;
           if (usage) {
             span.setAttribute('gen_ai.system', this.deps.model.provider);
             span.setAttribute('gen_ai.request.model', this.deps.model.id);
@@ -200,9 +202,9 @@ export class AgentRunner {
 
     // Build system prompt (placeholder layers for Phase 1)
     const systemPrompt = buildSystemPrompt({
-      globalMemory: null,   // Phase 1 placeholder — Phase 3 reads from git-state
-      enclaveMemory: null,  // Phase 1 placeholder — Phase 3 reads from git-state
-      skills: null,         // Phase 1 placeholder — Phase 3 injects skill docs
+      globalMemory: null, // Phase 1 placeholder — Phase 3 reads from git-state
+      enclaveMemory: null, // Phase 1 placeholder — Phase 3 reads from git-state
+      skills: null, // Phase 1 placeholder — Phase 3 injects skill docs
     });
 
     const agent = new Agent({

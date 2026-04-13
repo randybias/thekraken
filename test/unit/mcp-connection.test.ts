@@ -83,9 +83,17 @@ describe('createMcpConnection (with mocked Client)', () => {
         close = vi.fn().mockResolvedValue(undefined);
         listTools = vi.fn().mockResolvedValue({
           tools: [
-            { name: 'wf_list', description: 'List workflows', inputSchema: { type: 'object' } },
+            {
+              name: 'wf_list',
+              description: 'List workflows',
+              inputSchema: { type: 'object' },
+            },
             { name: 'unknown_tool', description: 'Unknown', inputSchema: {} },
-            { name: 'wf_status', description: 'Status', inputSchema: { type: 'object' } },
+            {
+              name: 'wf_status',
+              description: 'Status',
+              inputSchema: { type: 'object' },
+            },
           ],
         });
         callTool = vi.fn().mockResolvedValue({
@@ -101,7 +109,8 @@ describe('createMcpConnection (with mocked Client)', () => {
       },
     }));
 
-    const { createMcpConnection } = await import('../../src/agent/mcp-connection.js');
+    const { createMcpConnection } =
+      await import('../../src/agent/mcp-connection.js');
     const conn = await createMcpConnection('http://mcp:8080', 'test-token');
 
     // Should have tools for wf_list and wf_status but NOT unknown_tool
@@ -127,7 +136,8 @@ describe('createMcpConnection (with mocked Client)', () => {
       },
     }));
 
-    const { createMcpConnection } = await import('../../src/agent/mcp-connection.js');
+    const { createMcpConnection } =
+      await import('../../src/agent/mcp-connection.js');
     const conn = await createMcpConnection('http://mcp:8080', 'test-token');
     expect(await conn.healthCheck()).toBe(true);
   });
@@ -148,7 +158,8 @@ describe('createMcpConnection (with mocked Client)', () => {
       },
     }));
 
-    const { createMcpConnection } = await import('../../src/agent/mcp-connection.js');
+    const { createMcpConnection } =
+      await import('../../src/agent/mcp-connection.js');
     const conn = await createMcpConnection('http://mcp:8080', 'test-token');
     expect(await conn.healthCheck()).toBe(false);
   });
@@ -160,7 +171,11 @@ describe('createMcpConnection (with mocked Client)', () => {
         close = vi.fn().mockResolvedValue(undefined);
         listTools = vi.fn().mockResolvedValue({
           tools: [
-            { name: 'wf_list', description: 'List workflows', inputSchema: { type: 'object', properties: {} } },
+            {
+              name: 'wf_list',
+              description: 'List workflows',
+              inputSchema: { type: 'object', properties: {} },
+            },
           ],
         });
         callTool = vi.fn().mockResolvedValue({
@@ -176,7 +191,8 @@ describe('createMcpConnection (with mocked Client)', () => {
       },
     }));
 
-    const { createMcpConnection } = await import('../../src/agent/mcp-connection.js');
+    const { createMcpConnection } =
+      await import('../../src/agent/mcp-connection.js');
     const conn = await createMcpConnection('http://mcp:8080', 'test-token');
 
     expect(conn.tools).toHaveLength(1);

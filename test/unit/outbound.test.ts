@@ -17,24 +17,35 @@ describe('OutboundTracker', () => {
   });
 
   it('hasOutboundInThread returns false when no messages stored', () => {
-    expect(tracker.hasOutboundInThread('C001', '1234567890.000000')).toBe(false);
+    expect(tracker.hasOutboundInThread('C001', '1234567890.000000')).toBe(
+      false,
+    );
   });
 
   it('store persists a message and hasOutboundInThread returns true', () => {
-    tracker.store('C001', '1234567890.000000', '1234567891.000001', 'Hello world');
+    tracker.store(
+      'C001',
+      '1234567890.000000',
+      '1234567891.000001',
+      'Hello world',
+    );
     expect(tracker.hasOutboundInThread('C001', '1234567890.000000')).toBe(true);
   });
 
   it('hasOutboundInThread is channel-specific', () => {
     tracker.store('C001', '1234567890.000000', '1234567891.000001', 'Hello');
     // Different channel — should not match
-    expect(tracker.hasOutboundInThread('C002', '1234567890.000000')).toBe(false);
+    expect(tracker.hasOutboundInThread('C002', '1234567890.000000')).toBe(
+      false,
+    );
   });
 
   it('hasOutboundInThread is thread-specific', () => {
     tracker.store('C001', '1111111111.000000', '1111111112.000000', 'Hello');
     // Different thread in same channel
-    expect(tracker.hasOutboundInThread('C001', '2222222222.000000')).toBe(false);
+    expect(tracker.hasOutboundInThread('C001', '2222222222.000000')).toBe(
+      false,
+    );
   });
 
   it('store is idempotent — duplicate inserts do not throw', () => {
@@ -51,11 +62,18 @@ describe('OutboundTracker', () => {
 
   it('simulates restart dedup — messages survive db reference reuse', () => {
     // Simulate Phase 1 restart: same db file, new tracker instance
-    tracker.store('C001', '1234567890.000000', '1234567891.000001', 'First response');
+    tracker.store(
+      'C001',
+      '1234567890.000000',
+      '1234567891.000001',
+      'First response',
+    );
 
     // New tracker instance (same db) — simulates restart
     const tracker2 = new OutboundTracker(db);
-    expect(tracker2.hasOutboundInThread('C001', '1234567890.000000')).toBe(true);
+    expect(tracker2.hasOutboundInThread('C001', '1234567890.000000')).toBe(
+      true,
+    );
   });
 
   it('stores multiple messages in the same thread', () => {
@@ -70,7 +88,9 @@ describe('OutboundTracker', () => {
 
     // Verify all three rows exist
     const rows = db
-      .prepare('SELECT COUNT(*) as n FROM outbound_messages WHERE channel_id = ? AND thread_ts = ?')
+      .prepare(
+        'SELECT COUNT(*) as n FROM outbound_messages WHERE channel_id = ? AND thread_ts = ?',
+      )
       .get(channelId, threadTs) as { n: number };
     expect(rows.n).toBe(3);
   });

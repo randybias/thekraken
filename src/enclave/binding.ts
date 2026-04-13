@@ -71,7 +71,9 @@ export class EnclaveBindingEngine {
    */
   count(): number {
     const row = this.db
-      .prepare(`SELECT COUNT(*) as n FROM enclave_bindings WHERE status = 'active'`)
+      .prepare(
+        `SELECT COUNT(*) as n FROM enclave_bindings WHERE status = 'active'`,
+      )
       .get() as { n: number };
     return row.n;
   }

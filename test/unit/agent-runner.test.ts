@@ -139,18 +139,22 @@ describe('AgentRunner', () => {
   });
 
   it('hasThread returns true after first message', async () => {
-    await runner.handleMessage(
-      'D001:1234567890.000000',
-      'hello',
-      { enclaveName: null, slackUserId: 'U001', mode: 'dm' },
-    );
+    await runner.handleMessage('D001:1234567890.000000', 'hello', {
+      enclaveName: null,
+      slackUserId: 'U001',
+      mode: 'dm',
+    });
     expect(runner.hasThread('D001:1234567890.000000')).toBe(true);
   });
 
   it('creates only one agent per thread across multiple messages', async () => {
     const threadKey = 'D001:1234567890.000000';
     // Use DM mode to avoid FK constraint (no enclave binding needed)
-    const context = { enclaveName: null, slackUserId: 'U001', mode: 'dm' as const };
+    const context = {
+      enclaveName: null,
+      slackUserId: 'U001',
+      mode: 'dm' as const,
+    };
 
     await runner.handleMessage(threadKey, 'msg 1', context);
     await runner.handleMessage(threadKey, 'msg 2', context);
@@ -162,11 +166,27 @@ describe('AgentRunner', () => {
 
   it('creates separate agents for different threads', async () => {
     // Use DM mode to avoid FK constraint
-    const ctx1 = { enclaveName: null, slackUserId: 'U001', mode: 'dm' as const };
-    const ctx2 = { enclaveName: null, slackUserId: 'U002', mode: 'dm' as const };
+    const ctx1 = {
+      enclaveName: null,
+      slackUserId: 'U001',
+      mode: 'dm' as const,
+    };
+    const ctx2 = {
+      enclaveName: null,
+      slackUserId: 'U002',
+      mode: 'dm' as const,
+    };
 
-    await runner.handleMessage('D001:1111111111.000000', 'msg for thread 1', ctx1);
-    await runner.handleMessage('D002:2222222222.000000', 'msg for thread 2', ctx2);
+    await runner.handleMessage(
+      'D001:1111111111.000000',
+      'msg for thread 1',
+      ctx1,
+    );
+    await runner.handleMessage(
+      'D002:2222222222.000000',
+      'msg for thread 2',
+      ctx2,
+    );
 
     expect(runner.hasThread('D001:1111111111.000000')).toBe(true);
     expect(runner.hasThread('D002:2222222222.000000')).toBe(true);
@@ -179,19 +199,23 @@ describe('AgentRunner', () => {
        VALUES ('C001', 'prod', 'U_OWNER', 'active')`,
     ).run();
 
-    await runner.handleMessage(
-      'C001:1234567890.000000',
-      'hello',
-      { enclaveName: 'prod', slackUserId: 'U001', mode: 'enclave' },
-    );
+    await runner.handleMessage('C001:1234567890.000000', 'hello', {
+      enclaveName: 'prod',
+      slackUserId: 'U001',
+      mode: 'enclave',
+    });
 
     const row = db
-      .prepare('SELECT * FROM thread_sessions WHERE channel_id = ? AND thread_ts = ?')
-      .get('C001', '1234567890.000000') as {
-        session_id: string;
-        enclave_name: string;
-        user_slack_id: string;
-      } | undefined;
+      .prepare(
+        'SELECT * FROM thread_sessions WHERE channel_id = ? AND thread_ts = ?',
+      )
+      .get('C001', '1234567890.000000') as
+      | {
+          session_id: string;
+          enclave_name: string;
+          user_slack_id: string;
+        }
+      | undefined;
 
     expect(row).toBeDefined();
     expect(row!.session_id).toBe('C001:1234567890.000000');
@@ -201,14 +225,16 @@ describe('AgentRunner', () => {
 
   it('DM mode does not record in thread_sessions (no FK for DMs)', async () => {
     // DM threads skip thread_sessions due to FK constraint on enclave_name
-    await runner.handleMessage(
-      'D001:1234567890.000000',
-      'hello',
-      { enclaveName: null, slackUserId: 'U001', mode: 'dm' },
-    );
+    await runner.handleMessage('D001:1234567890.000000', 'hello', {
+      enclaveName: null,
+      slackUserId: 'U001',
+      mode: 'dm',
+    });
 
     const row = db
-      .prepare('SELECT * FROM thread_sessions WHERE channel_id = ? AND thread_ts = ?')
+      .prepare(
+        'SELECT * FROM thread_sessions WHERE channel_id = ? AND thread_ts = ?',
+      )
       .get('D001', '1234567890.000000');
 
     expect(row).toBeUndefined();
@@ -216,11 +242,11 @@ describe('AgentRunner', () => {
 
   it('shutdown() clears all agents', async () => {
     const threadKey = 'D001:1234567890.000000';
-    await runner.handleMessage(
-      threadKey,
-      'hello',
-      { enclaveName: null, slackUserId: 'U001', mode: 'dm' },
-    );
+    await runner.handleMessage(threadKey, 'hello', {
+      enclaveName: null,
+      slackUserId: 'U001',
+      mode: 'dm',
+    });
     expect(runner.hasThread(threadKey)).toBe(true);
 
     await runner.shutdown(1000);

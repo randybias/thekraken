@@ -247,13 +247,19 @@ export function loadConfig(): KrakenConfig {
   const requiredProviders = new Set([defaultProvider, ...allowedProviders]);
   for (const provider of requiredProviders) {
     if (provider === 'anthropic' && !anthropicApiKey) {
-      errors.push(`ANTHROPIC_API_KEY is required because 'anthropic' is in allowedProviders`);
+      errors.push(
+        `ANTHROPIC_API_KEY is required because 'anthropic' is in allowedProviders`,
+      );
     }
     if (provider === 'openai' && !openaiApiKey) {
-      errors.push(`OPENAI_API_KEY is required because 'openai' is in allowedProviders`);
+      errors.push(
+        `OPENAI_API_KEY is required because 'openai' is in allowedProviders`,
+      );
     }
     if (provider === 'google' && !geminiApiKey) {
-      errors.push(`GEMINI_API_KEY is required because 'google' is in allowedProviders`);
+      errors.push(
+        `GEMINI_API_KEY is required because 'google' is in allowedProviders`,
+      );
     }
   }
 

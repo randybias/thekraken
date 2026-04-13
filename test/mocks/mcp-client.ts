@@ -60,10 +60,14 @@ export class MCPMock {
       listTools: async () => ({
         tools: self.tools,
       }),
-      callTool: async (
-        params: { name: string; arguments?: Record<string, unknown> },
-      ) => {
-        self.calls.push({ name: params.name, arguments: params.arguments ?? {} });
+      callTool: async (params: {
+        name: string;
+        arguments?: Record<string, unknown>;
+      }) => {
+        self.calls.push({
+          name: params.name,
+          arguments: params.arguments ?? {},
+        });
 
         const queue = self.toolResults[params.name];
         if (queue && queue.length > 0) {
