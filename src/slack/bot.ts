@@ -251,10 +251,13 @@ async function executeDecision(
       case 'spawn_and_forward': {
         // Spawn a new team BEFORE writing the first mailbox record.
         // Without this, the mailbox record sits unread (M1 code review fix).
+        // D6: userToken is empty in Phase 1 (no OIDC yet). Phase 2 passes
+        // the authenticated user's token here. Teams MUST NOT make
+        // authenticated MCP calls without a real user token.
         await deps.teams.spawnTeam(
           action.enclaveName,
           inbound.userId,
-          deps.config.mcp.serviceToken, // Phase 1 placeholder; Phase 2: per-user OIDC
+          '', // Phase 1: no user token. Phase 2: per-user OIDC token.
         );
         deps.teams.sendToTeam(action.enclaveName, {
           id: randomUUID(),
@@ -264,13 +267,12 @@ async function executeDecision(
           threadTs,
           channelId: inbound.channelId,
           userSlackId: inbound.userId,
-          userToken: deps.config.mcp.serviceToken,
+          userToken: '', // Phase 1: empty. Phase 2: per-user OIDC token.
           message: inbound.text,
         });
         break;
       }
       case 'forward_to_active_team': {
-        // Team already running — just write to its mailbox.
         deps.teams.sendToTeam(action.enclaveName, {
           id: randomUUID(),
           timestamp: new Date().toISOString(),
@@ -279,8 +281,7 @@ async function executeDecision(
           threadTs,
           channelId: inbound.channelId,
           userSlackId: inbound.userId,
-          // Phase 1: MCP_SERVICE_TOKEN as placeholder. Phase 2: real user token.
-          userToken: deps.config.mcp.serviceToken,
+          userToken: '', // Phase 1: empty. Phase 2: per-user OIDC token.
           message: inbound.text,
         });
         break;

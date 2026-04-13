@@ -69,7 +69,7 @@ const baseConfig = {
     mode: 'http' as const,
   },
   server: { port: 3000 },
-  mcp: { url: 'http://mcp:8080', port: 8080, serviceToken: 'svc-token' },
+  mcp: { url: 'http://mcp:8080', port: 8080 },
   oidc: {
     issuer: 'http://keycloak',
     clientId: 'kraken',

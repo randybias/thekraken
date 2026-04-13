@@ -19,8 +19,9 @@
  * wires this to a real pi AgentSession via createAgentSession().
  *
  * D6: Every enclave team subprocess carries the initiating user's
- * OIDC token. Phase 1 uses MCP_SERVICE_TOKEN as a placeholder.
- * Phase 2 OIDC replaces this with per-user device-flow tokens.
+ * OIDC token. Phase 1 has no user tokens (OIDC is Phase 2), so
+ * authenticated MCP calls are not possible yet. Phase 2 wires up
+ * per-user device-flow tokens. There is NO service token concept.
  */
 
 import { loadConfig } from './config.js';

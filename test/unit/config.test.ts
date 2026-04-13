@@ -10,7 +10,6 @@ const REQUIRED_VARS = [
   'OIDC_CLIENT_ID',
   'OIDC_CLIENT_SECRET',
   'TENTACULAR_MCP_URL',
-  'MCP_SERVICE_TOKEN',
   'GIT_STATE_REPO_URL',
   'ANTHROPIC_API_KEY',
 ];
@@ -22,7 +21,6 @@ function setRequiredEnv(): void {
   process.env['OIDC_CLIENT_ID'] = 'thekraken';
   process.env['OIDC_CLIENT_SECRET'] = 'test-secret';
   process.env['TENTACULAR_MCP_URL'] = 'http://tentacular-mcp:8080';
-  process.env['MCP_SERVICE_TOKEN'] = 'test-service-token';
   process.env['GIT_STATE_REPO_URL'] = 'https://github.com/test/workflows.git';
   // Narrow to anthropic-only to avoid requiring OpenAI/Gemini keys in tests
   // that don't care about multi-provider scenarios.
@@ -221,12 +219,6 @@ describe('loadConfig', () => {
   });
 
   // T04: LLM API key validation tests
-
-  it('exposes MCP service token in config', () => {
-    setRequiredEnv();
-    const config = loadConfig();
-    expect(config.mcp.serviceToken).toBe('test-service-token');
-  });
 
   it('fails when ANTHROPIC_API_KEY missing and anthropic is default provider', () => {
     setRequiredEnv();

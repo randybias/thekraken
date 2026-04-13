@@ -17,7 +17,6 @@ a clear error if any are missing.
 | `mcp.url` | ConfigMap | Tentacular MCP server URL |
 | `oidc.issuer` | ConfigMap | Keycloak realm URL |
 | `oidc.clientId` | ConfigMap | OIDC client ID |
-| `secrets.mcpServiceToken` | Secret | Phase 1 MCP service token |
 
 ## Optional Values
 
@@ -46,7 +45,6 @@ helm install thekraken ./charts/thekraken \
   --set secrets.slackBotToken=xoxb-... \
   --set secrets.slackSigningSecret=... \
   --set secrets.anthropicApiKey=sk-ant-... \
-  --set secrets.mcpServiceToken=... \
   --set mcp.url=http://tentacular-mcp:8080 \
   --set oidc.issuer=https://keycloak/realms/tentacular \
   --set oidc.clientId=thekraken \
@@ -74,5 +72,4 @@ helm lint charts/thekraken \
   --set oidc.issuer=https://kc \
   --set oidc.clientId=k \
   --set mcp.url=http://mcp:8080 \
-  --set secrets.mcpServiceToken=x
 ```

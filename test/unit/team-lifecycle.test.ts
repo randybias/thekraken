@@ -108,7 +108,7 @@ function makeConfig(teamsDir: string): KrakenConfig {
       clientId: 'kraken',
       clientSecret: 'sec',
     },
-    mcp: { url: 'http://mcp:8080', port: 8080, serviceToken: 'svc-token' },
+    mcp: { url: 'http://mcp:8080', port: 8080 },
     llm: {
       defaultProvider: 'anthropic',
       defaultModel: 'claude-sonnet-4-6',

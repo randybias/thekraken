@@ -39,8 +39,8 @@ and prompt re-auth.
 Phase 1 delivers the core dispatcher loop with team spawning infrastructure.
 The "smart path" (LLM-powered reasoning) is a placeholder returning static
 responses — it will be wired to a real pi `AgentSession` in Phase 2+.
-Per-user OIDC tokens are Phase 2; Phase 1 uses `MCP_SERVICE_TOKEN` as a
-placeholder in mailbox records.
+Per-user OIDC tokens are Phase 2. Phase 1 cannot make authenticated MCP
+calls — there is no service token concept in this system (D6).
 
 ## Environment Variables
 
@@ -55,7 +55,6 @@ placeholder in mailbox records.
 | `OIDC_CLIENT_ID` | OIDC client ID |
 | `OIDC_CLIENT_SECRET` | OIDC client secret |
 | `TENTACULAR_MCP_URL` | Tentacular MCP server URL |
-| `MCP_SERVICE_TOKEN` | Service token for MCP calls (Phase 1 placeholder; replaced by per-user tokens in Phase 2) |
 | `GIT_STATE_REPO_URL` | Git-backed state repository URL (hard requirement) |
 | `ANTHROPIC_API_KEY` | Required if defaultProvider is anthropic |
 
@@ -97,7 +96,6 @@ helm install thekraken ./charts/thekraken \
   --set secrets.slackBotToken=xoxb-... \
   --set secrets.slackSigningSecret=... \
   --set secrets.anthropicApiKey=sk-ant-... \
-  --set secrets.mcpServiceToken=... \
   --set mcp.url=http://tentacular-mcp:8080 \
   --set oidc.issuer=https://keycloak.example.com/realms/tentacular \
   --set oidc.clientId=thekraken \

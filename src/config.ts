@@ -34,12 +34,9 @@ export interface McpConfig {
   url: string;
   /** Port for NetworkPolicy scoping. Default: 8080. */
   port: number;
-  /**
-   * Bearer token for MCP server authentication. From MCP_SERVICE_TOKEN env var
-   * (Kubernetes Secret). Never logged, never stored in SQLite, never in OTel spans.
-   * Phase 1: service token for all calls. Phase 2: per-user tokens added on top.
-   */
-  serviceToken: string;
+  // No service token. MCP authentication is per-user only (D6).
+  // Phase 1: no authenticated MCP calls possible (no OIDC yet).
+  // Phase 2: per-user OIDC tokens from device flow stored in SQLite.
 }
 
 export interface LlmConfig {
@@ -211,7 +208,6 @@ export function loadConfig(): KrakenConfig {
 
   // MCP
   const mcpUrl = required('TENTACULAR_MCP_URL');
-  const mcpServiceToken = required('MCP_SERVICE_TOKEN');
 
   // Git state (mandatory — no opt-in toggle)
   const gitStateRepoUrl = required('GIT_STATE_REPO_URL');
@@ -288,7 +284,6 @@ export function loadConfig(): KrakenConfig {
     mcp: {
       url: mcpUrl,
       port: validatedPort('MCP_PORT', optional('MCP_PORT', '8080')),
-      serviceToken: mcpServiceToken,
     },
     llm: {
       defaultProvider,

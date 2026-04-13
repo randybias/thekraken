@@ -53,7 +53,8 @@ export interface MailboxRecord {
   userSlackId: string;
   /**
    * D6: User's OIDC token. ONLY in mailbox. Never in outbound or signals.
-   * Phase 1: MCP_SERVICE_TOKEN as placeholder until Phase 2 OIDC.
+   * Phase 1: empty string (no OIDC yet). Phase 2: real per-user token.
+   * There is NO service token concept — only user tokens exist.
    */
   userToken: string;
   message: string;
@@ -153,10 +154,10 @@ export class TeamLifecycleManager {
     const piPath = resolvePiBinary();
     const gitStateDir = join(this.config.gitState.dir, enclaveName);
 
-    // M2 fix: construct a MINIMAL allow-listed env instead of spreading
-    // process.env. Prevents MCP_SERVICE_TOKEN, OIDC_CLIENT_SECRET,
-    // SLACK_BOT_TOKEN, and other secrets from leaking into the subprocess.
-    // D6: Only TNTC_ACCESS_TOKEN carries auth to MCP.
+    // Construct a MINIMAL allow-listed env. Never spread process.env —
+    // it would leak OIDC_CLIENT_SECRET, SLACK_BOT_TOKEN, and other
+    // secrets into the subprocess (the builder has bash access).
+    // D6: Only TNTC_ACCESS_TOKEN carries auth to MCP (per-user token).
     const subprocessEnv: Record<string, string> = {
       // System essentials
       PATH: process.env['PATH'] ?? '/usr/local/bin:/usr/bin:/bin',
