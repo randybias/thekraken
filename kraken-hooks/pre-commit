@@ -1,0 +1,68 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Pre-commit hook for git-state repo.
+# Auto-bumps version: N -> N+1 in workflow.yaml for any tentacle with staged changes.
+# Ignores CONTEXT.md-only changes (doc commits should not bump version).
+
+ENCLAVES_DIR="enclaves"
+
+# Get list of staged files under enclaves/
+staged_files=$(git diff --cached --name-only --diff-filter=ACMR -- "${ENCLAVES_DIR}/")
+
+if [ -z "${staged_files}" ]; then
+  exit 0
+fi
+
+# Extract unique tentacle directories (enclave/tentacle pairs)
+tentacle_dirs=()
+while IFS= read -r file; do
+  # Skip CONTEXT.md at any level
+  if [[ "${file}" == */CONTEXT.md ]]; then
+    continue
+  fi
+
+  # Extract enclave/tentacle path: enclaves/<enclave>/<tentacle>/...
+  # We need at least 3 path components under enclaves/
+  dir=$(echo "${file}" | cut -d'/' -f1-3)
+  component_count=$(echo "${dir}" | tr '/' '\n' | wc -l)
+  if [ "${component_count}" -ge 3 ]; then
+    tentacle_dirs+=("${dir}")
+  fi
+done <<< "${staged_files}"
+
+if [ "${#tentacle_dirs[@]}" -eq 0 ]; then
+  exit 0
+fi
+
+# Deduplicate
+mapfile -t unique_dirs < <(printf '%s\n' "${tentacle_dirs[@]}" | sort -u)
+
+for tentacle_dir in "${unique_dirs[@]}"; do
+  workflow_file="${tentacle_dir}/workflow.yaml"
+
+  if [ ! -f "${workflow_file}" ]; then
+    continue
+  fi
+
+  # Read current version
+  current_version=$(sed -n 's/^version: *\([0-9]*\)$/\1/p' "${workflow_file}")
+
+  if [ -z "${current_version}" ]; then
+    echo "WARNING: No 'version:' field found in ${workflow_file}, skipping bump" >&2
+    continue
+  fi
+
+  new_version=$((current_version + 1))
+
+  # Replace version line in place — use temp file for BSD (macOS) + GNU sed compatibility.
+  # sed -i'' behaves differently on macOS BSD sed vs GNU sed; tmp-file approach is portable.
+  tmp_file=$(mktemp)
+  sed "s/^version: *${current_version}$/version: ${new_version}/" "${workflow_file}" > "${tmp_file}"
+  mv "${tmp_file}" "${workflow_file}"
+
+  # Re-stage the bumped file
+  git add "${workflow_file}"
+
+  echo "pre-commit: bumped ${workflow_file} from v${current_version} to v${new_version}"
+done
