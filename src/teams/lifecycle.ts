@@ -153,19 +153,38 @@ export class TeamLifecycleManager {
     const piPath = resolvePiBinary();
     const gitStateDir = join(this.config.gitState.dir, enclaveName);
 
+    // M2 fix: construct a MINIMAL allow-listed env instead of spreading
+    // process.env. Prevents MCP_SERVICE_TOKEN, OIDC_CLIENT_SECRET,
+    // SLACK_BOT_TOKEN, and other secrets from leaking into the subprocess.
+    // D6: Only TNTC_ACCESS_TOKEN carries auth to MCP.
+    const subprocessEnv: Record<string, string> = {
+      // System essentials
+      PATH: process.env['PATH'] ?? '/usr/local/bin:/usr/bin:/bin',
+      HOME: process.env['HOME'] ?? '/home/node',
+      NODE_ENV: process.env['NODE_ENV'] ?? 'production',
+      // D6: User's OIDC token ONLY
+      TNTC_ACCESS_TOKEN: userToken,
+      // Depth guard (pi-subagents pattern)
+      PI_SUBAGENT_DEPTH: '0',
+      PI_SUBAGENT_MAX_DEPTH: '3',
+      // Team directory for NDJSON IPC
+      KRAKEN_TEAM_DIR: teamDir,
+      KRAKEN_ENCLAVE_NAME: enclaveName,
+      // LLM API key for the subprocess (it needs to call the LLM)
+      ...(this.config.llm.anthropicApiKey
+        ? { ANTHROPIC_API_KEY: this.config.llm.anthropicApiKey }
+        : {}),
+      ...(this.config.llm.openaiApiKey
+        ? { OPENAI_API_KEY: this.config.llm.openaiApiKey }
+        : {}),
+      ...(this.config.llm.geminiApiKey
+        ? { GEMINI_API_KEY: this.config.llm.geminiApiKey }
+        : {}),
+    };
+
     const proc = spawn(piPath, ['--mode', 'json', '--cwd', gitStateDir], {
       cwd: gitStateDir,
-      env: {
-        ...process.env,
-        // D6: User's OIDC token ONLY — never a service token, never a fallback
-        TNTC_ACCESS_TOKEN: userToken,
-        // Depth guard (pi-subagents pattern, D11)
-        PI_SUBAGENT_DEPTH: '0',
-        PI_SUBAGENT_MAX_DEPTH: '3',
-        // Team directory for NDJSON IPC
-        KRAKEN_TEAM_DIR: teamDir,
-        KRAKEN_ENCLAVE_NAME: enclaveName,
-      },
+      env: subprocessEnv,
       stdio: ['pipe', 'pipe', 'pipe'],
     });
 

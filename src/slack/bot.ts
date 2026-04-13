@@ -248,9 +248,29 @@ async function executeDecision(
   if (decision.path === 'deterministic') {
     const action = decision.action;
     switch (action.type) {
-      case 'spawn_and_forward':
+      case 'spawn_and_forward': {
+        // Spawn a new team BEFORE writing the first mailbox record.
+        // Without this, the mailbox record sits unread (M1 code review fix).
+        await deps.teams.spawnTeam(
+          action.enclaveName,
+          inbound.userId,
+          deps.config.mcp.serviceToken, // Phase 1 placeholder; Phase 2: per-user OIDC
+        );
+        deps.teams.sendToTeam(action.enclaveName, {
+          id: randomUUID(),
+          timestamp: new Date().toISOString(),
+          from: 'dispatcher',
+          type: 'user_message',
+          threadTs,
+          channelId: inbound.channelId,
+          userSlackId: inbound.userId,
+          userToken: deps.config.mcp.serviceToken,
+          message: inbound.text,
+        });
+        break;
+      }
       case 'forward_to_active_team': {
-        // Forward user message to the enclave team's mailbox
+        // Team already running — just write to its mailbox.
         deps.teams.sendToTeam(action.enclaveName, {
           id: randomUUID(),
           timestamp: new Date().toISOString(),

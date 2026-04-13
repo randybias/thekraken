@@ -125,9 +125,9 @@ async function main(): Promise<void> {
     log.info({ signal }, 'Shutdown initiated');
 
     try {
-      poller.stop();
+      await poller.stop();
       await slackBot.stop();
-      teams.shutdownAll();
+      await teams.shutdownAll();
       await shutdownTelemetry();
       db.close();
       log.info('Shutdown complete');
