@@ -18,9 +18,10 @@ CREATE TABLE IF NOT EXISTS user_tokens (
   slack_user_id TEXT PRIMARY KEY,
   access_token TEXT NOT NULL,
   refresh_token TEXT NOT NULL,
-  expires_at TEXT NOT NULL,
+  expires_at INTEGER NOT NULL,
   keycloak_sub TEXT NOT NULL,
-  email TEXT NOT NULL
+  email TEXT NOT NULL,
+  updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
 );
 
 CREATE TABLE IF NOT EXISTS enclave_bindings (

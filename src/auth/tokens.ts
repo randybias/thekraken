@@ -31,8 +31,7 @@ export function initTokenStore(database: Database.Database): void {
 export function getUserToken(slackUserId: string): StoredToken | undefined {
   return db.prepare(
     `SELECT slack_user_id, access_token, refresh_token,
-            CAST(expires_at AS INTEGER) as expires_at,
-            keycloak_sub, email, updated_at
+            expires_at, keycloak_sub, email, updated_at
      FROM user_tokens WHERE slack_user_id = ?`
   ).get(slackUserId) as StoredToken | undefined;
 }
@@ -58,8 +57,7 @@ export function deleteUserToken(slackUserId: string): void {
 export function getAllUserTokens(): StoredToken[] {
   return db.prepare(
     `SELECT slack_user_id, access_token, refresh_token,
-            CAST(expires_at AS INTEGER) as expires_at,
-            keycloak_sub, email, updated_at
+            expires_at, keycloak_sub, email, updated_at
      FROM user_tokens`
   ).all() as StoredToken[];
 }
