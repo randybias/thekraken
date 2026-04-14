@@ -25,8 +25,12 @@ export interface OidcConfig {
   issuer: string;
   /** OIDC client ID. Required. */
   clientId: string;
-  /** OIDC client secret. Required. */
-  clientSecret: string;
+  /**
+   * OIDC client secret. Optional (public clients omit this).
+   * For Keycloak public clients with device flow, leave unset.
+   * For backwards compat with confidential clients, set OIDC_CLIENT_SECRET.
+   */
+  clientSecret?: string;
 }
 
 export interface McpConfig {
@@ -102,6 +106,12 @@ export interface KrakenConfig {
   teamsDir: string;
   server: ServerConfig;
   observability: ObservabilityConfig;
+  /**
+   * 32-byte AES-256-GCM encryption key for token-at-rest in SQLite.
+   * Sourced from KRAKEN_TOKEN_ENCRYPTION_KEY env var (hex or base64).
+   * Required in Phase 2+.
+   */
+  tokenEncryptionKey: Buffer;
 }
 
 /**
@@ -149,6 +159,21 @@ function parseDisallowedModels(raw: string): string[] {
  * Returns a frozen KrakenConfig object on success.
  */
 export function loadConfig(): KrakenConfig {
+  // Import parseEncryptionKey inline to avoid circular dependency with auth/crypto.ts
+  // The function is small enough to inline here.
+  function parseEncryptionKey(raw: string): Buffer {
+    if (/^[0-9a-fA-F]{64}$/.test(raw)) {
+      return Buffer.from(raw, 'hex');
+    }
+    const buf = Buffer.from(raw, 'base64');
+    if (buf.length !== 32) {
+      throw new Error(
+        `Encryption key must be exactly 32 bytes; got ${buf.length} ` +
+          `(input length: ${raw.length} chars). Use 64 hex chars or 44 base64 chars.`,
+      );
+    }
+    return buf;
+  }
   const missing: string[] = [];
 
   function required(name: string): string {
@@ -204,7 +229,20 @@ export function loadConfig(): KrakenConfig {
   // OIDC
   const oidcIssuer = required('OIDC_ISSUER');
   const oidcClientId = required('OIDC_CLIENT_ID');
-  const oidcClientSecret = required('OIDC_CLIENT_SECRET');
+  // OIDC_CLIENT_SECRET is optional — Keycloak public clients omit it (F5).
+  // Set only for backwards compat with confidential clients.
+  const oidcClientSecret = process.env['OIDC_CLIENT_SECRET'] ?? undefined;
+
+  // Token encryption key — required for Phase 2
+  const encryptionKeyRaw = required('KRAKEN_TOKEN_ENCRYPTION_KEY');
+  let tokenEncryptionKey: Buffer = Buffer.alloc(0);
+  if (encryptionKeyRaw) {
+    try {
+      tokenEncryptionKey = parseEncryptionKey(encryptionKeyRaw);
+    } catch (err) {
+      errors.push(`KRAKEN_TOKEN_ENCRYPTION_KEY: ${(err as Error).message}`);
+    }
+  }
 
   // MCP
   const mcpUrl = required('TENTACULAR_MCP_URL');
@@ -279,7 +317,7 @@ export function loadConfig(): KrakenConfig {
     oidc: {
       issuer: oidcIssuer,
       clientId: oidcClientId,
-      clientSecret: oidcClientSecret,
+      clientSecret: oidcClientSecret, // undefined for public clients
     },
     mcp: {
       url: mcpUrl,
@@ -308,6 +346,7 @@ export function loadConfig(): KrakenConfig {
       otlpEndpoint,
       logLevel,
     },
+    tokenEncryptionKey,
   };
 
   // Throw a single combined error covering both missing-required and invalid

@@ -6,6 +6,7 @@ Added: required() validation for gitState.repoUrl and gitState.credentialsSecret
 */}}
 {{- $_ := required "gitState.repoUrl is required (The Kraken v2 requires git-backed state)" .Values.gitState.repoUrl -}}
 {{- $_ := required "gitState.credentialsSecret is required" .Values.gitState.credentialsSecret -}}
+{{- $_ := required "tokenEncryption.secretName is required (Phase 2: token at-rest encryption)" .Values.tokenEncryption.secretName -}}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -45,6 +46,12 @@ spec:
                 name: {{ include "thekraken.secretName" . }}
             - configMapRef:
                 name: {{ include "thekraken.fullname" . }}
+          env:
+            - name: KRAKEN_TOKEN_ENCRYPTION_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.tokenEncryption.secretName }}
+                  key: {{ .Values.tokenEncryption.key | default "encryption-key" }}
           securityContext:
             {{- toYaml .Values.securityContext | nindent 12 }}
           livenessProbe:

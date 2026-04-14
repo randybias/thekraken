@@ -5,6 +5,7 @@
  * table populated by the admin provisioning flow (Phase 3).
  *
  * Phase 1: read-only. Enclave binding mutations are deferred to Phase 3.
+ * Phase 2: adds isValidEnclaveName validation (F2 followup).
  */
 
 import type Database from 'better-sqlite3';
@@ -12,6 +13,26 @@ import { createChildLogger } from '../logger.js';
 import type { EnclaveBinding } from '../types.js';
 
 export type { EnclaveBinding };
+
+// ---------------------------------------------------------------------------
+// Enclave name validation (F2 — T08)
+// ---------------------------------------------------------------------------
+
+/**
+ * Validate an enclave name against the allowed pattern.
+ *
+ * Rules:
+ *   - Lowercase letters and digits only, plus hyphens
+ *   - Must start with a letter or digit (not a hyphen)
+ *   - 1 to 63 characters total
+ *   - No consecutive hyphens, no trailing hyphens (enforced by DNS compat)
+ *
+ * Regex: /^[a-z0-9][a-z0-9-]{0,62}$/
+ * This mirrors Kubernetes namespace naming rules.
+ */
+export function isValidEnclaveName(name: string): boolean {
+  return /^[a-z0-9][a-z0-9-]{0,62}$/.test(name);
+}
 
 const log = createChildLogger({ module: 'enclave-binding' });
 
