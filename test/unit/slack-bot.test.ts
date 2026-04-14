@@ -12,12 +12,32 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 // ---------------------------------------------------------------------------
+// Mock the auth module — all existing tests assume user is already authenticated.
+// The auth-gate.test.ts covers the unauthenticated path explicitly.
+// ---------------------------------------------------------------------------
+
+vi.mock('../../src/auth/index.js', () => ({
+  getValidTokenForUser: vi.fn().mockResolvedValue('mock-access-token'),
+  initiateDeviceAuth: vi.fn(),
+  pollForToken: vi.fn(),
+  storeTokenForUser: vi.fn(),
+}));
+
+// ---------------------------------------------------------------------------
 // Mock @slack/bolt to avoid real Slack API calls
 // ---------------------------------------------------------------------------
+
+const mockClient = {
+  chat: {
+    postMessage: vi.fn().mockResolvedValue({ ts: 'out-ts' }),
+    postEphemeral: vi.fn().mockResolvedValue({}),
+  },
+};
 
 type EventHandler = (args: {
   event: Record<string, unknown>;
   say: (msg: { text: string; thread_ts?: string }) => Promise<{ ts?: string }>;
+  client: typeof mockClient;
 }) => Promise<void>;
 
 const registeredHandlers: Record<string, EventHandler> = {};
@@ -29,9 +49,7 @@ vi.mock('@slack/bolt', () => ({
     }
     start = vi.fn().mockResolvedValue(undefined);
     stop = vi.fn().mockResolvedValue(undefined);
-    client = {
-      chat: { postMessage: vi.fn().mockResolvedValue({ ts: 'out-ts' }) },
-    };
+    client = mockClient;
   },
   ExpressReceiver: class MockExpressReceiver {
     router = { get: vi.fn() };
@@ -112,7 +130,7 @@ async function getSlackBot() {
 // ---------------------------------------------------------------------------
 
 describe('createSlackBot event handlers (post-pivot)', () => {
-  beforeEach(() => {
+  beforeEach(async () => {
     vi.resetModules();
     vi.clearAllMocks();
     for (const key of Object.keys(registeredHandlers)) {
@@ -120,6 +138,9 @@ describe('createSlackBot event handlers (post-pivot)', () => {
     }
     mockBindings.lookupEnclave.mockReturnValue(null);
     mockTeams.isTeamActive.mockReturnValue(false);
+    // Restore auth mock default: authenticated user with a valid token.
+    const auth = await import('../../src/auth/index.js');
+    vi.mocked(auth.getValidTokenForUser).mockResolvedValue('mock-access-token');
   });
 
   it('registers app_mention and message event handlers', async () => {
@@ -143,6 +164,7 @@ describe('createSlackBot event handlers (post-pivot)', () => {
           ts: '1234.5678',
         },
         say,
+        client: mockClient,
       });
 
       expect(say).not.toHaveBeenCalled();
@@ -169,6 +191,7 @@ describe('createSlackBot event handlers (post-pivot)', () => {
           ts: '1000.1',
         },
         say,
+        client: mockClient,
       });
 
       // Should forward to the team, not call say directly
@@ -196,6 +219,7 @@ describe('createSlackBot event handlers (post-pivot)', () => {
           bot_id: 'B123',
         },
         say,
+        client: mockClient,
       });
 
       expect(say).not.toHaveBeenCalled();
@@ -218,6 +242,7 @@ describe('createSlackBot event handlers (post-pivot)', () => {
           ts: '2000.1',
         },
         say,
+        client: mockClient,
       });
 
       expect(mockSmartPath).toHaveBeenCalledWith(
@@ -249,6 +274,7 @@ describe('createSlackBot event handlers (post-pivot)', () => {
           ts: '3000.1',
         },
         say,
+        client: mockClient,
       });
 
       expect(say).not.toHaveBeenCalled();
@@ -267,6 +293,7 @@ describe('createSlackBot event handlers (post-pivot)', () => {
           ts: '4000.1',
         },
         say,
+        client: mockClient,
       });
 
       expect(say).not.toHaveBeenCalled();
@@ -285,6 +312,7 @@ describe('createSlackBot event handlers (post-pivot)', () => {
           bot_id: 'B456',
         },
         say,
+        client: mockClient,
       });
 
       expect(say).not.toHaveBeenCalled();
