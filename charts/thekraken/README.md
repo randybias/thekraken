@@ -26,18 +26,18 @@ The Kraken encrypts OIDC tokens at rest in SQLite. You must provide a
 
 ```bash
 # Generate a 32-byte hex key
-openssl rand -hex 32 > /tmp/token-key.txt
+KEY=$(openssl rand -hex 32)
 
-# For Mirantis deployments, store in the secrets system first:
-secrets set thekraken/encryption/token-key "$(cat /tmp/token-key.txt)"
+# Store the key in your organization's secrets management system
+# (this is YOUR infrastructure — Tentacular does not manage this key)
 
 # Create the K8s Secret
 kubectl create secret generic thekraken-token-encryption \
-  --from-literal=token-encryption-key=$(cat /tmp/token-key.txt) \
+  --from-literal=token-encryption-key="$KEY" \
   -n tentacular-kraken
 
-# Clean up the temp file
-rm /tmp/token-key.txt
+# Verify the secret exists
+kubectl get secret thekraken-token-encryption -n tentacular-kraken
 ```
 
 Then in your Helm values:
