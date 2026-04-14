@@ -25,6 +25,7 @@ import { NdjsonReader } from './ndjson.js';
 import { OutboundTracker } from '../slack/outbound.js';
 import type { KrakenConfig } from '../config.js';
 import type { TeamLifecycleManager } from './lifecycle.js';
+import { filterJargon, filterNarration } from '../extensions/jargon-filter.js';
 
 const log = createChildLogger({ module: 'outbound-poller' });
 const tracer = trace.getTracer('thekraken.outbound-poller');
@@ -193,9 +194,11 @@ export class OutboundPoller {
         // Per-record dedup via content hash (Codex fix #1).
         // This replaces the previous thread-level dedup which silently
         // dropped all messages after the first post in a thread.
-        const text = record.mentionUser
+        const rawText = record.mentionUser
           ? `<@${record.mentionUser}> ${record.text}`
           : record.text;
+        // Apply jargon filter and narration filter before posting to Slack.
+        const text = filterNarration(filterJargon(rawText));
         const contentHash = createHash('sha256')
           .update(text, 'utf8')
           .digest('hex');

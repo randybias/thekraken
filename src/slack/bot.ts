@@ -33,6 +33,8 @@ import {
   pollForToken,
   storeTokenForUser,
 } from '../auth/index.js';
+import { parseCommand, executeCommand } from '../enclave/commands.js';
+import { handleChannelEvent } from '../enclave/drift.js';
 
 const log = createChildLogger({ module: 'slack-bot' });
 const tracer = trace.getTracer('thekraken.slack');
@@ -42,6 +44,17 @@ export interface SlackBotDeps {
   bindings: EnclaveBindingEngine;
   outbound: OutboundTracker;
   teams: TeamLifecycleManager;
+  /**
+   * Slack bot user ID (e.g. "U012ABC"). Used by channel event handlers to
+   * distinguish the bot's own join/leave events from user events.
+   * Optional — if not provided, channel event handlers skip bot-guard checks.
+   */
+  botUserId?: string;
+  /**
+   * MCP call function. Used by command and channel event handlers to call
+   * enclave_sync and other MCP tools. Optional in Phase 1 (no OIDC).
+   */
+  mcpCall?: (tool: string, params: Record<string, unknown>) => Promise<unknown>;
   /**
    * Called when the smart path is chosen. The dispatcher's AgentSession
    * handles the query and returns a response. Wired in by the main
@@ -141,12 +154,13 @@ function registerEventHandlers(
   // ---------------------------------------------------------------------------
   // app_mention — user @mentions the bot in a channel
   // ---------------------------------------------------------------------------
-  app.event('app_mention', async ({ event, say, client }) => {
+  app.event('app_mention', async ({ event, client, say }) => {
     if ('bot_id' in event) return;
 
     const threadTs = event.thread_ts ?? event.ts;
     const channelId = event.channel;
     const userId = event.user ?? '';
+    const text = event.text ?? '';
 
     return tracer.startActiveSpan('slack.app_mention', async (span) => {
       span.setAttribute('slack.event_type', 'app_mention');
@@ -159,7 +173,7 @@ function registerEventHandlers(
           'mention received',
         );
 
-        // Auth gate (Task 6): verify user has a valid OIDC token before routing.
+        // Auth gate: verify user has a valid OIDC token before routing.
         const userToken = await checkAuthOrPrompt(
           userId,
           channelId,
@@ -168,12 +182,44 @@ function registerEventHandlers(
         );
         if (userToken === null) return;
 
+        // Command router: deterministic commands handled before team dispatch.
+        const parsed = parseCommand(text);
+        if (parsed) {
+          const binding = deps.bindings.lookupEnclave(channelId);
+          if (binding) {
+            await executeCommand(parsed, {
+              channelId,
+              threadTs,
+              senderSlackId: userId,
+              enclaveName: binding.enclaveName,
+              mcpCall: deps.mcpCall ?? (async () => ({})),
+              sendMessage: async (msgText) => {
+                await client.chat.postMessage({
+                  channel: channelId,
+                  thread_ts: threadTs,
+                  text: msgText,
+                });
+              },
+              resolveEmail: async (slackUserId) => {
+                const info = await client.users.info({ user: slackUserId });
+                return (info.user as { profile?: { email?: string } } | undefined)
+                  ?.profile?.email;
+              },
+            });
+            span.setStatus({ code: SpanStatusCode.OK });
+            return;
+          }
+          // Command in unbound channel — silently ignore
+          span.setStatus({ code: SpanStatusCode.OK });
+          return;
+        }
+
         const inbound: InboundEvent = {
           type: 'app_mention',
           channelId,
           threadTs,
           userId,
-          text: event.text ?? '',
+          text,
         };
 
         const decision = routeEvent(inbound, routerDeps);
@@ -198,6 +244,75 @@ function registerEventHandlers(
         span.end();
       }
     });
+  });
+
+  // ---------------------------------------------------------------------------
+  // Channel lifecycle events — member_left_channel, channel_archive,
+  // channel_rename. These are best-effort: log failures but do not rethrow.
+  // ---------------------------------------------------------------------------
+
+  app.event('member_left_channel', async ({ event, client }) => {
+    const channelId = (event as { channel?: string }).channel ?? '';
+    const userId = (event as { user?: string }).user;
+    const binding = deps.bindings.lookupEnclave(channelId);
+    if (!binding) return;
+
+    await handleChannelEvent(
+      'member_left',
+      binding.enclaveName,
+      { userId },
+      {
+        botUserId: deps.botUserId ?? '',
+        mcpCall: deps.mcpCall ?? (async () => ({})),
+        getEnclaveInfo: async () => undefined,
+        invalidateCache: () => undefined,
+        resolveEmail: async (slackUserId) => {
+          const info = await client.users.info({ user: slackUserId });
+          return (info.user as { profile?: { email?: string } } | undefined)
+            ?.profile?.email;
+        },
+      },
+    );
+  });
+
+  app.event('channel_archive', async ({ event }) => {
+    const channelId = (event as { channel?: string }).channel ?? '';
+    const binding = deps.bindings.lookupEnclave(channelId);
+    if (!binding) return;
+
+    await handleChannelEvent(
+      'channel_archive',
+      binding.enclaveName,
+      {},
+      {
+        botUserId: deps.botUserId ?? '',
+        mcpCall: deps.mcpCall ?? (async () => ({})),
+        getEnclaveInfo: async () => undefined,
+        invalidateCache: () => undefined,
+        resolveEmail: async () => undefined,
+      },
+    );
+  });
+
+  app.event('channel_rename', async ({ event }) => {
+    const channelId = (event as { channel?: { id?: string; name?: string } })
+      .channel?.id ?? '';
+    const newName = (event as { channel?: { name?: string } }).channel?.name;
+    const binding = deps.bindings.lookupEnclave(channelId);
+    if (!binding) return;
+
+    await handleChannelEvent(
+      'channel_rename',
+      binding.enclaveName,
+      { newName },
+      {
+        botUserId: deps.botUserId ?? '',
+        mcpCall: deps.mcpCall ?? (async () => ({})),
+        getEnclaveInfo: async () => undefined,
+        invalidateCache: () => undefined,
+        resolveEmail: async () => undefined,
+      },
+    );
   });
 
   // ---------------------------------------------------------------------------
