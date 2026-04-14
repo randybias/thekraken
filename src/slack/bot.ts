@@ -26,6 +26,11 @@ import {
 } from '../dispatcher/router.js';
 import type { TeamLifecycleManager } from '../teams/lifecycle.js';
 import { randomUUID } from 'node:crypto';
+import { authGate } from '../dispatcher/auth-gate.js';
+import type { UserTokenStore } from '../auth/tokens.js';
+import { initiateDeviceAuth, pollForToken } from '../auth/oidc.js';
+import { postAuthCard } from './auth-card.js';
+import { extractSubFromToken, extractEmailFromToken } from '../auth/refresh.js';
 
 const log = createChildLogger({ module: 'slack-bot' });
 const tracer = trace.getTracer('thekraken.slack');
@@ -35,6 +40,10 @@ export interface SlackBotDeps {
   bindings: EnclaveBindingEngine;
   outbound: OutboundTracker;
   teams: TeamLifecycleManager;
+  /** Token store for OIDC token lookup and storage. */
+  tokenStore?: UserTokenStore;
+  /** MCP call function for authz checks (carries user token per D6). */
+  mcpCall?: (tool: string, params: Record<string, unknown>) => Promise<unknown>;
   /**
    * Called when the smart path is chosen. The dispatcher's AgentSession
    * handles the query and returns a response. Wired in by the main
@@ -248,31 +257,116 @@ async function executeDecision(
   if (decision.path === 'deterministic') {
     const action = decision.action;
     switch (action.type) {
-      case 'spawn_and_forward': {
-        // Spawn a new team BEFORE writing the first mailbox record.
-        // Without this, the mailbox record sits unread (M1 code review fix).
-        // D6: userToken is empty in Phase 1 (no OIDC yet). Phase 2 passes
-        // the authenticated user's token here. Teams MUST NOT make
-        // authenticated MCP calls without a real user token.
-        await deps.teams.spawnTeam(
-          action.enclaveName,
-          inbound.userId,
-          '', // Phase 1: no user token. Phase 2: per-user OIDC token.
-        );
-        deps.teams.sendToTeam(action.enclaveName, {
-          id: randomUUID(),
-          timestamp: new Date().toISOString(),
-          from: 'dispatcher',
-          type: 'user_message',
-          threadTs,
-          channelId: inbound.channelId,
-          userSlackId: inbound.userId,
-          userToken: '', // Phase 1: empty. Phase 2: per-user OIDC token.
-          message: inbound.text,
-        });
-        break;
-      }
+      case 'spawn_and_forward':
       case 'forward_to_active_team': {
+        // --- Phase 2 Auth Gate (D6) ---
+        // Before dispatching to a team, authenticate + authorize the user.
+        // If tokenStore is not wired (e.g., in tests), fall back to empty
+        // token (tests mock the auth path separately).
+        let userToken = '';
+
+        if (deps.tokenStore && deps.mcpCall) {
+          const gateResult = await authGate(
+            inbound.userId,
+            action.enclaveName,
+            inbound.text,
+            deps.tokenStore,
+            deps.config.oidc,
+            deps.mcpCall,
+          );
+
+          if (!gateResult.passed) {
+            if (gateResult.reason === 'unauthenticated') {
+              // Trigger OIDC device flow + ephemeral auth card
+              log.info(
+                { userId: inbound.userId, enclave: action.enclaveName },
+                'user not authenticated, initiating device flow',
+              );
+              try {
+                const deviceAuth = await initiateDeviceAuth(deps.config.oidc);
+                // Post ephemeral auth card (only requesting user sees it)
+                const slackClient = (deps as any).app?.client;
+                if (slackClient) {
+                  await postAuthCard(slackClient, {
+                    channel: inbound.channelId,
+                    userId: inbound.userId,
+                    verificationUri:
+                      deviceAuth.verification_uri_complete ??
+                      deviceAuth.verification_uri,
+                    userCode: deviceAuth.user_code,
+                    expiresIn: deviceAuth.expires_in,
+                  });
+                }
+                // Background poll for token (non-blocking)
+                void pollForToken(
+                  deps.config.oidc,
+                  deviceAuth.device_code,
+                  deviceAuth.interval ?? 5,
+                  deviceAuth.expires_in,
+                )
+                  .then((tokenResp) => {
+                    if (tokenResp && deps.tokenStore) {
+                      // Extract sub + email from the JWT for storage
+                      const sub =
+                        extractSubFromToken(tokenResp.access_token) ?? '';
+                      const email =
+                        extractEmailFromToken(tokenResp.access_token) ?? '';
+                      deps.tokenStore.storeUserToken(
+                        inbound.userId,
+                        tokenResp,
+                        sub,
+                        email,
+                      );
+                      log.info(
+                        { userId: inbound.userId },
+                        'user authenticated via device flow',
+                      );
+                    }
+                  })
+                  .catch((err) => {
+                    log.warn(
+                      { err, userId: inbound.userId },
+                      'device flow failed or timed out',
+                    );
+                  });
+              } catch (err) {
+                log.error(
+                  { err, userId: inbound.userId },
+                  'failed to initiate device auth',
+                );
+              }
+              return; // Do NOT forward to team
+            }
+
+            // Denied by authz
+            log.info(
+              { userId: inbound.userId, enclave: action.enclaveName },
+              'user denied by authz',
+            );
+            // Post ephemeral denial (user-only, friendly message)
+            try {
+              await (deps as any).app?.client?.chat?.postEphemeral?.({
+                channel: inbound.channelId,
+                user: inbound.userId,
+                text: "You don't have access to perform that action in this enclave. Ask the enclave owner to add you as a member.",
+              });
+            } catch {
+              // Best effort — ephemeral may fail if bot lacks permission
+            }
+            return; // Do NOT forward to team
+          }
+
+          userToken = gateResult.token;
+        }
+
+        // --- Dispatch to team with real user token ---
+        if (action.type === 'spawn_and_forward') {
+          await deps.teams.spawnTeam(
+            action.enclaveName,
+            inbound.userId,
+            userToken,
+          );
+        }
         deps.teams.sendToTeam(action.enclaveName, {
           id: randomUUID(),
           timestamp: new Date().toISOString(),
@@ -281,7 +375,7 @@ async function executeDecision(
           threadTs,
           channelId: inbound.channelId,
           userSlackId: inbound.userId,
-          userToken: '', // Phase 1: empty. Phase 2: per-user OIDC token.
+          userToken,
           message: inbound.text,
         });
         break;

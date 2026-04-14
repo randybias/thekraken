@@ -33,6 +33,8 @@ import { OutboundTracker } from './slack/outbound.js';
 import { TeamLifecycleManager } from './teams/lifecycle.js';
 import { OutboundPoller } from './teams/outbound-poller.js';
 import { createSlackBot } from './slack/bot.js';
+import { UserTokenStore } from './auth/tokens.js';
+import { startTokenRefreshLoop, stopTokenRefreshLoop } from './auth/refresh.js';
 
 const log = createChildLogger({ module: 'main' });
 
@@ -54,12 +56,18 @@ async function main(): Promise<void> {
   const outbound = new OutboundTracker(db);
   const teams = new TeamLifecycleManager(config, db);
 
+  // 4b. Auth subsystem (Phase 2)
+  const tokenStore = new UserTokenStore(db, config.tokenEncryptionKey);
+  startTokenRefreshLoop(tokenStore, config.oidc);
+  log.info('Token store + refresh loop initialized');
+
   // 5. Slack bot (created first so poller can reference its client)
   const slackBot = createSlackBot({
     config,
     bindings,
     outbound,
     teams,
+    tokenStore,
     onSmartPath: async (ctx) => {
       // Phase 1 placeholder: smart path returns a static message.
       // Phase 2+ wires this to a real pi AgentSession via
@@ -129,6 +137,7 @@ async function main(): Promise<void> {
     log.info({ signal }, 'Shutdown initiated');
 
     try {
+      stopTokenRefreshLoop();
       await poller.stop();
       await slackBot.stop();
       await teams.shutdownAll();
