@@ -3,11 +3,9 @@
  * @modelcontextprotocol/sdk. Wraps each tool call in an OTel span.
  *
  * Design decisions:
- * - Phase 1: service token in Authorization header for all calls
- * - Phase 2: per-user tokens will be layered on top via caller injection
+ * - All MCP calls carry the authenticated user's OIDC access token (D6)
  * - No community adapter — we control the HTTP layer directly
  * - All registered MCP tools exposed in pi-Agent-consumable format
- * - Tool scoping enforcement NOT applied in Phase 1 (Phase 2 adds it)
  */
 
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
@@ -102,20 +100,21 @@ export interface McpConnection {
  * server's tool list. Phase 1 registers all tools; Phase 2 adds
  * enforcement via beforeToolCall.
  *
- * The Bearer token must NEVER be logged, stored in SQLite, or included
- * in OTel span attributes.
+ * The user's OIDC access token is passed in the standard HTTP Authorization
+ * header. It must NEVER be logged, stored in SQLite, or included in OTel
+ * span attributes.
  *
  * @param url - MCP server URL (e.g., "http://tentacular-mcp.tentacular-system:8080")
- * @param bearerToken - Service token (Phase 1) or user token (Phase 2)
+ * @param userAccessToken - The authenticated user's OIDC access token (D6).
  */
 export async function createMcpConnection(
   url: string,
-  bearerToken: string,
+  userAccessToken: string,
 ): Promise<McpConnection> {
   const transport = new StreamableHTTPClientTransport(new URL(url), {
     requestInit: {
       headers: {
-        Authorization: `Bearer ${bearerToken}`,
+        Authorization: `Bearer ${userAccessToken}`,
       },
     },
   });
