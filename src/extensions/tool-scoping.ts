@@ -112,6 +112,19 @@ function getBlockedHint(shortName: string): string {
   return 'This tool requires elevated platform access.';
 }
 
+/** All known tentacular MCP tool names for scoping. */
+const ALL_TENTACULAR_TOOLS = new Set([
+  ...Object.keys(ENCLAVE_SCOPED),
+  ...BLOCKED_IN_ENCLAVE,
+  ...DM_ALLOWED,
+  ...ALWAYS_ALLOWED,
+]);
+
+/** Returns true if this tool name belongs to the tentacular MCP surface. */
+function isTentacularTool(name: string): boolean {
+  return ALL_TENTACULAR_TOOLS.has(name);
+}
+
 // ---------------------------------------------------------------------------
 // Pure evaluation function (exported for unit testing without pi infra)
 // ---------------------------------------------------------------------------
@@ -141,12 +154,22 @@ export function evaluateToolCall(
   toolInput: Record<string, unknown>,
   enclaveName: string | null,
 ): EvaluateResult {
-  // Only scope tentacular MCP tools
-  if (!toolName.startsWith(MCP_PREFIX)) {
+  // Match both prefixed (mcp__tentacular__wf_list) and bare (wf_list) names.
+  // In Kraken v2, tools register with bare names from the MCP server.
+  // The MCP_PREFIX pattern is preserved for future Claude Code compatibility.
+  const hasTentacularPrefix = toolName.startsWith(MCP_PREFIX);
+  const shortName = hasTentacularPrefix
+    ? toolName.slice(MCP_PREFIX.length)
+    : toolName;
+
+  // If the tool has the tentacular prefix, it MUST go through scoping
+  // (even if we don't recognize the short name — fail-closed for unknown
+  // tentacular tools). If it doesn't have the prefix, check if it's a
+  // known tentacular tool by name (bare registration from MCP server).
+  // Everything else (pi built-ins like read/bash/edit/write) passes through.
+  if (!hasTentacularPrefix && !isTentacularTool(shortName)) {
     return { allowed: true };
   }
-
-  const shortName = toolName.slice(MCP_PREFIX.length);
 
   // --- DM mode (enclaveName is null) ---
   if (enclaveName === null) {

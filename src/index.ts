@@ -68,6 +68,24 @@ async function main(): Promise<void> {
     outbound,
     teams,
     tokenStore,
+    // MCP call function for authz checks. Uses the MCP URL from config.
+    // In Phase 2, this does a direct HTTP POST to the MCP server with
+    // no user token (authz check uses enclave_info which is read-only).
+    // Per-user token injection for write ops happens in the team subprocess.
+    mcpCall: async (tool: string, params: Record<string, unknown>) => {
+      const resp = await fetch(`${config.mcp.url}/mcp`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          jsonrpc: '2.0',
+          method: 'tools/call',
+          params: { name: tool, arguments: params },
+          id: Date.now(),
+        }),
+      });
+      const json = (await resp.json()) as { result?: unknown };
+      return json.result;
+    },
     onSmartPath: async (ctx) => {
       // Phase 1 placeholder: smart path returns a static message.
       // Phase 2+ wires this to a real pi AgentSession via

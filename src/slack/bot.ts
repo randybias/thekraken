@@ -42,8 +42,19 @@ export interface SlackBotDeps {
   teams: TeamLifecycleManager;
   /** Token store for OIDC token lookup and storage. */
   tokenStore?: UserTokenStore;
-  /** MCP call function for authz checks (carries user token per D6). */
+  /** MCP call function for authz checks. */
   mcpCall?: (tool: string, params: Record<string, unknown>) => Promise<unknown>;
+  /** Slack WebClient for ephemeral posts (auth card, denial messages). */
+  slackClient?: {
+    chat: {
+      postEphemeral: (params: {
+        channel: string;
+        user: string;
+        text: string;
+        blocks?: unknown[];
+      }) => Promise<unknown>;
+    };
+  };
   /**
    * Called when the smart path is chosen. The dispatcher's AgentSession
    * handles the query and returns a response. Wired in by the main
@@ -91,6 +102,11 @@ export function createSlackBot(deps: SlackBotDeps): SlackBot {
       socketMode: true,
     });
     healthServer = createHealthServer(config.server.port);
+  }
+
+  // Wire the Bolt client into deps for auth card + denial ephemeral posts (FN-4 fix)
+  if (!deps.slackClient) {
+    deps.slackClient = app.client as any;
   }
 
   const routerDeps: RouterDeps = {
@@ -285,9 +301,8 @@ async function executeDecision(
               try {
                 const deviceAuth = await initiateDeviceAuth(deps.config.oidc);
                 // Post ephemeral auth card (only requesting user sees it)
-                const slackClient = (deps as any).app?.client;
-                if (slackClient) {
-                  await postAuthCard(slackClient, {
+                if (deps.slackClient) {
+                  await postAuthCard(deps.slackClient as any, {
                     channel: inbound.channelId,
                     userId: inbound.userId,
                     verificationUri:
@@ -345,11 +360,13 @@ async function executeDecision(
             );
             // Post ephemeral denial (user-only, friendly message)
             try {
-              await (deps as any).app?.client?.chat?.postEphemeral?.({
-                channel: inbound.channelId,
-                user: inbound.userId,
-                text: "You don't have access to perform that action in this enclave. Ask the enclave owner to add you as a member.",
-              });
+              if (deps.slackClient) {
+                await deps.slackClient.chat.postEphemeral({
+                  channel: inbound.channelId,
+                  user: inbound.userId,
+                  text: "You don't have access to perform that action in this enclave. Ask the enclave owner to add you as a member.",
+                });
+              }
             } catch {
               // Best effort — ephemeral may fail if bot lacks permission
             }
