@@ -123,10 +123,10 @@ describe('parseCommand — show prompts command', () => {
     expect(result!.args).toEqual(['my-workflow']);
   });
 
-  it('detects singular "show prompt" and normalises to show-prompts', () => {
+  it('detects singular "show prompt" as show-prompt (detail view command)', () => {
     const result = parseCommand('@kraken show prompt my-wf');
     expect(result).not.toBeNull();
-    expect(result!.command).toBe('show-prompts');
+    expect(result!.command).toBe('show-prompt');
   });
 });
 
@@ -213,38 +213,14 @@ describe('parseCommand — Slack mention format', () => {
 });
 
 // ---------------------------------------------------------------------------
-// executeCommand — stubs send placeholder messages
+// executeCommand — stub handlers (commands not yet implemented)
 // ---------------------------------------------------------------------------
 
-describe('executeCommand — stub handlers', () => {
+describe('executeCommand — remaining stub handlers', () => {
   let ctx: CommandContext;
 
   beforeEach(() => {
     ctx = makeCtx();
-  });
-
-  it('sends a stub message for add command', async () => {
-    const parsed = parseCommand('@kraken add <@UALICE>')!;
-    await executeCommand(parsed, ctx);
-    expect(ctx.sendMessage).toHaveBeenCalledWith(
-      expect.stringContaining('Phase 3'),
-    );
-  });
-
-  it('sends a stub message for members command', async () => {
-    const parsed = parseCommand('@kraken members')!;
-    await executeCommand(parsed, ctx);
-    expect(ctx.sendMessage).toHaveBeenCalledWith(
-      expect.stringContaining('Phase 3'),
-    );
-  });
-
-  it('sends a stub message for whoami command', async () => {
-    const parsed = parseCommand('@kraken whoami')!;
-    await executeCommand(parsed, ctx);
-    expect(ctx.sendMessage).toHaveBeenCalledWith(
-      expect.stringContaining('Phase 3'),
-    );
   });
 
   it('sends a stub message for help command', async () => {
@@ -265,5 +241,172 @@ describe('executeCommand — stub handlers', () => {
     expect(ctx.sendMessage).toHaveBeenCalledWith(
       expect.stringContaining("don't recognise"),
     );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// membership handlers
+// ---------------------------------------------------------------------------
+
+describe('membership handlers', () => {
+  // Owner Slack ID: U_OWNER, email: owner@example.com
+  // Alice Slack ID: U_ALICE, email: alice@example.com
+
+  function makeOwnerCtx(
+    mcpImpl?: (tool: string, params: Record<string, unknown>) => Promise<unknown>,
+  ): CommandContext {
+    return makeCtx({
+      senderSlackId: 'U_OWNER',
+      resolveEmail: vi.fn().mockImplementation(async (id: string) => {
+        if (id === 'U_OWNER') return 'owner@example.com';
+        if (id === 'U_ALICE') return 'alice@example.com';
+        return undefined;
+      }),
+      mcpCall: mcpImpl
+        ? vi.fn().mockImplementation(mcpImpl)
+        : vi.fn().mockImplementation(async (tool: string) => {
+            if (tool === 'enclave_info') {
+              return {
+                owner: 'owner@example.com',
+                members: ['alice@example.com'],
+                mode: 'rwxrwx---',
+                status: 'active',
+              };
+            }
+            return {};
+          }),
+    });
+  }
+
+  function makeMemberCtx(): CommandContext {
+    return makeCtx({
+      senderSlackId: 'U_ALICE',
+      resolveEmail: vi.fn().mockImplementation(async (id: string) => {
+        if (id === 'U_OWNER') return 'owner@example.com';
+        if (id === 'U_ALICE') return 'alice@example.com';
+        return undefined;
+      }),
+      mcpCall: vi.fn().mockImplementation(async (tool: string) => {
+        if (tool === 'enclave_info') {
+          return {
+            owner: 'owner@example.com',
+            members: ['alice@example.com'],
+            mode: 'rwxrwx---',
+            status: 'active',
+          };
+        }
+        return {};
+      }),
+    });
+  }
+
+  describe('add', () => {
+    it('calls enclave_sync with add_members when owner adds a user', async () => {
+      const ctx = makeOwnerCtx();
+      const parsed = parseCommand('@kraken add <@U_ALICE>')!;
+      await executeCommand(parsed, ctx);
+      expect(ctx.mcpCall).toHaveBeenCalledWith('enclave_sync', {
+        name: 'test-enclave',
+        add_members: ['alice@example.com'],
+      });
+      expect(ctx.sendMessage).toHaveBeenCalledWith(
+        expect.stringContaining('alice@example.com'),
+      );
+    });
+
+    it('denies add for non-owner', async () => {
+      const ctx = makeMemberCtx();
+      const parsed = parseCommand('@kraken add <@U_OWNER>')!;
+      await executeCommand(parsed, ctx);
+      expect(ctx.mcpCall).not.toHaveBeenCalledWith(
+        'enclave_sync',
+        expect.anything(),
+      );
+      expect(ctx.sendMessage).toHaveBeenCalledWith(
+        expect.stringContaining('Only the enclave owner'),
+      );
+    });
+  });
+
+  describe('remove', () => {
+    it('calls enclave_sync with remove_members when owner removes a member', async () => {
+      const ctx = makeOwnerCtx();
+      const parsed = parseCommand('@kraken remove <@U_ALICE>')!;
+      await executeCommand(parsed, ctx);
+      expect(ctx.mcpCall).toHaveBeenCalledWith('enclave_sync', {
+        name: 'test-enclave',
+        remove_members: ['alice@example.com'],
+      });
+      expect(ctx.sendMessage).toHaveBeenCalledWith(
+        expect.stringContaining('alice@example.com'),
+      );
+    });
+
+    it('prevents removing the owner', async () => {
+      const ctx = makeOwnerCtx();
+      const parsed = parseCommand('@kraken remove <@U_OWNER>')!;
+      await executeCommand(parsed, ctx);
+      expect(ctx.mcpCall).not.toHaveBeenCalledWith(
+        'enclave_sync',
+        expect.anything(),
+      );
+      expect(ctx.sendMessage).toHaveBeenCalledWith(
+        expect.stringContaining("can't be removed"),
+      );
+    });
+  });
+
+  describe('members', () => {
+    it('lists owner and members from enclave_info', async () => {
+      const ctx = makeOwnerCtx();
+      const parsed = parseCommand('@kraken members')!;
+      await executeCommand(parsed, ctx);
+      expect(ctx.mcpCall).toHaveBeenCalledWith('enclave_info', {
+        name: 'test-enclave',
+      });
+      const msg = (ctx.sendMessage as ReturnType<typeof vi.fn>).mock
+        .calls[0]![0] as string;
+      expect(msg).toContain('owner@example.com');
+      expect(msg).toContain('alice@example.com');
+    });
+  });
+
+  describe('whoami', () => {
+    it('identifies sender as owner', async () => {
+      const ctx = makeOwnerCtx();
+      const parsed = parseCommand('@kraken whoami')!;
+      await executeCommand(parsed, ctx);
+      const msg = (ctx.sendMessage as ReturnType<typeof vi.fn>).mock
+        .calls[0]![0] as string;
+      expect(msg).toContain("the owner");
+    });
+
+    it('identifies sender as member', async () => {
+      const ctx = makeMemberCtx();
+      const parsed = parseCommand('@kraken whoami')!;
+      await executeCommand(parsed, ctx);
+      const msg = (ctx.sendMessage as ReturnType<typeof vi.fn>).mock
+        .calls[0]![0] as string;
+      expect(msg).toContain('a member');
+    });
+
+    it('identifies sender as visitor', async () => {
+      const ctx = makeCtx({
+        senderSlackId: 'U_STRANGER',
+        resolveEmail: vi.fn().mockImplementation(async (id: string) => {
+          if (id === 'U_STRANGER') return 'stranger@example.com';
+          return undefined;
+        }),
+        mcpCall: vi.fn().mockResolvedValue({
+          owner: 'owner@example.com',
+          members: ['alice@example.com'],
+        }),
+      });
+      const parsed = parseCommand('@kraken whoami')!;
+      await executeCommand(parsed, ctx);
+      const msg = (ctx.sendMessage as ReturnType<typeof vi.fn>).mock
+        .calls[0]![0] as string;
+      expect(msg).toContain('a visitor');
+    });
   });
 });

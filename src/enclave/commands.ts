@@ -8,10 +8,26 @@
  *   @kraken whoami
  *   @kraken set mode <preset>
  *   @kraken show prompts [workflow]
+ *   @kraken show prompt <workflow> <name>
+ *   @kraken show templates [workflow]
+ *   @kraken show template <workflow> <name>
  *   @kraken help
  */
 
 import { logger } from '../logger.js';
+import {
+  handleAddMember,
+  handleRemoveMember,
+  handleListMembers,
+  handleWhoami,
+} from './handlers/membership.js';
+import { handleSetMode } from './handlers/mode.js';
+import {
+  handleShowPrompts,
+  handleShowPrompt,
+  handleShowTemplates,
+  handleShowTemplate,
+} from './handlers/prompts.js';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -64,7 +80,7 @@ export function parseCommand(
 
   // Match against known command patterns
   const match = cleaned.match(
-    /^(add|remove|members|whoami|set\s+mode|show\s+prompts?|help)\s*(.*)/i,
+    /^(add|remove|members|whoami|set\s+mode|show\s+prompts|show\s+prompt|show\s+templates|show\s+template|help)\s*(.*)/i,
   );
 
   if (!match) return null;
@@ -74,18 +90,13 @@ export function parseCommand(
   const args = rawArgs.split(/\s+/).filter(Boolean);
 
   // Normalise command to hyphenated form
-  let command = rawCommand.replace(/\s+/g, '-');
-
-  // Singular/plural normalisation: "show prompt" → "show-prompts"
-  // The reference router treats "show-prompt" (singular) as a detail view.
-  // For Phase 3 we expose the single "show-prompts" command.
-  if (command === 'show-prompt') command = 'show-prompts';
+  const command = rawCommand.replace(/\s+/g, '-');
 
   return { command, args, rawArgs };
 }
 
 // ---------------------------------------------------------------------------
-// Stubs — handlers to be replaced in Phase 3 Tasks 3/4
+// Stubs — handlers for commands not yet fully implemented
 // ---------------------------------------------------------------------------
 
 async function stubHandler(
@@ -104,8 +115,7 @@ async function stubHandler(
 /**
  * Execute a parsed @kraken command against the given context.
  *
- * Dispatches to the appropriate handler. Handlers are stubs until Phase 3
- * Tasks 3 and 4 replace them.
+ * Dispatches to the appropriate handler.
  */
 export async function executeCommand(
   parsed: ParsedCommand,
@@ -123,27 +133,39 @@ export async function executeCommand(
   try {
     switch (parsed.command) {
       case 'add':
-        await stubHandler('add', ctx);
+        await handleAddMember(parsed.rawArgs, ctx);
         break;
 
       case 'remove':
-        await stubHandler('remove', ctx);
+        await handleRemoveMember(parsed.rawArgs, ctx);
         break;
 
       case 'members':
-        await stubHandler('members', ctx);
+        await handleListMembers(ctx);
         break;
 
       case 'whoami':
-        await stubHandler('whoami', ctx);
+        await handleWhoami(ctx);
         break;
 
       case 'set-mode':
-        await stubHandler('set mode', ctx);
+        await handleSetMode(parsed.args, ctx);
         break;
 
       case 'show-prompts':
-        await stubHandler('show prompts', ctx);
+        await handleShowPrompts(parsed.args, ctx);
+        break;
+
+      case 'show-prompt':
+        await handleShowPrompt(parsed.args, ctx);
+        break;
+
+      case 'show-templates':
+        await handleShowTemplates(parsed.args, ctx);
+        break;
+
+      case 'show-template':
+        await handleShowTemplate(parsed.args, ctx);
         break;
 
       case 'help':
