@@ -61,7 +61,7 @@ export interface ParsedCommand {
  */
 export function parseCommand(
   text: string,
-  botUserId?: string,
+  _botUserId?: string,
 ): ParsedCommand | null {
   const trimmed = text.trim();
 

@@ -253,7 +253,10 @@ describe('membership handlers', () => {
   // Alice Slack ID: U_ALICE, email: alice@example.com
 
   function makeOwnerCtx(
-    mcpImpl?: (tool: string, params: Record<string, unknown>) => Promise<unknown>,
+    mcpImpl?: (
+      tool: string,
+      params: Record<string, unknown>,
+    ) => Promise<unknown>,
   ): CommandContext {
     return makeCtx({
       senderSlackId: 'U_OWNER',
@@ -378,7 +381,7 @@ describe('membership handlers', () => {
       await executeCommand(parsed, ctx);
       const msg = (ctx.sendMessage as ReturnType<typeof vi.fn>).mock
         .calls[0]![0] as string;
-      expect(msg).toContain("the owner");
+      expect(msg).toContain('the owner');
     });
 
     it('identifies sender as member', async () => {
