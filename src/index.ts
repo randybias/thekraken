@@ -28,7 +28,11 @@ import { loadConfig } from './config.js';
 import { initTelemetry, shutdownTelemetry } from './telemetry.js';
 import { createChildLogger } from './logger.js';
 import { initDatabase } from './db/index.js';
-import { initTokenStore, startTokenRefreshLoop, stopTokenRefreshLoop } from './auth/index.js';
+import {
+  initTokenStore,
+  startTokenRefreshLoop,
+  stopTokenRefreshLoop,
+} from './auth/index.js';
 import { EnclaveBindingEngine } from './enclave/binding.js';
 import { OutboundTracker } from './slack/outbound.js';
 import { TeamLifecycleManager } from './teams/lifecycle.js';

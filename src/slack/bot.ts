@@ -160,7 +160,12 @@ function registerEventHandlers(
         );
 
         // Auth gate (Task 6): verify user has a valid OIDC token before routing.
-        const userToken = await checkAuthOrPrompt(userId, channelId, threadTs, client);
+        const userToken = await checkAuthOrPrompt(
+          userId,
+          channelId,
+          threadTs,
+          client,
+        );
         if (userToken === null) return;
 
         const inbound: InboundEvent = {
@@ -172,7 +177,14 @@ function registerEventHandlers(
         };
 
         const decision = routeEvent(inbound, routerDeps);
-        await executeDecision(decision, inbound, deps, say, threadTs, userToken);
+        await executeDecision(
+          decision,
+          inbound,
+          deps,
+          say,
+          threadTs,
+          userToken,
+        );
 
         span.setStatus({ code: SpanStatusCode.OK });
       } catch (err) {
@@ -287,7 +299,11 @@ async function checkAuthOrPrompt(
     });
 
     // Poll in background — fire and forget.
-    pollForToken(deviceAuth.device_code, deviceAuth.interval, deviceAuth.expires_in)
+    pollForToken(
+      deviceAuth.device_code,
+      deviceAuth.interval,
+      deviceAuth.expires_in,
+    )
       .then((tokens) => storeTokenForUser(userId, tokens))
       .catch((err: unknown) =>
         log.warn({ err, user: userId }, 'Device auth polling failed'),

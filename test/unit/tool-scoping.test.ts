@@ -1,5 +1,8 @@
 import { describe, it, expect } from 'vitest';
-import { evaluateToolCall, getAllowedTentacularTools } from '../../src/extensions/tool-scoping.js';
+import {
+  evaluateToolCall,
+  getAllowedTentacularTools,
+} from '../../src/extensions/tool-scoping.js';
 
 const MCP = 'mcp__tentacular__';
 
@@ -12,11 +15,17 @@ describe('evaluateToolCall', () => {
       if (r.allowed) expect(r.updatedInput).toEqual({ enclave });
     });
     it('blocks cross-enclave access', () => {
-      const r = evaluateToolCall(`${MCP}wf_list`, { enclave: 'other' }, enclave);
+      const r = evaluateToolCall(
+        `${MCP}wf_list`,
+        { enclave: 'other' },
+        enclave,
+      );
       expect(r.allowed).toBe(false);
     });
     it('blocks platform operator tools', () => {
-      expect(evaluateToolCall(`${MCP}enclave_preflight`, {}, enclave).allowed).toBe(false);
+      expect(
+        evaluateToolCall(`${MCP}enclave_preflight`, {}, enclave).allowed,
+      ).toBe(false);
     });
     it('allows health_cluster_summary without injection', () => {
       const r = evaluateToolCall(`${MCP}health_cluster_summary`, {}, enclave);
@@ -24,7 +33,9 @@ describe('evaluateToolCall', () => {
       if (r.allowed) expect(r.updatedInput).toBeUndefined();
     });
     it('blocks unknown tentacular tools', () => {
-      expect(evaluateToolCall(`${MCP}future_tool`, {}, enclave).allowed).toBe(false);
+      expect(evaluateToolCall(`${MCP}future_tool`, {}, enclave).allowed).toBe(
+        false,
+      );
     });
   });
   describe('DM mode', () => {
@@ -37,7 +48,9 @@ describe('evaluateToolCall', () => {
   });
   describe('non-tentacular tools', () => {
     it('allows non-MCP tools', () => {
-      expect(evaluateToolCall('Bash', { command: 'ls' }, 'my-enclave').allowed).toBe(true);
+      expect(
+        evaluateToolCall('Bash', { command: 'ls' }, 'my-enclave').allowed,
+      ).toBe(true);
     });
   });
 });

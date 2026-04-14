@@ -113,7 +113,11 @@ export function resolveRole(userEmail: string, info: EnclaveInfo): Role {
  * - chars 3-5: member/group bits
  * - chars 6-8: visitor/other bits
  */
-export function checkModeBit(mode: string, role: Role, operation: Operation): boolean {
+export function checkModeBit(
+  mode: string,
+  role: Role,
+  operation: Operation,
+): boolean {
   // Owner bypasses mode checks
   if (role === 'owner') return true;
 

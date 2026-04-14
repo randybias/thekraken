@@ -163,7 +163,8 @@ describe('auth gate (Task 6)', () => {
         device_code: 'dev-code-123',
         user_code: 'ABCD-1234',
         verification_uri: 'https://auth.example.com/device',
-        verification_uri_complete: 'https://auth.example.com/device?code=ABCD-1234',
+        verification_uri_complete:
+          'https://auth.example.com/device?code=ABCD-1234',
         expires_in: 300,
         interval: 5,
       });
@@ -235,7 +236,12 @@ describe('auth gate (Task 6)', () => {
       });
       const pollResolved = vi.fn();
       mockPollForToken.mockImplementation(() =>
-        Promise.resolve({ access_token: 'new-at', refresh_token: 'new-rt', expires_in: 3600, token_type: 'Bearer' }),
+        Promise.resolve({
+          access_token: 'new-at',
+          refresh_token: 'new-rt',
+          expires_in: 3600,
+          token_type: 'Bearer',
+        }),
       );
       mockStoreTokenForUser.mockImplementation(pollResolved);
 

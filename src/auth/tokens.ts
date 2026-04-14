@@ -29,11 +29,13 @@ export function initTokenStore(database: Database.Database): void {
 }
 
 export function getUserToken(slackUserId: string): StoredToken | undefined {
-  return db.prepare(
-    `SELECT slack_user_id, access_token, refresh_token,
+  return db
+    .prepare(
+      `SELECT slack_user_id, access_token, refresh_token,
             expires_at, keycloak_sub, email, updated_at
-     FROM user_tokens WHERE slack_user_id = ?`
-  ).get(slackUserId) as StoredToken | undefined;
+     FROM user_tokens WHERE slack_user_id = ?`,
+    )
+    .get(slackUserId) as StoredToken | undefined;
 }
 
 export function setUserToken(slackUserId: string, token: TokenInput): void {
@@ -46,18 +48,29 @@ export function setUserToken(slackUserId: string, token: TokenInput): void {
        expires_at = excluded.expires_at,
        keycloak_sub = excluded.keycloak_sub,
        email = excluded.email,
-       updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')`
-  ).run(slackUserId, token.access_token, token.refresh_token, token.expires_at, token.keycloak_sub, token.email);
+       updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')`,
+  ).run(
+    slackUserId,
+    token.access_token,
+    token.refresh_token,
+    token.expires_at,
+    token.keycloak_sub,
+    token.email,
+  );
 }
 
 export function deleteUserToken(slackUserId: string): void {
-  db.prepare('DELETE FROM user_tokens WHERE slack_user_id = ?').run(slackUserId);
+  db.prepare('DELETE FROM user_tokens WHERE slack_user_id = ?').run(
+    slackUserId,
+  );
 }
 
 export function getAllUserTokens(): StoredToken[] {
-  return db.prepare(
-    `SELECT slack_user_id, access_token, refresh_token,
+  return db
+    .prepare(
+      `SELECT slack_user_id, access_token, refresh_token,
             expires_at, keycloak_sub, email, updated_at
-     FROM user_tokens`
-  ).all() as StoredToken[];
+     FROM user_tokens`,
+    )
+    .all() as StoredToken[];
 }

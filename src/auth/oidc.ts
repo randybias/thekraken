@@ -246,7 +246,10 @@ function decodeJwtPayload(token: string): Record<string, unknown> | null {
   try {
     const part = token.split('.')[1];
     if (!part) return null;
-    return JSON.parse(Buffer.from(part, 'base64url').toString()) as Record<string, unknown>;
+    return JSON.parse(Buffer.from(part, 'base64url').toString()) as Record<
+      string,
+      unknown
+    >;
   } catch {
     return null;
   }

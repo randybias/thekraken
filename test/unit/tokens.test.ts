@@ -51,12 +51,18 @@ describe('token store', () => {
 
   it('upserts on duplicate user', () => {
     setUserToken('U_BOB', {
-      access_token: 'at_old', refresh_token: 'rt_old',
-      expires_at: Date.now(), keycloak_sub: 'sub_bob', email: 'bob@example.com',
+      access_token: 'at_old',
+      refresh_token: 'rt_old',
+      expires_at: Date.now(),
+      keycloak_sub: 'sub_bob',
+      email: 'bob@example.com',
     });
     setUserToken('U_BOB', {
-      access_token: 'at_new', refresh_token: 'rt_new',
-      expires_at: Date.now() + 7200_000, keycloak_sub: 'sub_bob', email: 'bob@example.com',
+      access_token: 'at_new',
+      refresh_token: 'rt_new',
+      expires_at: Date.now() + 7200_000,
+      keycloak_sub: 'sub_bob',
+      email: 'bob@example.com',
     });
     const stored = getUserToken('U_BOB');
     expect(stored!.access_token).toBe('at_new');
@@ -64,8 +70,11 @@ describe('token store', () => {
 
   it('deletes a token', () => {
     setUserToken('U_DEL', {
-      access_token: 'at', refresh_token: 'rt',
-      expires_at: Date.now(), keycloak_sub: 'sub', email: 'del@example.com',
+      access_token: 'at',
+      refresh_token: 'rt',
+      expires_at: Date.now(),
+      keycloak_sub: 'sub',
+      email: 'del@example.com',
     });
     deleteUserToken('U_DEL');
     expect(getUserToken('U_DEL')).toBeUndefined();
@@ -73,12 +82,18 @@ describe('token store', () => {
 
   it('lists all tokens', () => {
     setUserToken('U_A', {
-      access_token: 'a', refresh_token: 'ra',
-      expires_at: Date.now(), keycloak_sub: 'sa', email: 'a@x.com',
+      access_token: 'a',
+      refresh_token: 'ra',
+      expires_at: Date.now(),
+      keycloak_sub: 'sa',
+      email: 'a@x.com',
     });
     setUserToken('U_B', {
-      access_token: 'b', refresh_token: 'rb',
-      expires_at: Date.now(), keycloak_sub: 'sb', email: 'b@x.com',
+      access_token: 'b',
+      refresh_token: 'rb',
+      expires_at: Date.now(),
+      keycloak_sub: 'sb',
+      email: 'b@x.com',
     });
     expect(getAllUserTokens()).toHaveLength(2);
   });
