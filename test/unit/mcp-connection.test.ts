@@ -19,8 +19,9 @@ describe('MCP tool category constants', () => {
   });
 
   it('BLOCKED_IN_ENCLAVE contains enclave admin tools', () => {
-    expect(BLOCKED_IN_ENCLAVE).toContain('ns_create');
     expect(BLOCKED_IN_ENCLAVE).toContain('enclave_provision');
+    expect(BLOCKED_IN_ENCLAVE).toContain('enclave_deprovision');
+    expect(BLOCKED_IN_ENCLAVE).toContain('enclave_preflight');
     expect(BLOCKED_IN_ENCLAVE).toContain('cluster_profile');
   });
 

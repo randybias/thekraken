@@ -1,11 +1,12 @@
 /**
- * Dispatcher custom tools (T15).
+ * Dispatcher internal operations (T15).
  *
  * These are pi ToolDefinition objects registered on the dispatcher's
- * AgentSession. They are only used on the SMART PATH — the deterministic
- * path routes without any LLM involvement.
+ * AgentSession. They are INTERNAL Kraken functions — NOT MCP tools exposed
+ * by the tentacular-mcp server. They are only used on the SMART PATH; the
+ * deterministic path routes without any LLM involvement.
  *
- * Tools:
+ * Internal ops:
  *   - spawn_enclave_team: Delegates to TeamLifecycleManager
  *   - send_to_team: Appends to mailbox.ndjson
  *   - check_team_status: Reads team signals.ndjson + outbound.ndjson
@@ -21,7 +22,7 @@ import type { KrakenConfig } from '../config.js';
 import type { TeamLifecycleManager } from '../teams/lifecycle.js';
 import type { SlackPostClient } from '../teams/outbound-poller.js';
 
-const log = createChildLogger({ module: 'dispatcher-tools' });
+const log = createChildLogger({ module: 'dispatcher-internal-ops' });
 
 /**
  * A pi ToolDefinition (simplified shape for Phase 1).
