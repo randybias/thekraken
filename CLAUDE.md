@@ -36,6 +36,14 @@ expires mid-task = fail + re-auth, never fallback. See memory file
 | `src/slack/bot.ts` | Slack Bolt dual-mode (HTTP + Socket), event handlers call routeEvent() |
 | `src/agent/system-prompt.ts` | Per-role prompt builders (manager, builder, deployer) |
 | `src/config.ts` | All config: Slack, OIDC, MCP, LLM allowlists, git-state, teams, observability |
+| `src/auth/crypto.ts` | AES-256-GCM encrypt/decrypt for token-at-rest |
+| `src/auth/oidc.ts` | Keycloak device flow: initiateDeviceAuth, pollForToken, refreshAccessToken |
+| `src/auth/tokens.ts` | UserTokenStore — per-user encrypted OIDC token storage (SQLite) |
+| `src/auth/refresh.ts` | Background token refresh loop (60s interval, 15-min lookahead) |
+| `src/dispatcher/auth-gate.ts` | authGate() — token check + POSIX authz before team dispatch |
+| `src/enclave/authz.ts` | POSIX mode bit checks, role resolution, 60s authz cache |
+| `src/extensions/tool-scoping.ts` | Pi extension: per-enclave tool allow/deny + namespace injection |
+| `src/slack/auth-card.ts` | Ephemeral Block Kit cards: auth prompt, success, timeout, denial |
 | `src/db/schema.ts` | SQLite schema (5 tables, FK cascade on enclave_bindings) |
 | `charts/thekraken/` | Helm chart with mandatory gitState, values-mirantis.yaml overlay |
 | `scripts/entrypoint.sh` | Git-state clone/pull, tntc config, hard-fail on missing git config |
@@ -67,7 +75,7 @@ shellcheck scripts/entrypoint.sh kraken-hooks/pre-commit
 
 - **Phase 0:** COMPLETE (scaffold, schema, git-state infra, Helm, Docker, CI)
 - **Phase 1:** Implementation complete, reviews in progress (dispatcher + teams)
-- **Phase 2:** Auth + authz (OIDC device flow, POSIX mode, tool scoping)
+- **Phase 2:** COMPLETE (OIDC device flow, AES-256-GCM token store, POSIX authz, tool scoping, 448 tests)
 - **Phase 3:** Commands + channel events + personas
 - **Phase 4:** Polish + deploy (Block Kit, Home Tab, git-state deploy flow, MCP cross-repo)
 - **Phase 5:** Hardening (restart resilience, consistency validation, observability)

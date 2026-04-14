@@ -20,7 +20,8 @@ CREATE TABLE IF NOT EXISTS user_tokens (
   refresh_token TEXT NOT NULL,
   expires_at TEXT NOT NULL,
   keycloak_sub TEXT NOT NULL,
-  email TEXT NOT NULL
+  email TEXT NOT NULL,
+  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
 );
 
 CREATE TABLE IF NOT EXISTS enclave_bindings (

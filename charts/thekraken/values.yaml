@@ -120,6 +120,22 @@ observability:
   # Pino structured log level: trace | debug | info | warn | error | fatal
   logLevel: "info"
 
+# Token encryption — REQUIRED for Phase 2+
+# The encryption key is stored in a Kubernetes Secret and injected as
+# KRAKEN_TOKEN_ENCRYPTION_KEY into the container.
+#
+# Generate the key:
+#   KEY=$(openssl rand -hex 32)
+#   kubectl create secret generic kraken-token-encryption \
+#     --from-literal=encryption-key=$KEY -n thekraken
+#
+# Then set: tokenEncryption.secretName=kraken-token-encryption
+tokenEncryption:
+  # K8s Secret containing the 32-byte encryption key (hex or base64). REQUIRED.
+  secretName: ""
+  # Key within the Secret that holds the value.
+  key: "encryption-key"
+
 networkPolicy:
   enabled: true
 

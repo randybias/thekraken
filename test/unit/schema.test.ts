@@ -40,9 +40,30 @@ describe('SQLite schema', () => {
       .get('U123') as {
       slack_user_id: string;
       email: string;
+      created_at: string;
     };
     expect(row).toBeTruthy();
     expect(row.email).toBe('test@example.com');
+    // created_at should be auto-populated by SQLite DEFAULT
+    expect(row.created_at).toBeTruthy();
+  });
+
+  it('user_tokens created_at has a valid ISO timestamp', () => {
+    db.prepare(
+      `INSERT INTO user_tokens (slack_user_id, access_token, refresh_token, expires_at, keycloak_sub, email)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+    ).run(
+      'U124',
+      'at2',
+      'rt2',
+      '2026-01-01T00:00:00.000Z',
+      'sub-2',
+      'test2@example.com',
+    );
+    const row = db
+      .prepare(`SELECT created_at FROM user_tokens WHERE slack_user_id = ?`)
+      .get('U124') as { created_at: string };
+    expect(new Date(row.created_at).getTime()).not.toBeNaN();
   });
 
   it('inserts and reads enclave_bindings', () => {

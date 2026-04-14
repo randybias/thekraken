@@ -34,13 +34,16 @@ Per-Enclave Team (spawned on first engagement, 30-min idle timeout)
 No service identities for enclave work. Token expires mid-task = fail cleanly
 and prompt re-auth.
 
-### Phase 1 Status
+### Current Status
 
-Phase 1 delivers the core dispatcher loop with team spawning infrastructure.
-The "smart path" (LLM-powered reasoning) is a placeholder returning static
-responses — it will be wired to a real pi `AgentSession` in Phase 2+.
-Per-user OIDC tokens are Phase 2. Phase 1 cannot make authenticated MCP
-calls — there is no service token concept in this system (D6).
+Phase 2 complete. The Kraken authenticates users via Keycloak OIDC device
+flow, enforces POSIX mode permissions per enclave, scopes MCP tool calls
+to enclave boundaries, and encrypts OIDC tokens at rest in SQLite. The
+smart path (LLM-powered reasoning) is still a Phase 1 placeholder — it
+will be wired to a real pi AgentSession in Phase 3+.
+
+No service token concept in this system (D6). Every MCP call carries the
+authenticated user's OIDC token.
 
 ## Environment Variables
 
@@ -53,19 +56,21 @@ calls — there is no service token concept in this system (D6).
 | `SLACK_APP_TOKEN` | Slack app-level token (`xapp-...`, Socket mode only) |
 | `OIDC_ISSUER` | Keycloak realm URL |
 | `OIDC_CLIENT_ID` | OIDC client ID |
-| `OIDC_CLIENT_SECRET` | OIDC client secret |
 | `TENTACULAR_MCP_URL` | Tentacular MCP server URL |
 | `GIT_STATE_REPO_URL` | Git-backed state repository URL (hard requirement) |
+| `KRAKEN_TOKEN_ENCRYPTION_KEY` | AES-256-GCM key for encrypting OIDC tokens at rest. Generate: `openssl rand -hex 32` |
 | `ANTHROPIC_API_KEY` | Required if defaultProvider is anthropic |
 
 ### Optional
 
 | Variable | Default | Purpose |
 |----------|---------|---------|
+| `OIDC_CLIENT_SECRET` | _(none)_ | Only needed for confidential Keycloak clients. Public clients (device flow) do not need this. |
 | `SLACK_MODE` | `http` | `http` (Events API, production) or `socket` (dev) |
 | `GIT_STATE_BRANCH` | `main` | Branch to clone/pull |
 | `GIT_STATE_DIR` | `/app/data/git-state` | Local clone directory |
 | `KRAKEN_TEAMS_DIR` | `/app/data/teams` | Per-enclave team state directory |
+| `AUTHZ_CACHE_TTL_MS` | `60000` | Enclave info cache TTL for authorization |
 | `LLM_DEFAULT_PROVIDER` | `anthropic` | `anthropic`, `openai`, or `google` |
 | `LLM_DEFAULT_MODEL` | `claude-sonnet-4-6` | Model ID from pi-ai registry |
 | `LLM_ALLOWED_PROVIDERS` | `anthropic,openai,google` | Comma-separated |
@@ -82,7 +87,7 @@ calls — there is no service token concept in this system (D6).
 ```bash
 npm ci
 npm run build        # Compile TypeScript
-npm test             # 234 tests (unit + integration + scenarios)
+npm test             # 448 tests (unit + integration + scenarios)
 npx tsc --noEmit     # Type check
 npm run lint         # ESLint
 npm run format:check # Prettier

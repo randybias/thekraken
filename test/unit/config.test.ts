@@ -8,20 +8,24 @@ const REQUIRED_VARS = [
   'SLACK_SIGNING_SECRET',
   'OIDC_ISSUER',
   'OIDC_CLIENT_ID',
-  'OIDC_CLIENT_SECRET',
   'TENTACULAR_MCP_URL',
   'GIT_STATE_REPO_URL',
   'ANTHROPIC_API_KEY',
+  'KRAKEN_TOKEN_ENCRYPTION_KEY',
 ];
+
+// A valid 64-hex-char AES-256 key for tests
+const TEST_ENCRYPTION_KEY = 'a'.repeat(64);
 
 function setRequiredEnv(): void {
   process.env['SLACK_BOT_TOKEN'] = 'xoxb-test';
   process.env['SLACK_SIGNING_SECRET'] = 'test-signing-secret';
   process.env['OIDC_ISSUER'] = 'https://keycloak.example.com/realms/test';
   process.env['OIDC_CLIENT_ID'] = 'thekraken';
-  process.env['OIDC_CLIENT_SECRET'] = 'test-secret';
+  // OIDC_CLIENT_SECRET is now optional — omit to test public client default
   process.env['TENTACULAR_MCP_URL'] = 'http://tentacular-mcp:8080';
   process.env['GIT_STATE_REPO_URL'] = 'https://github.com/test/workflows.git';
+  process.env['KRAKEN_TOKEN_ENCRYPTION_KEY'] = TEST_ENCRYPTION_KEY;
   // Narrow to anthropic-only to avoid requiring OpenAI/Gemini keys in tests
   // that don't care about multi-provider scenarios.
   process.env['LLM_ALLOWED_PROVIDERS'] = 'anthropic';
@@ -50,6 +54,7 @@ beforeEach(() => {
   delete process.env['GEMINI_API_KEY'];
   delete process.env['OTEL_EXPORTER_OTLP_ENDPOINT'];
   delete process.env['LOG_LEVEL'];
+  delete process.env['OIDC_CLIENT_SECRET'];
 });
 
 afterEach(() => {
@@ -287,5 +292,62 @@ describe('loadConfig', () => {
     const config = loadConfig();
     expect(config.teamsDir).toBe('/custom/teams');
     delete process.env['KRAKEN_TEAMS_DIR'];
+  });
+
+  // T01: OIDC_CLIENT_SECRET optional (public client)
+
+  it('succeeds without OIDC_CLIENT_SECRET (public client)', () => {
+    setRequiredEnv();
+    delete process.env['OIDC_CLIENT_SECRET'];
+    const config = loadConfig();
+    expect(config.oidc.clientSecret).toBeUndefined();
+  });
+
+  it('uses OIDC_CLIENT_SECRET when provided (confidential client)', () => {
+    setRequiredEnv();
+    process.env['OIDC_CLIENT_SECRET'] = 'my-secret';
+    const config = loadConfig();
+    expect(config.oidc.clientSecret).toBe('my-secret');
+    delete process.env['OIDC_CLIENT_SECRET'];
+  });
+
+  // T01: KRAKEN_TOKEN_ENCRYPTION_KEY
+
+  it('fails when KRAKEN_TOKEN_ENCRYPTION_KEY is missing', () => {
+    setRequiredEnv();
+    delete process.env['KRAKEN_TOKEN_ENCRYPTION_KEY'];
+    expect(() => loadConfig()).toThrow(/KRAKEN_TOKEN_ENCRYPTION_KEY/);
+  });
+
+  it('accepts a 64-hex-char encryption key', () => {
+    setRequiredEnv();
+    process.env['KRAKEN_TOKEN_ENCRYPTION_KEY'] = 'b'.repeat(64);
+    const config = loadConfig();
+    expect(config.tokenEncryptionKey).toBeInstanceOf(Buffer);
+    expect(config.tokenEncryptionKey.length).toBe(32);
+    delete process.env['KRAKEN_TOKEN_ENCRYPTION_KEY'];
+  });
+
+  it('accepts a base64-encoded 32-byte encryption key', () => {
+    setRequiredEnv();
+    // 32 random bytes base64-encoded
+    const key = Buffer.alloc(32, 0xab).toString('base64');
+    process.env['KRAKEN_TOKEN_ENCRYPTION_KEY'] = key;
+    const config = loadConfig();
+    expect(config.tokenEncryptionKey.length).toBe(32);
+    delete process.env['KRAKEN_TOKEN_ENCRYPTION_KEY'];
+  });
+
+  it('fails when encryption key has wrong length', () => {
+    setRequiredEnv();
+    process.env['KRAKEN_TOKEN_ENCRYPTION_KEY'] = 'tooshort';
+    expect(() => loadConfig()).toThrow(/KRAKEN_TOKEN_ENCRYPTION_KEY/);
+    delete process.env['KRAKEN_TOKEN_ENCRYPTION_KEY'];
+  });
+
+  it('exposes tokenEncryptionKey as a Buffer', () => {
+    setRequiredEnv();
+    const config = loadConfig();
+    expect(Buffer.isBuffer(config.tokenEncryptionKey)).toBe(true);
   });
 });

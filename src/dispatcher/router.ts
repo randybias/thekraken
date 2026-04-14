@@ -15,6 +15,7 @@
  */
 
 import type { EnclaveBindingEngine } from '../enclave/binding.js';
+import { isValidEnclaveName } from '../enclave/binding.js';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -208,6 +209,11 @@ export function routeEvent(
 
   // Criteria 7-8: Enclave-bound @mention or thread reply
   if (binding) {
+    // Reject bindings with invalid enclave names (path traversal, etc.)
+    // This guards against data corruption or malicious binding entries.
+    if (!isValidEnclaveName(binding.enclaveName)) {
+      return { path: 'deterministic', action: { type: 'ignore_unbound' } };
+    }
     const teamActive = deps.teams.isTeamActive(binding.enclaveName);
     if (teamActive) {
       return {

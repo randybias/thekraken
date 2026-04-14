@@ -14,7 +14,14 @@
  * Teams write outbound.ndjson; OutboundPoller reads it.
  */
 
-import { mkdirSync, readdirSync, statSync, rmSync, existsSync } from 'node:fs';
+import {
+  mkdirSync,
+  readdirSync,
+  statSync,
+  rmSync,
+  existsSync,
+  truncateSync,
+} from 'node:fs';
 import { join, resolve } from 'node:path';
 import { spawn, type ChildProcess } from 'node:child_process';
 import type Database from 'better-sqlite3';
@@ -82,6 +89,25 @@ function resolvePiBinary(): string {
  */
 function ensureTeamDir(teamDir: string): void {
   mkdirSync(join(teamDir, 'memory'), { recursive: true });
+}
+
+/**
+ * Truncate mailbox.ndjson to 0 bytes after a team exits (T11 / F3).
+ *
+ * Mailbox records contain cleartext OIDC tokens. Truncating on exit removes
+ * tokens from the filesystem immediately. The file is NOT deleted — the
+ * directory structure is preserved for GC logic.
+ *
+ * outbound.ndjson and signals.ndjson are NOT truncated (they have no tokens
+ * and the outbound poller may still drain them after exit).
+ */
+function truncateMailbox(teamDir: string): void {
+  const mailboxPath = join(teamDir, 'mailbox.ndjson');
+  try {
+    truncateSync(mailboxPath, 0);
+  } catch {
+    // Non-fatal: mailbox may not exist if team exited before first message
+  }
 }
 
 /**
@@ -178,6 +204,13 @@ export class TeamLifecycleManager {
       // Depth guard (pi-subagents pattern)
       PI_SUBAGENT_DEPTH: '0',
       PI_SUBAGENT_MAX_DEPTH: '3',
+      // D8: Tool scoping extension — enforces per-enclave namespace constraints
+      PI_EXTENSIONS: resolve(
+        import.meta.dirname,
+        '..',
+        'extensions',
+        'tool-scoping.js',
+      ),
       // Team directory for NDJSON IPC
       KRAKEN_TEAM_DIR: teamDir,
       KRAKEN_ENCLAVE_NAME: enclaveName,
@@ -212,6 +245,10 @@ export class TeamLifecycleManager {
     proc.on('exit', (code, signal) => {
       log.info({ enclaveName, code, signal }, 'team manager exited');
       this.teams.delete(enclaveName);
+      // T11: Truncate mailbox to 0 bytes on team exit to clear OIDC tokens.
+      // The file is NOT deleted (directory structure is preserved for GC logic).
+      // outbound.ndjson and signals.ndjson are NOT truncated (no token data).
+      truncateMailbox(join(this.config.teamsDir, enclaveName));
       // Notify poller so it drains final outbound records (Codex fix #3)
       this.onTeamExited?.(enclaveName);
     });

@@ -17,6 +17,55 @@ a clear error if any are missing.
 | `mcp.url` | ConfigMap | Tentacular MCP server URL |
 | `oidc.issuer` | ConfigMap | Keycloak realm URL |
 | `oidc.clientId` | ConfigMap | OIDC client ID |
+| `tokenEncryption.secretName` | Secret ref | K8s Secret containing the AES-256-GCM encryption key for OIDC tokens at rest |
+
+## Token Encryption Setup
+
+The Kraken encrypts OIDC tokens at rest in SQLite. You must provide a
+32-byte AES-256-GCM key via a Kubernetes Secret.
+
+```bash
+# Generate a 32-byte hex key
+KEY=$(openssl rand -hex 32)
+
+# Store the key in your organization's secrets management system
+# (this is YOUR infrastructure — Tentacular does not manage this key)
+
+# Create the K8s Secret
+kubectl create secret generic thekraken-token-encryption \
+  --from-literal=token-encryption-key="$KEY" \
+  -n tentacular-kraken
+
+# Verify the secret exists
+kubectl get secret thekraken-token-encryption -n tentacular-kraken
+```
+
+Then in your Helm values:
+```yaml
+tokenEncryption:
+  secretName: thekraken-token-encryption
+  key: token-encryption-key
+```
+
+### Key Recovery Warning
+
+**If you lose this key, all stored OIDC tokens become unreadable.** Users
+will need to re-authenticate via the device flow. The key does NOT live in
+the Kraken repo, the PVC, or the SQLite database — it exists only in:
+
+1. Your organization's secrets management system (Vault, AWS Secrets Manager, etc.)
+2. The K8s Secret in the cluster
+
+**Back up the key** to your secrets system (or wherever your organization
+stores infrastructure credentials). This is NOT a Tentacular or Kraken
+concern — it is operator infrastructure, like TLS certificates or database
+passwords. Tentacular and the Kraken never manage this key; they only
+consume it at runtime.
+
+If the key is lost and users need to re-authenticate, the impact is:
+- All cached OIDC tokens are invalidated (users get re-auth prompts)
+- No data loss (tentacle source is in git, enclave metadata is in K8s)
+- No security incident (the old tokens are encrypted with a key nobody has)
 
 ## Optional Values
 
