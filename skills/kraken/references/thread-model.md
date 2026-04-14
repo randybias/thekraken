@@ -2,4 +2,4 @@
 
 **Status:** Placeholder — content authored in Phase 1.
 
-<!-- TODO(phase1): Document thread lifecycle, context isolation, 7-day prune policy -->
+<!-- TODO(phase3): Document per-enclave team thread model, context isolation, 7-day prune policy -->

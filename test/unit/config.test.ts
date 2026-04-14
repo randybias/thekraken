@@ -11,6 +11,7 @@ const REQUIRED_VARS = [
   'OIDC_CLIENT_SECRET',
   'TENTACULAR_MCP_URL',
   'GIT_STATE_REPO_URL',
+  'ANTHROPIC_API_KEY',
 ];
 
 function setRequiredEnv(): void {
@@ -21,6 +22,10 @@ function setRequiredEnv(): void {
   process.env['OIDC_CLIENT_SECRET'] = 'test-secret';
   process.env['TENTACULAR_MCP_URL'] = 'http://tentacular-mcp:8080';
   process.env['GIT_STATE_REPO_URL'] = 'https://github.com/test/workflows.git';
+  // Narrow to anthropic-only to avoid requiring OpenAI/Gemini keys in tests
+  // that don't care about multi-provider scenarios.
+  process.env['LLM_ALLOWED_PROVIDERS'] = 'anthropic';
+  process.env['ANTHROPIC_API_KEY'] = 'sk-ant-test';
 }
 
 beforeEach(() => {
@@ -41,6 +46,10 @@ beforeEach(() => {
   delete process.env['GIT_STATE_BRANCH'];
   delete process.env['GIT_STATE_DIR'];
   delete process.env['PORT'];
+  delete process.env['OPENAI_API_KEY'];
+  delete process.env['GEMINI_API_KEY'];
+  delete process.env['OTEL_EXPORTER_OTLP_ENDPOINT'];
+  delete process.env['LOG_LEVEL'];
 });
 
 afterEach(() => {
@@ -207,5 +216,76 @@ describe('loadConfig', () => {
     expect(message).toMatch(/TENTACULAR_MCP_URL/);
     expect(message).toMatch(/SLACK_MODE/);
     expect(message).toMatch(/PORT/);
+  });
+
+  // T04: LLM API key validation tests
+
+  it('fails when ANTHROPIC_API_KEY missing and anthropic is default provider', () => {
+    setRequiredEnv();
+    delete process.env['ANTHROPIC_API_KEY'];
+    expect(() => loadConfig()).toThrow(/ANTHROPIC_API_KEY.*anthropic/);
+  });
+
+  it('fails when OPENAI_API_KEY missing and openai is in allowedProviders', () => {
+    setRequiredEnv();
+    process.env['LLM_ALLOWED_PROVIDERS'] = 'anthropic,openai';
+    // OPENAI_API_KEY not set — should throw
+    expect(() => loadConfig()).toThrow(/OPENAI_API_KEY.*openai/);
+  });
+
+  it('fails when GEMINI_API_KEY missing and google is in allowedProviders', () => {
+    setRequiredEnv();
+    process.env['LLM_ALLOWED_PROVIDERS'] = 'anthropic,google';
+    // GEMINI_API_KEY not set — should throw
+    expect(() => loadConfig()).toThrow(/GEMINI_API_KEY.*google/);
+  });
+
+  it('passes when all provider keys are set', () => {
+    setRequiredEnv();
+    process.env['OPENAI_API_KEY'] = 'sk-openai-test';
+    process.env['GEMINI_API_KEY'] = 'gem-test';
+    const config = loadConfig();
+    expect(config.llm.anthropicApiKey).toBe('sk-ant-test');
+    expect(config.llm.openaiApiKey).toBe('sk-openai-test');
+    expect(config.llm.geminiApiKey).toBe('gem-test');
+  });
+
+  it('passes with anthropic-only config when allowedProviders is narrowed', () => {
+    setRequiredEnv();
+    process.env['LLM_ALLOWED_PROVIDERS'] = 'anthropic';
+    const config = loadConfig();
+    expect(config.llm.allowedProviders).toEqual(['anthropic']);
+  });
+
+  it('exposes observability config with defaults', () => {
+    setRequiredEnv();
+    process.env['LLM_ALLOWED_PROVIDERS'] = 'anthropic';
+    const config = loadConfig();
+    expect(config.observability.otlpEndpoint).toBe('');
+    expect(config.observability.logLevel).toBe('info');
+  });
+
+  it('reads OTEL_EXPORTER_OTLP_ENDPOINT', () => {
+    setRequiredEnv();
+    process.env['LLM_ALLOWED_PROVIDERS'] = 'anthropic';
+    process.env['OTEL_EXPORTER_OTLP_ENDPOINT'] = 'http://otel:4318';
+    const config = loadConfig();
+    expect(config.observability.otlpEndpoint).toBe('http://otel:4318');
+  });
+
+  // T04: teamsDir config tests
+  it('teamsDir defaults to /app/data/teams', () => {
+    setRequiredEnv();
+    delete process.env['KRAKEN_TEAMS_DIR'];
+    const config = loadConfig();
+    expect(config.teamsDir).toBe('/app/data/teams');
+  });
+
+  it('teamsDir is overrideable via KRAKEN_TEAMS_DIR', () => {
+    setRequiredEnv();
+    process.env['KRAKEN_TEAMS_DIR'] = '/custom/teams';
+    const config = loadConfig();
+    expect(config.teamsDir).toBe('/custom/teams');
+    delete process.env['KRAKEN_TEAMS_DIR'];
   });
 });

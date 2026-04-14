@@ -1,0 +1,129 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "TheKraken Helm values",
+  "type": "object",
+  "properties": {
+    "slack": {
+      "type": "object",
+      "required": ["mode"],
+      "properties": {
+        "mode": {
+          "type": "string",
+          "enum": ["http", "socket"],
+          "description": "Slack transport mode: 'http' (production) or 'socket' (dev)"
+        }
+      }
+    },
+    "secrets": {
+      "type": "object",
+      "description": "Sensitive values — set via --set or existingSecret, never committed.",
+      "properties": {
+        "slackBotToken": { "type": "string" },
+        "slackAppToken": { "type": "string" },
+        "slackSigningSecret": { "type": "string" },
+        "anthropicApiKey": { "type": "string" },
+        "openaiApiKey": { "type": "string" },
+        "geminiApiKey": { "type": "string" },
+        "oidcClientSecret": { "type": "string" },
+        "existingSecret": { "type": "string" }
+      }
+    },
+    "oidc": {
+      "type": "object",
+      "properties": {
+        "issuer": {
+          "type": "string",
+          "description": "Keycloak realm URL. Required at deploy time."
+        },
+        "clientId": {
+          "type": "string",
+          "description": "OIDC client ID. Required at deploy time."
+        }
+      }
+    },
+    "mcp": {
+      "type": "object",
+      "properties": {
+        "url": {
+          "type": "string",
+          "description": "tentacular-mcp in-cluster URL. Required at deploy time."
+        },
+        "port": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 65535,
+          "description": "Port for NetworkPolicy egress scoping."
+        }
+      }
+    },
+    "gitState": {
+      "type": "object",
+      "properties": {
+        "repoUrl": {
+          "type": "string",
+          "description": "Git repo URL for tentacle state. Required at deploy time."
+        },
+        "credentialsSecret": {
+          "type": "string",
+          "description": "K8s Secret with key 'token' for git auth. Required at deploy time."
+        },
+        "branch": { "type": "string" },
+        "dir": { "type": "string" },
+        "userName": { "type": "string" },
+        "userEmail": { "type": "string" }
+      }
+    },
+    "llm": {
+      "type": "object",
+      "properties": {
+        "defaultProvider": {
+          "type": "string",
+          "enum": ["anthropic", "openai", "google"]
+        },
+        "defaultModel": { "type": "string" },
+        "allowedProviders": { "type": "string" },
+        "allowedModels": { "type": "string" },
+        "disallowedModels": { "type": "string" }
+      }
+    },
+    "observability": {
+      "type": "object",
+      "description": "OpenTelemetry and logging configuration.",
+      "properties": {
+        "otlpEndpoint": {
+          "type": "string",
+          "description": "OTLP HTTP endpoint for trace export. Empty = OTel disabled."
+        },
+        "logLevel": {
+          "type": "string",
+          "enum": ["trace", "debug", "info", "warn", "error", "fatal"],
+          "description": "Pino log level. Default: info."
+        }
+      }
+    },
+    "networkPolicy": {
+      "type": "object",
+      "properties": {
+        "enabled": { "type": "boolean" }
+      }
+    },
+    "replicaCount": { "type": "integer", "minimum": 1 },
+    "image": {
+      "type": "object",
+      "properties": {
+        "repository": { "type": "string" },
+        "pullPolicy": { "type": "string", "enum": ["Always", "IfNotPresent", "Never"] },
+        "tag": { "type": "string" }
+      }
+    },
+    "persistence": {
+      "type": "object",
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "size": { "type": "string" },
+        "accessMode": { "type": "string" },
+        "storageClass": { "type": "string" }
+      }
+    }
+  }
+}

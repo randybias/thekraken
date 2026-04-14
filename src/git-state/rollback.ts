@@ -3,5 +3,5 @@
  * Phase 0: stub. Implemented in Phase 1.
  */
 
-// TODO(phase1): implement rollback: checkout old version source → new version commit
+// TODO(phase4): implement rollback flow
 export type RollbackStub = Record<string, never>;

@@ -3,5 +3,5 @@
  * Phase 0: stub. Implemented in Phase 1.
  */
 
-// TODO(phase1): implement ~100-LOC thin MCP wrapper on @modelcontextprotocol/sdk
+// TODO(phase2): MCP wrapper moves to team subprocesses with per-user tokens
 export type AgentToolsStub = Record<string, never>;
