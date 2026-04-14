@@ -181,9 +181,17 @@ export class DriftDetector {
       }
     }
 
+    // Normalize members array (Code Review M1 + Codex fix #4)
+    const normalizedMembers = Array.isArray(members)
+      ? members
+          .filter((m): m is string => typeof m === 'string')
+          .map((m) => m.trim())
+          .filter(Boolean)
+      : [];
+
     // Find stale members: in enclave annotation but not in Slack channel
     const stale: string[] = [];
-    for (const memberEmail of members) {
+    for (const memberEmail of normalizedMembers) {
       const normalizedMember = memberEmail.toLowerCase();
       // NEVER remove the owner
       if (normalizedMember === owner.toLowerCase()) continue;

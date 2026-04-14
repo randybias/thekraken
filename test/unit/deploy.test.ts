@@ -137,10 +137,11 @@ describe('deploy()', () => {
 
   function makeGitOps(overrides: Partial<Record<string, string>> = {}): GitOps {
     return {
-      exec: vi.fn().mockImplementation((args: string, _cwd: string) => {
-        if (args.startsWith('rev-parse HEAD'))
+      exec: vi.fn().mockImplementation((args: string[], _cwd: string) => {
+        const cmd = args.join(' ');
+        if (cmd.startsWith('rev-parse HEAD'))
           return overrides['rev-parse HEAD'] ?? 'abc123def456';
-        return overrides[args] ?? '';
+        return overrides[cmd] ?? '';
       }),
     };
   }
@@ -233,7 +234,7 @@ describe('deploy()', () => {
 
   it('returns ok:false and records failure when git throws', async () => {
     const git: GitOps = {
-      exec: vi.fn().mockImplementation((args: string) => {
+      exec: vi.fn().mockImplementation((args: string[]) => {
         if (args.includes('add')) throw new Error('git add failed');
         return '';
       }),
@@ -245,22 +246,22 @@ describe('deploy()', () => {
   });
 
   it('calls git add, commit, tag, push in order', async () => {
-    const calls: string[] = [];
+    const calls: string[][] = [];
     const git: GitOps = {
-      exec: vi.fn().mockImplementation((args: string, _cwd: string) => {
+      exec: vi.fn().mockImplementation((args: string[], _cwd: string) => {
         calls.push(args);
-        if (args.startsWith('rev-parse')) return 'deadbeef';
+        if (args[0] === 'rev-parse') return 'deadbeef';
         return '';
       }),
     };
     const mcpCall = makeMcpCall({ ok: true });
     await deploy(makeParams(), db, mcpCall, git);
 
-    expect(calls[0]).toMatch(/^add /);
-    expect(calls[1]).toMatch(/^commit /);
-    expect(calls[2]).toMatch(/^tag /);
-    expect(calls[3]).toBe('push');
-    expect(calls[4]).toBe('push --tags');
+    expect(calls[0]![0]).toBe('add');
+    expect(calls[1]![0]).toBe('commit');
+    expect(calls[2]![0]).toBe('tag');
+    expect(calls[3]![0]).toBe('push');
+    expect(calls[4]).toEqual(['push', '--tags']);
   });
 
   it('passes user token to mcpCall', async () => {

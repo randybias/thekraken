@@ -37,9 +37,9 @@ describe('rollback()', () => {
 
   function makeGitOps(tagSha = 'oldsha123'): GitOps {
     return {
-      exec: vi.fn().mockImplementation((args: string, _cwd: string) => {
-        if (args.startsWith('rev-list')) return tagSha;
-        if (args.startsWith('rev-parse HEAD')) return 'newsha456';
+      exec: vi.fn().mockImplementation((args: string[], _cwd: string) => {
+        if (args[0] === 'rev-list') return tagSha;
+        if (args[0] === 'rev-parse') return 'newsha456';
         return '';
       }),
     };
@@ -89,8 +89,8 @@ describe('rollback()', () => {
 
   it('returns ok:false when target tag does not exist', async () => {
     const git: GitOps = {
-      exec: vi.fn().mockImplementation((args: string) => {
-        if (args.startsWith('rev-list')) return ''; // empty = not found
+      exec: vi.fn().mockImplementation((args: string[]) => {
+        if (args[0] === 'rev-list') return ''; // empty = not found
         return '';
       }),
     };
@@ -102,8 +102,8 @@ describe('rollback()', () => {
 
   it('returns ok:false when git rev-list throws (tag not found)', async () => {
     const git: GitOps = {
-      exec: vi.fn().mockImplementation((args: string) => {
-        if (args.startsWith('rev-list')) throw new Error('unknown revision');
+      exec: vi.fn().mockImplementation((args: string[]) => {
+        if (args[0] === 'rev-list') throw new Error('unknown revision');
         return '';
       }),
     };
@@ -133,22 +133,22 @@ describe('rollback()', () => {
   });
 
   it('calls git checkout, add, commit, tag, push in order', async () => {
-    const calls: string[] = [];
+    const calls: string[][] = [];
     const git: GitOps = {
-      exec: vi.fn().mockImplementation((args: string) => {
+      exec: vi.fn().mockImplementation((args: string[]) => {
         calls.push(args);
-        if (args.startsWith('rev-list')) return 'abc123';
-        if (args.startsWith('rev-parse')) return 'newsha';
+        if (args[0] === 'rev-list') return 'abc123';
+        if (args[0] === 'rev-parse') return 'newsha';
         return '';
       }),
     };
     const mcpCall = makeMcpCall({ ok: true });
     await rollback(makeParams(), db, mcpCall, git);
 
-    const checkoutIdx = calls.findIndex((c) => c.startsWith('checkout'));
-    const addIdx = calls.findIndex((c) => c.startsWith('add'));
-    const commitIdx = calls.findIndex((c) => c.startsWith('commit'));
-    const tagIdx = calls.findIndex((c) => c.startsWith('tag'));
+    const checkoutIdx = calls.findIndex((c) => c[0] === 'checkout');
+    const addIdx = calls.findIndex((c) => c[0] === 'add');
+    const commitIdx = calls.findIndex((c) => c[0] === 'commit');
+    const tagIdx = calls.findIndex((c) => c[0] === 'tag');
     expect(checkoutIdx).toBeGreaterThan(-1);
     expect(addIdx).toBeGreaterThan(checkoutIdx);
     expect(commitIdx).toBeGreaterThan(addIdx);
@@ -173,9 +173,9 @@ describe('rollback()', () => {
 
   it('returns error message when git checkout throws', async () => {
     const git: GitOps = {
-      exec: vi.fn().mockImplementation((args: string) => {
-        if (args.startsWith('rev-list')) return 'abc123';
-        if (args.startsWith('checkout')) throw new Error('git checkout failed');
+      exec: vi.fn().mockImplementation((args: string[]) => {
+        if (args[0] === 'rev-list') return 'abc123';
+        if (args[0] === 'checkout') throw new Error('git checkout failed');
         return '';
       }),
     };

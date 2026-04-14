@@ -17,7 +17,7 @@
  *   Expected response: { ok: boolean, message?: string }
  */
 
-import { execSync } from 'node:child_process';
+import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type Database from 'better-sqlite3';
@@ -124,16 +124,23 @@ const JARGON_PATTERNS = JARGON_TERMS;
 // ---------------------------------------------------------------------------
 
 export interface GitOps {
-  /** Run a git command in the repo dir. Returns stdout. */
-  exec(args: string, cwd: string): string;
+  /**
+   * Run a git command in the repo dir. Returns stdout.
+   * SECURITY: args is an ARRAY of arguments, NOT a shell string.
+   * This prevents shell injection via template literals (Codex critical fix).
+   */
+  exec(args: string[], cwd: string): string;
 }
 
 /**
- * Production git operations using child_process.execSync.
+ * Production git operations using execFileSync (NO SHELL).
+ * Codex critical fix: shell injection was possible via template-literal
+ * args passed to execSync. execFileSync with shell:false prevents all
+ * shell metacharacter interpretation.
  */
 export const realGitOps: GitOps = {
-  exec(args: string, cwd: string): string {
-    return execSync(`git ${args}`, {
+  exec(args: string[], cwd: string): string {
+    return execFileSync('git', args, {
       cwd,
       encoding: 'utf8',
       stdio: 'pipe',
@@ -255,12 +262,12 @@ export async function deploy(
 
   try {
     // Step 2: git add
-    git.exec(`add ${tentacleRelPath}`, gitDir);
+    git.exec(['add', tentacleRelPath], gitDir);
     log.info({ enclave, tentacle }, 'git add complete');
 
     // Step 3: git commit (pre-commit hook bumps version)
     const commitMessage = `deploy(${tentacle}): ${explanation}`;
-    git.exec(`commit -m "${commitMessage.replace(/"/g, '\\"')}"`, gitDir);
+    git.exec(['commit', '-m', commitMessage], gitDir);
     log.info({ enclave, tentacle }, 'git commit complete');
 
     // Step 4: Read new version from workflow.yaml
@@ -268,20 +275,26 @@ export async function deploy(
     const version = readVersionFromWorkflow(workflowYamlPath);
     const gitTag = `${tentacle}-v${version}`;
 
-    // Step 5: git tag
+    // Step 5: git tag (args as array — no shell injection via explanation)
     git.exec(
-      `tag -a ${gitTag} -m "Deploy ${tentacle} v${version}: ${explanation}"`,
+      [
+        'tag',
+        '-a',
+        gitTag,
+        '-m',
+        `Deploy ${tentacle} v${version}: ${explanation}`,
+      ],
       gitDir,
     );
     log.info({ enclave, tentacle, version, gitTag }, 'git tag created');
 
     // Step 6: git push
-    git.exec('push', gitDir);
-    git.exec('push --tags', gitDir);
+    git.exec(['push'], gitDir);
+    git.exec(['push', '--tags'], gitDir);
     log.info({ enclave, tentacle }, 'git push complete');
 
     // Step 7: Get the commit SHA for the tag
-    const gitSha = git.exec(`rev-parse HEAD`, gitDir);
+    const gitSha = git.exec(['rev-parse', 'HEAD'], gitDir);
 
     // Step 8: Record deploy as pending
     deployId = deployDb.insert({

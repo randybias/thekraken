@@ -98,7 +98,14 @@ export async function rollback(
     // Step 1: Verify the target tag exists
     let tagSha: string;
     try {
-      tagSha = git.exec(`rev-list -n 1 ${targetTag}`, gitDir);
+      // Validate targetTag against strict ref pattern (no shell metacharacters)
+      if (!/^[a-z0-9][a-z0-9._/-]*$/i.test(targetTag)) {
+        return {
+          ok: false,
+          message: `Invalid tag format: "${targetTag}". Tags must be alphanumeric with dots, hyphens, and slashes only.`,
+        };
+      }
+      tagSha = git.exec(['rev-list', '-n', '1', targetTag], gitDir);
     } catch {
       return {
         ok: false,
@@ -115,17 +122,17 @@ export async function rollback(
 
     log.info({ enclave, tentacle, targetTag, tagSha }, 'rollback tag verified');
 
-    // Step 2: git checkout <tag> -- <tentacle dir>
-    git.exec(`checkout ${targetTag} -- ${tentacleRelPath}`, gitDir);
+    // Step 2: git checkout <tag> -- <tentacle dir> (array args, no shell injection)
+    git.exec(['checkout', targetTag, '--', tentacleRelPath], gitDir);
     log.info({ enclave, tentacle, targetTag }, 'git checkout complete');
 
     // Step 3: git add
-    git.exec(`add ${tentacleRelPath}`, gitDir);
+    git.exec(['add', tentacleRelPath], gitDir);
     log.info({ enclave, tentacle }, 'git add complete');
 
     // Step 4: git commit (pre-commit hook bumps to next monotonic version)
     const commitMessage = `rollback(${tentacle}): revert to ${targetTag}`;
-    git.exec(`commit -m "${commitMessage.replace(/"/g, '\\"')}"`, gitDir);
+    git.exec(['commit', '-m', commitMessage], gitDir);
     log.info({ enclave, tentacle }, 'git commit complete');
 
     // Step 5: Read new version from workflow.yaml (post-hook bump)
@@ -133,20 +140,26 @@ export async function rollback(
     const newVersion = readVersionFromWorkflow(workflowYamlPath);
     const newTag = `${tentacle}-v${newVersion}`;
 
-    // Step 6: git tag
+    // Step 6: git tag (array args, no shell injection via targetTag or newTag)
     git.exec(
-      `tag -a ${newTag} -m "Rollback ${tentacle} to ${targetTag} as v${newVersion}"`,
+      [
+        'tag',
+        '-a',
+        newTag,
+        '-m',
+        `Rollback ${tentacle} to ${targetTag} as v${newVersion}`,
+      ],
       gitDir,
     );
     log.info({ enclave, tentacle, newVersion, newTag }, 'git tag created');
 
     // Step 7: git push
-    git.exec('push', gitDir);
-    git.exec('push --tags', gitDir);
+    git.exec(['push'], gitDir);
+    git.exec(['push', '--tags'], gitDir);
     log.info({ enclave, tentacle }, 'git push complete');
 
     // Get the new commit SHA
-    const gitSha = git.exec('rev-parse HEAD', gitDir);
+    const gitSha = git.exec(['rev-parse', 'HEAD'], gitDir);
 
     // Step 8: Record rollback as pending
     const summary = `Rollback to ${targetTag}`;
