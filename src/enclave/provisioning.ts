@@ -159,6 +159,11 @@ export class ProvisioningFlow {
 
     const existing = this.sessions.get(userId);
 
+    // Codex fix #5: reject concurrent messages while provisioning is in-flight
+    if (existing?.state === 'provisioning') {
+      return "I'm still setting up your enclave. Please wait a moment.";
+    }
+
     // If no session, start a new one
     if (!existing) {
       return this.startSession(userId, text, deps);
