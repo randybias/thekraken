@@ -22,6 +22,31 @@ describe('oidc', () => {
     initTokenStore(db);
   });
 
+  function insertTokenRow(
+    slackUserId: string,
+    overrides: {
+      access_token?: string;
+      refresh_token?: string;
+      expires_at?: number;
+      keycloak_sub?: string;
+      email?: string;
+      updated_at?: string;
+    } = {},
+  ): void {
+    db.prepare(
+      `INSERT INTO user_tokens (slack_user_id, access_token, refresh_token, expires_at, keycloak_sub, email, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    ).run(
+      slackUserId,
+      overrides.access_token ?? 'at',
+      overrides.refresh_token ?? 'rt',
+      overrides.expires_at ?? Date.now() + 3600_000,
+      overrides.keycloak_sub ?? 'sub',
+      overrides.email ?? 'user@example.com',
+      overrides.updated_at ?? new Date().toISOString(),
+    );
+  }
+
   describe('storeTokenForUser', () => {
     it('stores a token and computes expires_at from expires_in', async () => {
       const { storeTokenForUser } = await import('../../src/auth/oidc.js');
@@ -58,6 +83,54 @@ describe('oidc', () => {
         token_type: 'Bearer',
       });
       expect(await getValidTokenForUser('U_FRESH')).toBe('fresh_at');
+    });
+
+    it('returns null when token expired and refresh fails', async () => {
+      // Insert a token that is already expired with an invalid refresh_token.
+      // getValidTokenForUser will attempt refreshToken(), which calls fetch()
+      // against a non-existent OIDC server, catch the error, and return null.
+      insertTokenRow('U_EXPIRED', {
+        access_token: 'old_at',
+        refresh_token: 'invalid_rt',
+        expires_at: Date.now() - 60_000, // expired 1 minute ago
+      });
+
+      const { getValidTokenForUser } = await import('../../src/auth/oidc.js');
+      const token = await getValidTokenForUser('U_EXPIRED');
+      expect(token).toBeNull();
+    });
+
+    it('returns null when 30-second expiry buffer makes token appear expired', async () => {
+      // Token expires in 20 seconds — less than EXPIRY_BUFFER_MS (30s).
+      // The code treats this as expired and attempts a refresh, which fails.
+      insertTokenRow('U_BUFFER', {
+        access_token: 'buffer_at',
+        refresh_token: 'invalid_rt',
+        expires_at: Date.now() + 20_000,
+      });
+
+      const { getValidTokenForUser } = await import('../../src/auth/oidc.js');
+      const token = await getValidTokenForUser('U_BUFFER');
+      expect(token).toBeNull();
+    });
+
+    it('returns null when 12-hour session window is exceeded', async () => {
+      // Insert a token whose updated_at is 13 hours ago.
+      // Even though expires_at is in the future, the session window check
+      // should return null without attempting a refresh.
+      const thirteenHoursAgo = new Date(
+        Date.now() - 13 * 60 * 60 * 1000,
+      ).toISOString();
+      insertTokenRow('U_OLD_SESSION', {
+        access_token: 'at_old',
+        refresh_token: 'rt_old',
+        expires_at: Date.now() + 3600_000, // not expired by Keycloak standards
+        updated_at: thirteenHoursAgo,
+      });
+
+      const { getValidTokenForUser } = await import('../../src/auth/oidc.js');
+      const token = await getValidTokenForUser('U_OLD_SESSION');
+      expect(token).toBeNull();
     });
   });
 

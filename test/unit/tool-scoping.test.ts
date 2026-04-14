@@ -38,6 +38,73 @@ describe('evaluateToolCall', () => {
       );
     });
   });
+  describe('full table coverage', () => {
+    it('all ENCLAVE_SCOPED tools are allowed and inject enclave or name param', () => {
+      const scopedTools = [
+        'wf_list',
+        'wf_describe',
+        'wf_status',
+        'wf_pods',
+        'wf_logs',
+        'wf_events',
+        'wf_jobs',
+        'wf_health',
+        'wf_health_enclave',
+        'wf_apply',
+        'wf_run',
+        'wf_restart',
+        'wf_remove',
+        'permissions_get',
+        'permissions_set',
+        'ns_permissions_get',
+        'ns_permissions_set',
+      ];
+      for (const tool of scopedTools) {
+        const result = evaluateToolCall(`${MCP}${tool}`, {}, 'test-enclave');
+        expect(result.allowed, `${tool} should be allowed`).toBe(true);
+        if (result.allowed && result.updatedInput) {
+          expect(
+            'enclave' in result.updatedInput || 'name' in result.updatedInput,
+            `${tool} should inject 'enclave' or 'name'`,
+          ).toBe(true);
+          expect(
+            'namespace' in result.updatedInput,
+            `${tool} must not inject 'namespace'`,
+          ).toBe(false);
+        }
+      }
+    });
+
+    it('all BLOCKED_IN_ENCLAVE tools are denied', () => {
+      const blocked = [
+        'ns_create',
+        'ns_update',
+        'ns_delete',
+        'ns_list',
+        'enclave_provision',
+        'enclave_deprovision',
+        'enclave_list',
+        'enclave_preflight',
+        'cluster_profile',
+        'audit_rbac',
+        'audit_netpol',
+        'audit_psa',
+        'gvisor_check',
+        'exo_status',
+        'exo_registration',
+        'exo_list',
+        'proxy_status',
+      ];
+      for (const tool of blocked) {
+        const result = evaluateToolCall(`${MCP}${tool}`, {}, 'test-enclave');
+        expect(
+          result.allowed,
+          `${tool} should be blocked in enclave mode`,
+        ).toBe(false);
+      }
+    });
+  });
+
   describe('DM mode', () => {
     it('allows read-only tools', () => {
       expect(evaluateToolCall(`${MCP}wf_list`, {}, null).allowed).toBe(true);

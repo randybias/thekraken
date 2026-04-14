@@ -1,9 +1,11 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, beforeEach } from 'vitest';
 import {
   checkModeBit,
   resolveRole,
   classifyOperation,
   buildDenialMessage,
+  checkAccess,
+  invalidateAuthzCache,
 } from '../../src/enclave/authz.js';
 
 describe('resolveRole', () => {
@@ -62,6 +64,94 @@ describe('classifyOperation', () => {
   });
   it('defaults ambiguous text to read', () => {
     expect(classifyOperation('hello kraken')).toBe('read');
+  });
+});
+
+describe('checkAccess', () => {
+  const mockMcpCall = async (
+    _tool: string,
+    _params: Record<string, unknown>,
+  ) => ({
+    owner: 'alice@example.com',
+    members: ['bob@example.com'],
+    mode: 'rwxrwx---',
+    status: 'active',
+    name: 'test-enclave',
+  });
+
+  beforeEach(() => {
+    invalidateAuthzCache('test-enclave');
+    invalidateAuthzCache('some-channel');
+  });
+
+  it('allows owner for any operation', async () => {
+    const decision = await checkAccess(
+      'alice@example.com',
+      'test-enclave',
+      'execute',
+      mockMcpCall,
+    );
+    expect(decision.allowed).toBe(true);
+    expect(decision.role).toBe('owner');
+  });
+
+  it('allows member read', async () => {
+    const decision = await checkAccess(
+      'bob@example.com',
+      'test-enclave',
+      'read',
+      mockMcpCall,
+    );
+    expect(decision.allowed).toBe(true);
+    expect(decision.role).toBe('member');
+  });
+
+  it('denies visitor', async () => {
+    const decision = await checkAccess(
+      'stranger@example.com',
+      'test-enclave',
+      'read',
+      mockMcpCall,
+    );
+    expect(decision.allowed).toBe(false);
+    expect(decision.role).toBe('visitor');
+  });
+
+  it('denies non-owner write on frozen enclave', async () => {
+    const frozenMcp = async (
+      _tool: string,
+      _params: Record<string, unknown>,
+    ) => ({
+      owner: 'alice@example.com',
+      members: ['bob@example.com'],
+      mode: 'rwxrwx---',
+      status: 'frozen',
+      name: 'test-enclave',
+    });
+    // Must invalidate so the frozen mock is used, not the cached active entry.
+    invalidateAuthzCache('test-enclave');
+    const decision = await checkAccess(
+      'bob@example.com',
+      'test-enclave',
+      'write',
+      frozenMcp,
+    );
+    expect(decision.allowed).toBe(false);
+    expect(decision.reason).toContain('frozen');
+  });
+
+  it('allows when not an enclave (mcpCall returns no owner)', async () => {
+    const noEnclaveMcp = async (
+      _tool: string,
+      _params: Record<string, unknown>,
+    ) => ({});
+    const decision = await checkAccess(
+      'anyone@example.com',
+      'some-channel',
+      'write',
+      noEnclaveMcp,
+    );
+    expect(decision.allowed).toBe(true);
   });
 });
 
