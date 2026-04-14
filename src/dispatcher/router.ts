@@ -30,21 +30,35 @@ export type RouteDecision =
 export type DeterministicAction =
   | { type: 'spawn_and_forward'; enclaveName: string }
   | { type: 'forward_to_active_team'; enclaveName: string }
-  | { type: 'enclave_sync_add'; targetUserId: string }
-  | { type: 'enclave_sync_remove'; targetUserId: string }
+  | { type: 'enclave_sync_add'; targetUserIds: string[] }
+  | { type: 'enclave_sync_remove'; targetUserIds: string[] }
   | { type: 'enclave_sync_transfer'; targetUserId: string }
+  | { type: 'enclave_archive' }
+  | { type: 'enclave_delete' }
+  | { type: 'enclave_members' }
+  | { type: 'enclave_whoami' }
+  | { type: 'enclave_help' }
   | { type: 'drift_sync'; channelId: string }
+  | { type: 'channel_event'; eventType: ChannelEventType }
   | { type: 'ignore_unbound' }
   | { type: 'ignore_bot' }
-  | { type: 'ignore_visitor' };
+  | { type: 'ignore_visitor' }
+  | { type: 'ignore_no_mention' };
+
+/** Slack channel lifecycle event types handled deterministically. */
+export type ChannelEventType =
+  | 'member_joined_channel'
+  | 'member_left_channel'
+  | 'channel_archive'
+  | 'channel_unarchive'
+  | 'channel_rename';
 
 /** Reason the smart path was chosen. */
 export type SmartReason =
   | 'dm_query'
   | 'ambiguous_input'
   | 'status_check'
-  | 'help_request'
-  | 'novel_phrasing';
+  | 'help_request';
 
 /** Context passed to the smart-path LLM invocation. */
 export interface SmartContext {
@@ -87,45 +101,89 @@ export interface RouterDeps {
 // Command parser
 // ---------------------------------------------------------------------------
 
+/** Filler words between @mentions in multi-mention commands. */
+const FILLER_RE = /^(and|also|please|then|,)\s*/i;
+
+/**
+ * Extract one or more Slack @mentions from text after a verb.
+ *
+ * Skips filler words (and, also, please, then, commas) between mentions.
+ * Returns null if no mentions found, or if the first non-filler token is
+ * not an @mention (this distinguishes "add @alice" from "add a new node").
+ */
+function extractMentions(afterVerb: string): string[] | null {
+  let rest = afterVerb.trim();
+  const mentions: string[] = [];
+  while (rest.length > 0) {
+    const filler = rest.match(FILLER_RE);
+    if (filler) {
+      rest = rest.slice(filler[0].length).trim();
+      continue;
+    }
+    const mention = rest.match(/^<@([A-Z0-9]+)>/i);
+    if (mention) {
+      mentions.push(mention[1]!);
+      rest = rest.slice(mention[0].length).trim();
+      continue;
+    }
+    // Non-filler, non-mention: stop. If we have some mentions already,
+    // trailing text is OK (e.g. "add @alice please"). If we have none,
+    // the first token is not a @mention, so this is not a command.
+    if (mentions.length === 0) return null;
+    break;
+  }
+  return mentions.length > 0 ? mentions : null;
+}
+
 /**
  * Parse a @kraken command from message text.
  *
- * Matches patterns like:
- *   @kraken add @user
- *   @kraken remove @user
- *   @kraken transfer @user
+ * Matches the full command grammar:
+ *   @kraken add @user [@user2 ...]
+ *   @kraken remove @user [@user2 ...]
+ *   @kraken transfer [@to] @user
  *   @kraken archive
- *   @kraken whoami
+ *   @kraken delete enclave
  *   @kraken members
+ *   @kraken whoami
  *   @kraken help
  *
  * Returns null for unrecognised text. Commands are deterministic — never LLM.
+ *
+ * Disambiguation rule: for add/remove, the first non-filler token after the
+ * verb MUST be an @mention. "add @alice" = command; "add a new node" = null
+ * (falls through to smart path).
  */
 export function parseCommand(text: string): DeterministicAction | null {
-  // Normalise: strip leading whitespace and bot @mention prefix
-  const stripped = text
-    .replace(/^<@[A-Z0-9]+>\s*/i, '') // strip leading @-mention of bot
-    .trim();
+  // Strip leading bot @mention prefix and normalise whitespace
+  const stripped = text.replace(/^<@[A-Z0-9]+>\s*/i, '').trim();
 
-  // Match: add/remove/transfer @user
-  const userVerb = stripped.match(/^(add|remove|transfer)\s+<@([A-Z0-9]+)>/i);
-  if (userVerb) {
-    const verb = userVerb[1]!.toLowerCase();
-    const targetUserId = userVerb[2]!;
-    if (verb === 'add') return { type: 'enclave_sync_add', targetUserId };
-    if (verb === 'remove') return { type: 'enclave_sync_remove', targetUserId };
-    if (verb === 'transfer')
-      return { type: 'enclave_sync_transfer', targetUserId };
+  // --- add / remove @user(s) ---
+  const memberMatch = stripped.match(/^(add|remove)\s+(.*)/is);
+  if (memberMatch) {
+    const verb = memberMatch[1]!.toLowerCase();
+    const mentions = extractMentions(memberMatch[2]!);
+    if (mentions) {
+      return verb === 'add'
+        ? { type: 'enclave_sync_add', targetUserIds: mentions }
+        : { type: 'enclave_sync_remove', targetUserIds: mentions };
+    }
+    return null; // first token not @mention → smart path
   }
 
-  // Match: no-argument commands (help, whoami, members, archive)
-  const noArg = stripped.match(/^(help|whoami|members|archive)\b/i);
-  if (noArg) {
-    // help/whoami/members go to smart path for contextual response
-    // archive is deterministic (Phase 4 — drift_sync is the closest proxy)
-    // For Phase 1 we return null for these and let them fall through to smart.
-    return null;
-  }
+  // --- transfer [to] @user ---
+  const transfer = stripped.match(/^transfer\s+(?:to\s+)?<@([A-Z0-9]+)>/i);
+  if (transfer)
+    return { type: 'enclave_sync_transfer', targetUserId: transfer[1]! };
+  if (/^transfer\b/i.test(stripped)) return null; // transfer without @mention → smart
+
+  // --- exact-phrase commands ---
+  if (/^archive\s*$/i.test(stripped)) return { type: 'enclave_archive' };
+  if (/^delete\s+enclave\s*$/i.test(stripped))
+    return { type: 'enclave_delete' };
+  if (/^members\s*$/i.test(stripped)) return { type: 'enclave_members' };
+  if (/^whoami\s*$/i.test(stripped)) return { type: 'enclave_whoami' };
+  if (/^help\s*$/i.test(stripped)) return { type: 'enclave_help' };
 
   return null;
 }
@@ -157,21 +215,30 @@ function classifySmartReason(event: InboundEvent): SmartReason {
  * Route a Slack event to either the deterministic or smart code path.
  *
  * DETERMINISTIC admission criteria (exhaustive — this IS the D4 contract):
- *   1. Bot/self message -> ignore_bot
- *   2. Message in unbound channel (non-DM) -> ignore_unbound
- *   3. "@kraken add @user" -> enclave_sync_add
- *   4. "@kraken remove @user" -> enclave_sync_remove
- *   5. "@kraken transfer @user" -> enclave_sync_transfer
- *   6. member_left_channel event in bound channel -> drift_sync
- *   7. @mention or thread reply in bound channel with active team -> forward_to_active_team
- *   8. @mention or thread reply in bound channel without active team -> spawn_and_forward
+ *   1.  Bot/self message -> ignore_bot
+ *   2.  Message in unbound channel (non-DM) -> ignore_unbound
+ *   3.  "@kraken add @user(s)" -> enclave_sync_add
+ *   4.  "@kraken remove @user(s)" -> enclave_sync_remove
+ *   5.  "@kraken transfer @user" -> enclave_sync_transfer
+ *   5a. "@kraken archive" -> enclave_archive
+ *   5b. "@kraken delete enclave" -> enclave_delete
+ *   5c. "@kraken members" -> enclave_members
+ *   5d. "@kraken whoami" -> enclave_whoami
+ *   5e. "@kraken help" -> enclave_help
+ *   6.  member_left_channel event in bound channel -> drift_sync
+ *   6a. channel_archive / channel_unarchive / channel_rename / member_joined
+ *       events in bound channel -> channel_event
+ *   7.  @mention in bound channel (no command) -> forward_to_active_team or
+ *       spawn_and_forward
+ *   8.  Thread reply in bound channel -> forward_to_active_team or
+ *       spawn_and_forward
+ *   9.  Non-@mention, non-thread message in bound channel -> ignore_no_mention
  *
  * SMART path (everything not matched above):
  *   A. DM from authenticated user
  *   B. Ambiguous @mention (no command, no binding)
  *   C. Status check ("what's happening?")
  *   D. Help request
- *   E. Novel phrasing not matching deterministic patterns
  */
 export function routeEvent(
   event: InboundEvent,
@@ -194,6 +261,27 @@ export function routeEvent(
     return { path: 'deterministic', action: { type: 'ignore_unbound' } };
   }
 
+  // Criterion 6a: channel lifecycle events -> channel_event
+  const CHANNEL_EVENTS: ChannelEventType[] = [
+    'member_joined_channel',
+    'channel_archive',
+    'channel_unarchive',
+    'channel_rename',
+  ];
+  if (CHANNEL_EVENTS.includes(event.type as ChannelEventType)) {
+    const binding = deps.bindings.lookupEnclave(event.channelId);
+    if (binding) {
+      return {
+        path: 'deterministic',
+        action: {
+          type: 'channel_event',
+          eventType: event.type as ChannelEventType,
+        },
+      };
+    }
+    return { path: 'deterministic', action: { type: 'ignore_unbound' } };
+  }
+
   // Criterion 2: Unbound channel (not a DM)
   const binding = deps.bindings.lookupEnclave(event.channelId);
   const enclaveName = binding?.enclaveName ?? null;
@@ -201,10 +289,24 @@ export function routeEvent(
     return { path: 'deterministic', action: { type: 'ignore_unbound' } };
   }
 
-  // Criteria 3-5: Command parsing (deterministic commands)
+  // Criteria 3-5e: Command parsing (deterministic commands)
   const command = parseCommand(event.text);
   if (command) {
     return { path: 'deterministic', action: command };
+  }
+
+  // Criterion 9 (FN-2): In a bound channel, non-@mention non-thread messages
+  // are silently ignored. The enclave is not a general-purpose chat channel.
+  if (
+    binding &&
+    event.type === 'message' &&
+    event.channelType !== 'im' &&
+    !event.threadTs
+  ) {
+    const hasMention = /<@[A-Z0-9]+>/i.test(event.text);
+    if (!hasMention) {
+      return { path: 'deterministic', action: { type: 'ignore_no_mention' } };
+    }
   }
 
   // Criteria 7-8: Enclave-bound @mention or thread reply
@@ -230,7 +332,7 @@ export function routeEvent(
     };
   }
 
-  // Smart path A-E: DMs, ambiguous input, status checks, help, novel phrasing
+  // Smart path A-D: DMs, ambiguous input, status checks, help
   return {
     path: 'smart',
     reason: classifySmartReason(event),

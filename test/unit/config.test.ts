@@ -55,6 +55,11 @@ beforeEach(() => {
   delete process.env['OTEL_EXPORTER_OTLP_ENDPOINT'];
   delete process.env['LOG_LEVEL'];
   delete process.env['OIDC_CLIENT_SECRET'];
+  // F26: clear drift env vars to prevent leakage between tests
+  delete process.env['KRAKEN_TEAMS_DIR'];
+  delete process.env['KRAKEN_DRIFT_INTERVAL_MS'];
+  delete process.env['KRAKEN_DRIFT_BATCH_SIZE'];
+  delete process.env['KRAKEN_DRIFT_SERVICE_TOKEN'];
 });
 
 afterEach(() => {

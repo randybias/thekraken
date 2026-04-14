@@ -35,6 +35,7 @@ import { OutboundPoller } from './teams/outbound-poller.js';
 import { createSlackBot } from './slack/bot.js';
 import { UserTokenStore } from './auth/tokens.js';
 import { startTokenRefreshLoop, stopTokenRefreshLoop } from './auth/refresh.js';
+import { DriftDetector } from './enclave/drift.js';
 
 const log = createChildLogger({ module: 'main' });
 
@@ -134,6 +135,46 @@ async function main(): Promise<void> {
   poller.start();
   await slackBot.start();
 
+  // 7a. Drift detection (Phase 3) — disabled with warning if no service token
+  const driftDetector = new DriftDetector(config.drift, {
+    mcpCall: async (tool: string, params: Record<string, unknown>) => {
+      const resp = await fetch(`${config.mcp.url}/mcp`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(config.drift.serviceToken
+            ? { Authorization: `Bearer ${config.drift.serviceToken}` }
+            : {}),
+        },
+        body: JSON.stringify({
+          jsonrpc: '2.0',
+          method: 'tools/call',
+          params: { name: tool, arguments: params },
+          id: Date.now(),
+        }),
+      });
+      const json = (await resp.json()) as { result?: unknown };
+      return json.result;
+    },
+    resolveEmail: async (_slackId: string) => {
+      // Phase 3: email resolution for drift requires Slack API lookup.
+      // In production, wire this to the Slack WebClient users.info call.
+      // For now, return undefined (drift will skip unresolvable IDs).
+      return undefined;
+    },
+    listChannelMembers: async (_channelId: string) => {
+      // Phase 3: list channel members requires Slack API conversations.members.
+      // In production, wire this to the Slack WebClient. For now, return [].
+      return [];
+    },
+  });
+  driftDetector.start();
+
+  // 7b. Run initial GC and schedule hourly GC (Phase 3, F24)
+  teams.gcStaleTeams();
+  const gcInterval = setInterval(() => teams.gcStaleTeams(), 3_600_000);
+  gcInterval.unref?.();
+
   const enclaveCount = bindings.count();
   log.info(
     {
@@ -156,6 +197,8 @@ async function main(): Promise<void> {
 
     try {
       stopTokenRefreshLoop();
+      driftDetector.stop();
+      clearInterval(gcInterval);
       await poller.stop();
       await slackBot.stop();
       await teams.shutdownAll();

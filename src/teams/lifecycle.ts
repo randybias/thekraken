@@ -88,7 +88,9 @@ function resolvePiBinary(): string {
  *           memory/MEMORY.md  (persisted across team restarts)
  */
 function ensureTeamDir(teamDir: string): void {
-  mkdirSync(join(teamDir, 'memory'), { recursive: true });
+  // 0o700: only the process owner can read/write/execute the team directory
+  // (protects OIDC tokens in mailbox.ndjson — F25)
+  mkdirSync(join(teamDir, 'memory'), { recursive: true, mode: 0o700 });
 }
 
 /**

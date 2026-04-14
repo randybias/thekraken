@@ -31,9 +31,37 @@ import type { UserTokenStore } from '../auth/tokens.js';
 import { initiateDeviceAuth, pollForToken } from '../auth/oidc.js';
 import { postAuthCard } from './auth-card.js';
 import { extractSubFromToken, extractEmailFromToken } from '../auth/refresh.js';
+import {
+  handleAdd,
+  handleRemove,
+  handleTransfer,
+  executeTransfer,
+  handleArchive,
+  handleDelete,
+  executeDelete,
+  handleMembers,
+  handleWhoami,
+  handleHelp,
+  type CommandContext,
+} from '../enclave/commands.js';
+import { checkAccess, type Role } from '../enclave/authz.js';
 
 const log = createChildLogger({ module: 'slack-bot' });
 const tracer = trace.getTracer('thekraken.slack');
+
+// ---------------------------------------------------------------------------
+// Double-confirmation flow types
+// ---------------------------------------------------------------------------
+
+interface PendingConfirmation {
+  action: 'transfer' | 'delete';
+  enclaveName: string;
+  userId: string;
+  channelId: string;
+  confirmKey: string; // "yes" for transfer, "DELETE" for delete
+  targetEmail?: string;
+  expiresAt: number; // Date.now() + 60_000
+}
 
 export interface SlackBotDeps {
   config: KrakenConfig;
@@ -114,7 +142,10 @@ export function createSlackBot(deps: SlackBotDeps): SlackBot {
     teams: deps.teams,
   };
 
-  registerEventHandlers(app, deps, routerDeps);
+  // Pending confirmations map (Phase 3): keyed by `${channelId}:${userId}`
+  const pendingConfirmations = new Map<string, PendingConfirmation>();
+
+  registerEventHandlers(app, deps, routerDeps, pendingConfirmations);
 
   return {
     app,
@@ -155,6 +186,7 @@ function registerEventHandlers(
   app: App,
   deps: SlackBotDeps,
   routerDeps: RouterDeps,
+  pendingConfirmations: Map<string, PendingConfirmation>,
 ): void {
   // ---------------------------------------------------------------------------
   // app_mention — user @mentions the bot in a channel
@@ -186,7 +218,14 @@ function registerEventHandlers(
         };
 
         const decision = routeEvent(inbound, routerDeps);
-        await executeDecision(decision, inbound, deps, say, threadTs);
+        await executeDecision(
+          decision,
+          inbound,
+          deps,
+          say,
+          threadTs,
+          pendingConfirmations,
+        );
 
         span.setStatus({ code: SpanStatusCode.OK });
       } catch (err) {
@@ -242,6 +281,7 @@ function registerEventHandlers(
           deps,
           say,
           threadTs ?? (event as { ts: string }).ts,
+          pendingConfirmations,
         );
 
         span.setStatus({ code: SpanStatusCode.OK });
@@ -269,6 +309,7 @@ async function executeDecision(
   deps: SlackBotDeps,
   say: (msg: { text: string; thread_ts: string }) => Promise<unknown>,
   threadTs: string,
+  pendingConfirmations: Map<string, PendingConfirmation>,
 ): Promise<void> {
   if (decision.path === 'deterministic') {
     const action = decision.action;
@@ -400,19 +441,303 @@ async function executeDecision(
       case 'ignore_unbound':
       case 'ignore_bot':
       case 'ignore_visitor':
+      case 'ignore_no_mention':
         // Silently ignored — no response
+        break;
+      case 'channel_event':
+        // Channel events are handled by registerChannelEvents() directly via
+        // Bolt event listeners. They do not flow through executeDecision.
+        break;
+      case 'drift_sync':
+        // drift_sync is a legacy action from the router for member_left_channel.
+        // The actual member removal is handled by registerChannelEvents().
+        // Log for observability.
+        log.info(
+          { channelId: inbound.channelId },
+          'drift_sync triggered by member_left_channel',
+        );
         break;
       case 'enclave_sync_add':
       case 'enclave_sync_remove':
       case 'enclave_sync_transfer':
-      case 'drift_sync':
-        // These will be fully implemented in Phase 3 (commands + events).
-        // For Phase 1: log and acknowledge.
-        log.info(
-          { action: action.type, channelId: inbound.channelId },
-          'deterministic action deferred to Phase 3',
+      case 'enclave_archive':
+      case 'enclave_delete':
+      case 'enclave_members':
+      case 'enclave_whoami':
+      case 'enclave_help': {
+        // --- Phase 3 Command Handling ---
+        // All commands require auth (except help). Commands post ephemeral
+        // responses visible only to the commanding user.
+
+        // help is always allowed
+        if (action.type === 'enclave_help') {
+          const result = handleHelp();
+          if (deps.slackClient) {
+            await deps.slackClient.chat
+              .postEphemeral({
+                channel: inbound.channelId,
+                user: inbound.userId,
+                text: result.message,
+              })
+              .catch(() => {
+                /* best effort */
+              });
+          }
+          break;
+        }
+
+        // All other commands require authentication
+        if (!deps.tokenStore || !deps.mcpCall) {
+          log.warn(
+            { action: action.type },
+            'command handler: no tokenStore or mcpCall configured',
+          );
+          break;
+        }
+
+        const userAccessToken = deps.tokenStore.getValidTokenForUser(
+          inbound.userId,
         );
+        if (!userAccessToken) {
+          // Trigger device flow
+          try {
+            const deviceAuth = await initiateDeviceAuth(deps.config.oidc);
+            if (deps.slackClient) {
+              await postAuthCard(deps.slackClient as any, {
+                channel: inbound.channelId,
+                userId: inbound.userId,
+                verificationUri:
+                  deviceAuth.verification_uri_complete ??
+                  deviceAuth.verification_uri,
+                userCode: deviceAuth.user_code,
+                expiresIn: deviceAuth.expires_in,
+              });
+            }
+            void pollForToken(
+              deps.config.oidc,
+              deviceAuth.device_code,
+              deviceAuth.interval ?? 5,
+              deviceAuth.expires_in,
+            )
+              .then((tokenResp) => {
+                if (tokenResp && deps.tokenStore) {
+                  const sub = extractSubFromToken(tokenResp.access_token) ?? '';
+                  const email =
+                    extractEmailFromToken(tokenResp.access_token) ?? '';
+                  deps.tokenStore.storeUserToken(
+                    inbound.userId,
+                    tokenResp,
+                    sub,
+                    email,
+                  );
+                }
+              })
+              .catch((err) => {
+                log.warn({ err, userId: inbound.userId }, 'device flow failed');
+              });
+          } catch (err) {
+            log.error(
+              { err, userId: inbound.userId },
+              'failed to initiate device auth for command',
+            );
+          }
+          break;
+        }
+
+        const userToken = userAccessToken;
+        const userEmail = extractEmailFromToken(userToken) ?? '';
+
+        // Look up the enclave name from the binding
+        const binding = deps.bindings.lookupEnclave(inbound.channelId);
+        const enclaveName = binding?.enclaveName ?? '';
+        if (!enclaveName) {
+          log.warn(
+            { channelId: inbound.channelId },
+            'command: no enclave binding found',
+          );
+          break;
+        }
+
+        // Check for pending confirmation (double-confirm flow)
+        const confirmKey = `${inbound.channelId}:${inbound.userId}`;
+
+        // Clean expired confirmations
+        for (const [k, v] of pendingConfirmations) {
+          if (Date.now() > v.expiresAt) pendingConfirmations.delete(k);
+        }
+
+        const pending = pendingConfirmations.get(confirmKey);
+        if (pending) {
+          pendingConfirmations.delete(confirmKey);
+          const trimmedText = inbound.text
+            .replace(/^<@[A-Z0-9]+>\s*/i, '')
+            .trim();
+
+          if (trimmedText === pending.confirmKey) {
+            // Execute confirmed action
+            const authzResult = await checkAccess(
+              userEmail,
+              enclaveName,
+              'write',
+              deps.mcpCall,
+            );
+            const cmdCtx: CommandContext = {
+              enclaveName,
+              channelId: inbound.channelId,
+              userId: inbound.userId,
+              userEmail,
+              userToken,
+              userRole: authzResult.role,
+              mcpCall: deps.mcpCall,
+              resolveEmail: async (_slackId: string) => undefined, // Phase 4: wire Slack users.info
+              postEphemeral: async (text: string) => {
+                if (deps.slackClient) {
+                  await deps.slackClient.chat
+                    .postEphemeral({
+                      channel: inbound.channelId,
+                      user: inbound.userId,
+                      text,
+                    })
+                    .catch(() => {
+                      /* best effort */
+                    });
+                }
+              },
+            };
+
+            let result;
+            if (pending.action === 'transfer' && pending.targetEmail) {
+              result = await executeTransfer(cmdCtx, pending.targetEmail);
+            } else if (pending.action === 'delete') {
+              result = await executeDelete(cmdCtx);
+            } else {
+              result = { ok: false, message: 'Unknown confirmation action.' };
+            }
+
+            if (deps.slackClient) {
+              await deps.slackClient.chat
+                .postEphemeral({
+                  channel: inbound.channelId,
+                  user: inbound.userId,
+                  text: result.message,
+                })
+                .catch(() => {
+                  /* best effort */
+                });
+            }
+          } else {
+            // Wrong confirmation key — cancel
+            if (deps.slackClient) {
+              await deps.slackClient.chat
+                .postEphemeral({
+                  channel: inbound.channelId,
+                  user: inbound.userId,
+                  text: `Confirmation cancelled. You replied "${trimmedText}" but expected "${pending.confirmKey}".`,
+                })
+                .catch(() => {
+                  /* best effort */
+                });
+            }
+          }
+          break;
+        }
+
+        // Resolve role for authz
+        const authzResult = await checkAccess(
+          userEmail,
+          enclaveName,
+          'write',
+          deps.mcpCall,
+        );
+        const userRole: Role = authzResult.role;
+
+        const cmdCtx: CommandContext = {
+          enclaveName,
+          channelId: inbound.channelId,
+          userId: inbound.userId,
+          userEmail,
+          userToken,
+          userRole,
+          mcpCall: deps.mcpCall,
+          resolveEmail: async (_slackId: string) => undefined, // Phase 4: wire Slack users.info
+          postEphemeral: async (text: string) => {
+            if (deps.slackClient) {
+              await deps.slackClient.chat
+                .postEphemeral({
+                  channel: inbound.channelId,
+                  user: inbound.userId,
+                  text,
+                })
+                .catch(() => {
+                  /* best effort */
+                });
+            }
+          },
+        };
+
+        let cmdResult;
+        switch (action.type) {
+          case 'enclave_sync_add':
+            cmdResult = await handleAdd(cmdCtx, action.targetUserIds);
+            break;
+          case 'enclave_sync_remove':
+            cmdResult = await handleRemove(cmdCtx, action.targetUserIds);
+            break;
+          case 'enclave_sync_transfer':
+            cmdResult = await handleTransfer(cmdCtx, action.targetUserId);
+            break;
+          case 'enclave_archive':
+            cmdResult = await handleArchive(cmdCtx);
+            break;
+          case 'enclave_delete':
+            cmdResult = await handleDelete(cmdCtx);
+            break;
+          case 'enclave_members':
+            cmdResult = await handleMembers(cmdCtx);
+            break;
+          case 'enclave_whoami':
+            cmdResult = await handleWhoami(cmdCtx);
+            break;
+          default:
+            cmdResult = { ok: false, message: 'Unknown command.' };
+        }
+
+        // Handle confirmation prompt
+        if (cmdResult.confirm && cmdResult.confirmKey) {
+          const targetEmail =
+            action.type === 'enclave_sync_transfer'
+              ? await (async () => {
+                  // Re-resolve target email for storage in pending confirmation
+                  return undefined; // Phase 4: resolve via Slack users.info
+                })()
+              : undefined;
+
+          pendingConfirmations.set(confirmKey, {
+            action:
+              action.type === 'enclave_sync_transfer' ? 'transfer' : 'delete',
+            enclaveName,
+            userId: inbound.userId,
+            channelId: inbound.channelId,
+            confirmKey: cmdResult.confirmKey,
+            targetEmail,
+            expiresAt: Date.now() + 60_000,
+          });
+        }
+
+        // Post ephemeral response
+        if (deps.slackClient) {
+          await deps.slackClient.chat
+            .postEphemeral({
+              channel: inbound.channelId,
+              user: inbound.userId,
+              text: cmdResult.message,
+            })
+            .catch(() => {
+              /* best effort */
+            });
+        }
         break;
+      }
     }
     return;
   }
