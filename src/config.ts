@@ -92,6 +92,18 @@ export interface ObservabilityConfig {
   logLevel: string;
 }
 
+export interface DriftConfig {
+  /** Drift detection interval in milliseconds. Default: 300_000. */
+  intervalMs: number;
+  /** Max enclaves to check per cycle. Default: 5. */
+  maxChannelsPerCycle: number;
+  /**
+   * Service token for drift MCP calls (D6 exception).
+   * Empty string disables drift detection with a warning.
+   */
+  serviceToken: string;
+}
+
 export interface KrakenConfig {
   slack: SlackConfig;
   oidc: OidcConfig;
@@ -112,6 +124,8 @@ export interface KrakenConfig {
    * Required in Phase 2+.
    */
   tokenEncryptionKey: Buffer;
+  /** Drift detection configuration (Phase 3). */
+  drift: DriftConfig;
 }
 
 /**
@@ -307,6 +321,14 @@ export function loadConfig(): KrakenConfig {
   const otlpEndpoint = optional('OTEL_EXPORTER_OTLP_ENDPOINT', '');
   const logLevel = optional('LOG_LEVEL', 'info');
 
+  // Drift detection (Phase 3) — all optional
+  const driftIntervalMs = parseInt(
+    optional('KRAKEN_DRIFT_INTERVAL_MS', '300000'),
+    10,
+  );
+  const driftBatchSize = parseInt(optional('KRAKEN_DRIFT_BATCH_SIZE', '5'), 10);
+  const driftServiceToken = process.env['KRAKEN_DRIFT_SERVICE_TOKEN'] ?? '';
+
   const config: KrakenConfig = {
     slack: {
       botToken,
@@ -347,6 +369,17 @@ export function loadConfig(): KrakenConfig {
       logLevel,
     },
     tokenEncryptionKey,
+    drift: {
+      intervalMs:
+        Number.isFinite(driftIntervalMs) && driftIntervalMs > 0
+          ? driftIntervalMs
+          : 300_000,
+      maxChannelsPerCycle:
+        Number.isFinite(driftBatchSize) && driftBatchSize > 0
+          ? driftBatchSize
+          : 5,
+      serviceToken: driftServiceToken,
+    },
   };
 
   // Throw a single combined error covering both missing-required and invalid

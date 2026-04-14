@@ -136,6 +136,18 @@ tokenEncryption:
   # Key within the Secret that holds the value.
   key: "encryption-key"
 
+# Drift detection configuration (Phase 3, D6 exception)
+# Requires KRAKEN_DRIFT_SERVICE_TOKEN to be set in the drift secret.
+# If not set, drift detection is disabled with a warning.
+drift:
+  # Interval between drift cycles in milliseconds. Default: 5 minutes.
+  intervalMs: 300000
+  # Max enclaves to check per cycle (round-robin). Default: 5.
+  batchSize: 5
+  # K8s Secret containing the drift service token. Optional.
+  # If set, must contain key 'service-token'.
+  secretName: ""
+
 networkPolicy:
   enabled: true
 

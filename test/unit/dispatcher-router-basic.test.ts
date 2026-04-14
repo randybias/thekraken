@@ -62,7 +62,7 @@ describe('parseCommand', () => {
     const result = parseCommand('<@UBOT123> add <@UABC456>');
     expect(result).toEqual({
       type: 'enclave_sync_add',
-      targetUserId: 'UABC456',
+      targetUserIds: ['UABC456'],
     });
   });
 
@@ -70,7 +70,7 @@ describe('parseCommand', () => {
     const result = parseCommand('<@UBOT123> remove <@UABC456>');
     expect(result).toEqual({
       type: 'enclave_sync_remove',
-      targetUserId: 'UABC456',
+      targetUserIds: ['UABC456'],
     });
   });
 
@@ -82,26 +82,72 @@ describe('parseCommand', () => {
     });
   });
 
+  it('parses "transfer to @user" (optional to)', () => {
+    const result = parseCommand('<@UBOT123> transfer to <@UABC456>');
+    expect(result).toEqual({
+      type: 'enclave_sync_transfer',
+      targetUserId: 'UABC456',
+    });
+  });
+
   it('parses add without leading bot mention', () => {
     const result = parseCommand('add <@UABC>');
-    expect(result).toEqual({ type: 'enclave_sync_add', targetUserId: 'UABC' });
+    expect(result).toEqual({
+      type: 'enclave_sync_add',
+      targetUserIds: ['UABC'],
+    });
   });
 
   it('is case-insensitive for verbs', () => {
     const result = parseCommand('ADD <@UABC>');
-    expect(result).toEqual({ type: 'enclave_sync_add', targetUserId: 'UABC' });
+    expect(result).toEqual({
+      type: 'enclave_sync_add',
+      targetUserIds: ['UABC'],
+    });
   });
 
-  it('returns null for "help" (falls through to smart path)', () => {
-    expect(parseCommand('help')).toBeNull();
+  it('parses "add @user1 @user2" (multi-mention)', () => {
+    const result = parseCommand('<@UBOT> add <@UABC> and <@UDEF>');
+    expect(result).toEqual({
+      type: 'enclave_sync_add',
+      targetUserIds: ['UABC', 'UDEF'],
+    });
   });
 
-  it('returns null for "whoami"', () => {
-    expect(parseCommand('whoami')).toBeNull();
+  it('parses "help" as enclave_help', () => {
+    expect(parseCommand('help')).toEqual({ type: 'enclave_help' });
   });
 
-  it('returns null for "members"', () => {
-    expect(parseCommand('members')).toBeNull();
+  it('parses "whoami" as enclave_whoami', () => {
+    expect(parseCommand('whoami')).toEqual({ type: 'enclave_whoami' });
+  });
+
+  it('parses "members" as enclave_members', () => {
+    expect(parseCommand('members')).toEqual({ type: 'enclave_members' });
+  });
+
+  it('parses "archive" as enclave_archive', () => {
+    expect(parseCommand('archive')).toEqual({ type: 'enclave_archive' });
+  });
+
+  it('parses "delete enclave" as enclave_delete', () => {
+    expect(parseCommand('delete enclave')).toEqual({ type: 'enclave_delete' });
+  });
+
+  it('returns null for "add a new node" (first token not @mention)', () => {
+    expect(parseCommand('add a new node')).toBeNull();
+  });
+
+  it('returns null for "delete the old tentacle" (not exact phrase)', () => {
+    expect(parseCommand('delete the old tentacle')).toBeNull();
+  });
+
+  it('returns null for "archive my notes" (extra text)', () => {
+    expect(parseCommand('archive my notes')).toBeNull();
+  });
+
+  it('returns null for "transfer my files" (no @mention)', () => {
+    expect(parseCommand('transfer my files')).toBeNull();
   });
 });
 
