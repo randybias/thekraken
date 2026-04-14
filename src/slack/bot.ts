@@ -11,6 +11,7 @@
  */
 
 import { App, ExpressReceiver } from '@slack/bolt';
+import type { WebClient } from '@slack/web-api';
 import type { Server } from 'node:http';
 import { trace, SpanStatusCode } from '@opentelemetry/api';
 import { healthHandler, createHealthServer } from '../health.js';
@@ -26,6 +27,12 @@ import {
 } from '../dispatcher/router.js';
 import type { TeamLifecycleManager } from '../teams/lifecycle.js';
 import { randomUUID } from 'node:crypto';
+import {
+  getValidTokenForUser,
+  initiateDeviceAuth,
+  pollForToken,
+  storeTokenForUser,
+} from '../auth/index.js';
 
 const log = createChildLogger({ module: 'slack-bot' });
 const tracer = trace.getTracer('thekraken.slack');
@@ -134,7 +141,7 @@ function registerEventHandlers(
   // ---------------------------------------------------------------------------
   // app_mention — user @mentions the bot in a channel
   // ---------------------------------------------------------------------------
-  app.event('app_mention', async ({ event, say }) => {
+  app.event('app_mention', async ({ event, say, client }) => {
     if ('bot_id' in event) return;
 
     const threadTs = event.thread_ts ?? event.ts;
@@ -152,6 +159,10 @@ function registerEventHandlers(
           'mention received',
         );
 
+        // Auth gate (Task 6): verify user has a valid OIDC token before routing.
+        const userToken = await checkAuthOrPrompt(userId, channelId, threadTs, client);
+        if (userToken === null) return;
+
         const inbound: InboundEvent = {
           type: 'app_mention',
           channelId,
@@ -161,7 +172,7 @@ function registerEventHandlers(
         };
 
         const decision = routeEvent(inbound, routerDeps);
-        await executeDecision(decision, inbound, deps, say, threadTs);
+        await executeDecision(decision, inbound, deps, say, threadTs, userToken);
 
         span.setStatus({ code: SpanStatusCode.OK });
       } catch (err) {
@@ -180,7 +191,7 @@ function registerEventHandlers(
   // ---------------------------------------------------------------------------
   // message — DMs and thread replies
   // ---------------------------------------------------------------------------
-  app.event('message', async ({ event, say }) => {
+  app.event('message', async ({ event, say, client }) => {
     if ('subtype' in event && event.subtype) return;
     if (!('user' in event)) return;
     if ('bot_id' in event) return;
@@ -201,6 +212,15 @@ function registerEventHandlers(
       if (threadTs) span.setAttribute('slack.thread_ts', threadTs);
 
       try {
+        // Auth gate (Task 6): verify user has a valid OIDC token before routing.
+        const userToken = await checkAuthOrPrompt(
+          userId,
+          channelId,
+          threadTs ?? (event as { ts: string }).ts,
+          client,
+        );
+        if (userToken === null) return;
+
         const inbound: InboundEvent = {
           type: 'message',
           channelId,
@@ -217,6 +237,7 @@ function registerEventHandlers(
           deps,
           say,
           threadTs ?? (event as { ts: string }).ts,
+          userToken,
         );
 
         span.setStatus({ code: SpanStatusCode.OK });
@@ -235,8 +256,55 @@ function registerEventHandlers(
 }
 
 /**
+ * Check if a user has a valid OIDC token. If not, initiate device auth and
+ * post an ephemeral prompt. Returns the access token on success, null on failure.
+ *
+ * Task 6: Auth gate. Called by both event handlers before routing.
+ */
+async function checkAuthOrPrompt(
+  userId: string,
+  channelId: string,
+  threadTs: string,
+  client: WebClient,
+): Promise<string | null> {
+  const token = await getValidTokenForUser(userId);
+  if (token !== null) return token;
+
+  // User is not authenticated — start device flow and prompt them.
+  try {
+    const deviceAuth = await initiateDeviceAuth();
+
+    // Post ephemeral auth prompt — only visible to this user.
+    await client.chat.postEphemeral({
+      channel: channelId,
+      user: userId,
+      thread_ts: threadTs,
+      text:
+        `*Authentication required.* Open the link below and enter the code to connect your account:\n` +
+        `*URL:* ${deviceAuth.verification_uri_complete ?? deviceAuth.verification_uri}\n` +
+        `*Code:* \`${deviceAuth.user_code}\`\n` +
+        `_(This code expires in ${Math.floor(deviceAuth.expires_in / 60)} minutes.)_`,
+    });
+
+    // Poll in background — fire and forget.
+    pollForToken(deviceAuth.device_code, deviceAuth.interval, deviceAuth.expires_in)
+      .then((tokens) => storeTokenForUser(userId, tokens))
+      .catch((err: unknown) =>
+        log.warn({ err, user: userId }, 'Device auth polling failed'),
+      );
+  } catch (err) {
+    log.error({ err, userId }, 'Failed to initiate device auth');
+  }
+
+  return null;
+}
+
+/**
  * Execute a RouteDecision: deterministic actions go directly; smart
  * path delegates to the dispatcher's AgentSession via deps.onSmartPath().
+ *
+ * Task 7: userToken is now the real OIDC token, threaded from the auth gate
+ * through to mailbox records so teams receive TNTC_ACCESS_TOKEN.
  */
 async function executeDecision(
   decision: RouteDecision,
@@ -244,6 +312,7 @@ async function executeDecision(
   deps: SlackBotDeps,
   say: (msg: { text: string; thread_ts: string }) => Promise<unknown>,
   threadTs: string,
+  userToken: string,
 ): Promise<void> {
   if (decision.path === 'deterministic') {
     const action = decision.action;
@@ -251,13 +320,11 @@ async function executeDecision(
       case 'spawn_and_forward': {
         // Spawn a new team BEFORE writing the first mailbox record.
         // Without this, the mailbox record sits unread (M1 code review fix).
-        // D6: userToken is empty in Phase 1 (no OIDC yet). Phase 2 passes
-        // the authenticated user's token here. Teams MUST NOT make
-        // authenticated MCP calls without a real user token.
+        // D6: userToken is the authenticated user's OIDC token (Task 7).
         await deps.teams.spawnTeam(
           action.enclaveName,
           inbound.userId,
-          '', // Phase 1: no user token. Phase 2: per-user OIDC token.
+          userToken,
         );
         deps.teams.sendToTeam(action.enclaveName, {
           id: randomUUID(),
@@ -267,7 +334,7 @@ async function executeDecision(
           threadTs,
           channelId: inbound.channelId,
           userSlackId: inbound.userId,
-          userToken: '', // Phase 1: empty. Phase 2: per-user OIDC token.
+          userToken, // Task 7: real per-user OIDC token.
           message: inbound.text,
         });
         break;
@@ -281,7 +348,7 @@ async function executeDecision(
           threadTs,
           channelId: inbound.channelId,
           userSlackId: inbound.userId,
-          userToken: '', // Phase 1: empty. Phase 2: per-user OIDC token.
+          userToken, // Task 7: real per-user OIDC token.
           message: inbound.text,
         });
         break;
