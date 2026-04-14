@@ -53,7 +53,7 @@ tokenEncryption:
 will need to re-authenticate via the device flow. The key does NOT live in
 the Kraken repo, the PVC, or the SQLite database — it exists only in:
 
-1. Your secrets management system (e.g., `secrets get thekraken/encryption/token-key`)
+1. Your organization's secrets management system (Vault, AWS Secrets Manager, etc.)
 2. The K8s Secret in the cluster
 
 **Back up the key** to your secrets system (or wherever your organization
