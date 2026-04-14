@@ -31,6 +31,7 @@ import type { UserTokenStore } from '../auth/tokens.js';
 import { initiateDeviceAuth, pollForToken } from '../auth/oidc.js';
 import { postAuthCard } from './auth-card.js';
 import { extractSubFromToken, extractEmailFromToken } from '../auth/refresh.js';
+import { registerChannelEvents } from './events.js';
 import {
   handleAdd,
   handleRemove,
@@ -146,6 +147,22 @@ export function createSlackBot(deps: SlackBotDeps): SlackBot {
   const pendingConfirmations = new Map<string, PendingConfirmation>();
 
   registerEventHandlers(app, deps, routerDeps, pendingConfirmations);
+
+  // Wire channel lifecycle events (Security Finding 7 / Codex Finding 7).
+  registerChannelEvents(app, {
+    bindings: deps.bindings,
+    mcpCall: deps.mcpCall ?? (async () => undefined),
+    botUserId: '', // Filled in after app.start() auth.test — acceptable for now
+    resolveEmail: async (slackId: string) => {
+      // Wire to real Slack API for email resolution
+      try {
+        const result = await app.client.users.info({ user: slackId });
+        return result.user?.profile?.email;
+      } catch {
+        return undefined;
+      }
+    },
+  });
 
   return {
     app,

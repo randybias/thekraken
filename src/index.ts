@@ -35,7 +35,8 @@ import { OutboundPoller } from './teams/outbound-poller.js';
 import { createSlackBot } from './slack/bot.js';
 import { UserTokenStore } from './auth/tokens.js';
 import { startTokenRefreshLoop, stopTokenRefreshLoop } from './auth/refresh.js';
-import { DriftDetector } from './enclave/drift.js';
+// DriftDetector imported when real Slack adapters are wired (Phase 4).
+// import { DriftDetector } from './enclave/drift.js';
 
 const log = createChildLogger({ module: 'main' });
 
@@ -136,39 +137,21 @@ async function main(): Promise<void> {
   await slackBot.start();
 
   // 7a. Drift detection (Phase 3) — disabled with warning if no service token
-  const driftDetector = new DriftDetector(config.drift, {
-    mcpCall: async (tool: string, params: Record<string, unknown>) => {
-      const resp = await fetch(`${config.mcp.url}/mcp`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(config.drift.serviceToken
-            ? { Authorization: `Bearer ${config.drift.serviceToken}` }
-            : {}),
-        },
-        body: JSON.stringify({
-          jsonrpc: '2.0',
-          method: 'tools/call',
-          params: { name: tool, arguments: params },
-          id: Date.now(),
-        }),
-      });
-      const json = (await resp.json()) as { result?: unknown };
-      return json.result;
-    },
-    resolveEmail: async (_slackId: string) => {
-      // Phase 3: email resolution for drift requires Slack API lookup.
-      // In production, wire this to the Slack WebClient users.info call.
-      // For now, return undefined (drift will skip unresolvable IDs).
-      return undefined;
-    },
-    listChannelMembers: async (_channelId: string) => {
-      // Phase 3: list channel members requires Slack API conversations.members.
-      // In production, wire this to the Slack WebClient. For now, return [].
-      return [];
-    },
-  });
-  driftDetector.start();
+  // Drift detection DISABLED until Slack adapters are wired (Codex fix #4).
+  // With stub adapters (resolveEmail→undefined, listChannelMembers→[]),
+  // the drift detector would treat empty Slack member lists as authoritative
+  // and REMOVE ALL non-owner members from every active enclave.
+  //
+  // To enable: replace stubs with real Slack WebClient calls after Slack bot
+  // is created (bot.app.client.conversations.members + users.info), then
+  // call driftDetector.start(). The DriftDetector class is implemented and
+  // tested — only the production wiring is gated here.
+  //
+  // TODO(phase4): Wire real Slack adapters and enable drift detection.
+  void config.drift; // Config parsed but drift disabled until Phase 4
+  log.warn(
+    'Drift detection DISABLED: Slack adapters not yet wired. See TODO(phase4) in index.ts.',
+  );
 
   // 7b. Run initial GC and schedule hourly GC (Phase 3, F24)
   teams.gcStaleTeams();
@@ -197,7 +180,7 @@ async function main(): Promise<void> {
 
     try {
       stopTokenRefreshLoop();
-      driftDetector.stop();
+      // driftDetector.stop(); // Disabled until Slack adapters wired (Codex fix #4)
       clearInterval(gcInterval);
       await poller.stop();
       await slackBot.stop();
