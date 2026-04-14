@@ -19,7 +19,9 @@ export type ChannelEventType =
 export interface ChannelEventDeps {
   resolveEmail: (userId: string) => Promise<string | undefined>;
   mcpCall: (tool: string, params: Record<string, unknown>) => Promise<unknown>;
-  getEnclaveInfo: (name: string) => Promise<{ owner: string; members: string[] } | undefined>;
+  getEnclaveInfo: (
+    name: string,
+  ) => Promise<{ owner: string; members: string[] } | undefined>;
   invalidateCache: (name: string) => void;
   botUserId: string;
 }
@@ -148,10 +150,7 @@ async function handleChannelArchive(
     });
 
     deps.invalidateCache(enclaveName);
-    logger.info(
-      { enclaveName },
-      'channel-events: enclave frozen on archive',
-    );
+    logger.info({ enclaveName }, 'channel-events: enclave frozen on archive');
   } catch (err) {
     logger.error(
       { enclaveName, err },

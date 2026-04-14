@@ -15,7 +15,13 @@ function makeDeps() {
     members: [MEMBER_EMAIL],
   });
   const invalidateCache = vi.fn();
-  return { mcpCall, resolveEmail, getEnclaveInfo, invalidateCache, botUserId: BOT_USER_ID };
+  return {
+    mcpCall,
+    resolveEmail,
+    getEnclaveInfo,
+    invalidateCache,
+    botUserId: BOT_USER_ID,
+  };
 }
 
 describe('handleChannelEvent', () => {
@@ -26,13 +32,23 @@ describe('handleChannelEvent', () => {
   describe('member_joined', () => {
     it('logs visitor arrival, makes no MCP call', async () => {
       const deps = makeDeps();
-      await handleChannelEvent('member_joined', ENCLAVE_NAME, { userId: 'U456' }, deps);
+      await handleChannelEvent(
+        'member_joined',
+        ENCLAVE_NAME,
+        { userId: 'U456' },
+        deps,
+      );
       expect(deps.mcpCall).not.toHaveBeenCalled();
     });
 
     it('ignores bot joining', async () => {
       const deps = makeDeps();
-      await handleChannelEvent('member_joined', ENCLAVE_NAME, { userId: BOT_USER_ID }, deps);
+      await handleChannelEvent(
+        'member_joined',
+        ENCLAVE_NAME,
+        { userId: BOT_USER_ID },
+        deps,
+      );
       expect(deps.mcpCall).not.toHaveBeenCalled();
     });
   });
@@ -40,7 +56,12 @@ describe('handleChannelEvent', () => {
   describe('member_left', () => {
     it('calls enclave_sync with remove_members for enclave member', async () => {
       const deps = makeDeps();
-      await handleChannelEvent('member_left', ENCLAVE_NAME, { userId: 'U_ALICE' }, deps);
+      await handleChannelEvent(
+        'member_left',
+        ENCLAVE_NAME,
+        { userId: 'U_ALICE' },
+        deps,
+      );
       expect(deps.resolveEmail).toHaveBeenCalledWith('U_ALICE');
       expect(deps.mcpCall).toHaveBeenCalledWith('enclave_sync', {
         name: ENCLAVE_NAME,
@@ -52,7 +73,12 @@ describe('handleChannelEvent', () => {
     it('skips removal for visitor (email not in members list)', async () => {
       const deps = makeDeps();
       deps.resolveEmail.mockResolvedValue('visitor@example.com');
-      await handleChannelEvent('member_left', ENCLAVE_NAME, { userId: 'U_VISITOR' }, deps);
+      await handleChannelEvent(
+        'member_left',
+        ENCLAVE_NAME,
+        { userId: 'U_VISITOR' },
+        deps,
+      );
       expect(deps.mcpCall).not.toHaveBeenCalled();
       expect(deps.invalidateCache).not.toHaveBeenCalled();
     });
@@ -61,13 +87,23 @@ describe('handleChannelEvent', () => {
       const deps = makeDeps();
       deps.resolveEmail.mockResolvedValue(OWNER_EMAIL);
       // owner is NOT in the members array, only in owner field
-      await handleChannelEvent('member_left', ENCLAVE_NAME, { userId: 'U_OWNER' }, deps);
+      await handleChannelEvent(
+        'member_left',
+        ENCLAVE_NAME,
+        { userId: 'U_OWNER' },
+        deps,
+      );
       expect(deps.mcpCall).not.toHaveBeenCalled();
     });
 
     it('no MCP call when bot itself leaves', async () => {
       const deps = makeDeps();
-      await handleChannelEvent('member_left', ENCLAVE_NAME, { userId: BOT_USER_ID }, deps);
+      await handleChannelEvent(
+        'member_left',
+        ENCLAVE_NAME,
+        { userId: BOT_USER_ID },
+        deps,
+      );
       expect(deps.mcpCall).not.toHaveBeenCalled();
       expect(deps.resolveEmail).not.toHaveBeenCalled();
     });
@@ -75,14 +111,24 @@ describe('handleChannelEvent', () => {
     it('skips when email resolution fails', async () => {
       const deps = makeDeps();
       deps.resolveEmail.mockResolvedValue(undefined);
-      await handleChannelEvent('member_left', ENCLAVE_NAME, { userId: 'U_UNKNOWN' }, deps);
+      await handleChannelEvent(
+        'member_left',
+        ENCLAVE_NAME,
+        { userId: 'U_UNKNOWN' },
+        deps,
+      );
       expect(deps.mcpCall).not.toHaveBeenCalled();
     });
 
     it('skips when enclave info not found', async () => {
       const deps = makeDeps();
       deps.getEnclaveInfo.mockResolvedValue(undefined);
-      await handleChannelEvent('member_left', ENCLAVE_NAME, { userId: 'U_ALICE' }, deps);
+      await handleChannelEvent(
+        'member_left',
+        ENCLAVE_NAME,
+        { userId: 'U_ALICE' },
+        deps,
+      );
       expect(deps.mcpCall).not.toHaveBeenCalled();
     });
   });
@@ -102,7 +148,12 @@ describe('handleChannelEvent', () => {
   describe('channel_rename', () => {
     it('calls enclave_sync with new_channel_name', async () => {
       const deps = makeDeps();
-      await handleChannelEvent('channel_rename', ENCLAVE_NAME, { newName: 'new-name' }, deps);
+      await handleChannelEvent(
+        'channel_rename',
+        ENCLAVE_NAME,
+        { newName: 'new-name' },
+        deps,
+      );
       expect(deps.mcpCall).toHaveBeenCalledWith('enclave_sync', {
         name: ENCLAVE_NAME,
         new_channel_name: 'new-name',

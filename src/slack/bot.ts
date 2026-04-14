@@ -202,8 +202,9 @@ function registerEventHandlers(
               },
               resolveEmail: async (slackUserId) => {
                 const info = await client.users.info({ user: slackUserId });
-                return (info.user as { profile?: { email?: string } } | undefined)
-                  ?.profile?.email;
+                return (
+                  info.user as { profile?: { email?: string } } | undefined
+                )?.profile?.email;
               },
             });
             span.setStatus({ code: SpanStatusCode.OK });
@@ -295,8 +296,8 @@ function registerEventHandlers(
   });
 
   app.event('channel_rename', async ({ event }) => {
-    const channelId = (event as { channel?: { id?: string; name?: string } })
-      .channel?.id ?? '';
+    const channelId =
+      (event as { channel?: { id?: string; name?: string } }).channel?.id ?? '';
     const newName = (event as { channel?: { name?: string } }).channel?.name;
     const binding = deps.bindings.lookupEnclave(channelId);
     if (!binding) return;

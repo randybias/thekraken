@@ -87,9 +87,7 @@ async function resolveMentionedUser(
  * Resolve the sender's email from their Slack ID.
  * Returns null and sends an error message if not resolvable.
  */
-async function resolveSenderEmail(
-  ctx: CommandContext,
-): Promise<string | null> {
+async function resolveSenderEmail(ctx: CommandContext): Promise<string | null> {
   const email = await ctx.resolveEmail(ctx.senderSlackId);
   if (!email) {
     await ctx.sendMessage(
@@ -337,9 +335,7 @@ export async function handleWhoami(ctx: CommandContext): Promise<void> {
       { enclaveName: ctx.enclaveName, email: senderEmail, role },
       'command: whoami',
     );
-    await ctx.sendMessage(
-      `You're ${role} of this enclave (${senderEmail}).`,
-    );
+    await ctx.sendMessage(`You're ${role} of this enclave (${senderEmail}).`);
   } catch (err) {
     logger.error(
       { enclaveName: ctx.enclaveName, err },

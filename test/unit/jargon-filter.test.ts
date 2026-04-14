@@ -1,5 +1,8 @@
 import { describe, it, expect } from 'vitest';
-import { filterJargon, filterNarration } from '../../src/extensions/jargon-filter.js';
+import {
+  filterJargon,
+  filterNarration,
+} from '../../src/extensions/jargon-filter.js';
 
 // ---------------------------------------------------------------------------
 // New replacements added in Phase 1

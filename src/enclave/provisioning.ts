@@ -23,7 +23,10 @@ export interface DeprovisionResult {
   [key: string]: unknown;
 }
 
-type McpCall = (tool: string, params: Record<string, unknown>) => Promise<unknown>;
+type McpCall = (
+  tool: string,
+  params: Record<string, unknown>,
+) => Promise<unknown>;
 
 export async function provisionEnclave(
   params: ProvisionParams,
@@ -41,7 +44,10 @@ export async function provisionEnclave(
   if (params.quotaPreset) mcpParams.quota_preset = params.quotaPreset;
   if (params.defaultMode) mcpParams.default_mode = params.defaultMode;
 
-  logger.info({ enclave: params.name, owner: params.ownerEmail }, 'Provisioning enclave');
+  logger.info(
+    { enclave: params.name, owner: params.ownerEmail },
+    'Provisioning enclave',
+  );
   const result = await mcpCall('enclave_provision', mcpParams);
   return result as ProvisionResult;
 }
