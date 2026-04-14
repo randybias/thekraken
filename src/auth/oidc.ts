@@ -229,9 +229,9 @@ export async function refreshToken(
  */
 export function extractEmailFromToken(token: string): string | undefined {
   try {
-    const payload = JSON.parse(
-      Buffer.from(token.split('.')[1], 'base64url').toString(),
-    );
+    const part = token.split('.')[1];
+    if (!part) return undefined;
+    const payload = JSON.parse(Buffer.from(part, 'base64url').toString());
     return payload.email as string | undefined;
   } catch {
     return undefined;
@@ -244,9 +244,9 @@ export function extractEmailFromToken(token: string): string | undefined {
  */
 function decodeJwtPayload(token: string): Record<string, unknown> | null {
   try {
-    return JSON.parse(
-      Buffer.from(token.split('.')[1], 'base64url').toString(),
-    ) as Record<string, unknown>;
+    const part = token.split('.')[1];
+    if (!part) return null;
+    return JSON.parse(Buffer.from(part, 'base64url').toString()) as Record<string, unknown>;
   } catch {
     return null;
   }

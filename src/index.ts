@@ -28,6 +28,7 @@ import { loadConfig } from './config.js';
 import { initTelemetry, shutdownTelemetry } from './telemetry.js';
 import { createChildLogger } from './logger.js';
 import { initDatabase } from './db/index.js';
+import { initTokenStore, startTokenRefreshLoop, stopTokenRefreshLoop } from './auth/index.js';
 import { EnclaveBindingEngine } from './enclave/binding.js';
 import { OutboundTracker } from './slack/outbound.js';
 import { TeamLifecycleManager } from './teams/lifecycle.js';
@@ -48,6 +49,11 @@ async function main(): Promise<void> {
   // 3. SQLite
   const db = initDatabase(config);
   log.info('Database initialized');
+
+  // 3a. Auth: token store + background refresh loop
+  initTokenStore(db);
+  startTokenRefreshLoop();
+  log.info('Token store and refresh loop initialized');
 
   // 4. Subsystems
   const bindings = new EnclaveBindingEngine(db);
@@ -129,6 +135,7 @@ async function main(): Promise<void> {
     log.info({ signal }, 'Shutdown initiated');
 
     try {
+      stopTokenRefreshLoop();
       await poller.stop();
       await slackBot.stop();
       await teams.shutdownAll();
