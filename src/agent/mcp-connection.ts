@@ -18,7 +18,7 @@ import { trace, SpanStatusCode } from '@opentelemetry/api';
 // Tool category constants (design Section 13.5)
 // ---------------------------------------------------------------------------
 
-/** Tools that auto-inject enclave namespace. Phase 2 adds enforcement. */
+/** Tools that auto-inject enclave name. Phase 2 adds enforcement. */
 export const ENCLAVE_SCOPED = [
   'wf_list',
   'wf_describe',
@@ -28,7 +28,7 @@ export const ENCLAVE_SCOPED = [
   'wf_events',
   'wf_jobs',
   'wf_health',
-  'wf_health_ns',
+  'wf_health_enclave',
   'wf_apply',
   'wf_run',
   'wf_restart',
@@ -44,11 +44,10 @@ export const ENCLAVE_SCOPED = [
 
 /** Tools blocked in enclave mode (DM or admin only). Phase 2 adds enforcement. */
 export const BLOCKED_IN_ENCLAVE = [
-  'ns_create',
   'enclave_provision',
   'enclave_deprovision',
+  'enclave_preflight',
   'cluster_profile',
-  'cluster_preflight',
   'proxy_status',
 ] as const;
 
@@ -59,7 +58,7 @@ export const DM_ALLOWED = ['enclave_list'] as const;
 export const ALWAYS_ALLOWED = [
   'health_cluster_summary',
   'health_nodes',
-  'health_ns_usage',
+  'health_enclave_usage',
 ] as const;
 
 /** All registered tool names. */

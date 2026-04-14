@@ -118,13 +118,13 @@ describe('AIMock smoke: MCPMock', () => {
   beforeEach(async () => {
     mcpmock = new MCPMock({ port: 0 });
     mcpmock.addTool({
-      name: 'ns_list',
-      description: 'List namespaces',
+      name: 'enclave_list',
+      description: 'List enclaves',
       inputSchema: { type: 'object', properties: {} },
     });
     // onToolCall takes a handler function (not a match+value)
-    mcpmock.onToolCall('ns_list', (_args: unknown) => ({
-      namespaces: ['marketing', 'engineering'],
+    mcpmock.onToolCall('enclave_list', (_args: unknown) => ({
+      enclaves: [{ name: 'marketing' }, { name: 'engineering' }],
     }));
     await mcpmock.start();
 
@@ -170,7 +170,7 @@ describe('AIMock smoke: MCPMock', () => {
     expect(sessionId).toBeTruthy();
   });
 
-  it('returns mocked ns_list tool result after full MCP handshake', async () => {
+  it('returns mocked enclave_list tool result after full MCP handshake', async () => {
     const { commonHeaders } = await mcpHandshake(mcpBaseUrl);
 
     const res = await fetch(mcpBaseUrl, {
@@ -179,7 +179,7 @@ describe('AIMock smoke: MCPMock', () => {
       body: JSON.stringify({
         jsonrpc: '2.0',
         method: 'tools/call',
-        params: { name: 'ns_list', arguments: {} },
+        params: { name: 'enclave_list', arguments: {} },
         id: 2,
       }),
     });

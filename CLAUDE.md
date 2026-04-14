@@ -16,8 +16,7 @@ pi subprocesses on first engagement. Teams communicate via filesystem NDJSON
 
 **User identity hard partition (D6).** Every spawned subprocess carries the
 initiating user's OIDC token. No service identities for enclave work. Token
-expires mid-task = fail + re-auth, never fallback. See memory file
-`feedback_kraken_user_identity_hard_partition.md`.
+expires mid-task = fail + re-auth, never fallback.
 
 **Hybrid dispatcher routing (D4).** Two clearly named paths:
 - **Deterministic:** @mention in enclave -> team dispatch; commands -> direct MCP call. No LLM.
@@ -32,7 +31,7 @@ expires mid-task = fail + re-auth, never fallback. See memory file
 | `src/teams/lifecycle.ts` | TeamLifecycleManager: spawn/monitor/idle-timeout/GC |
 | `src/teams/outbound-poller.ts` | Polls team outbound.ndjson, posts to Slack |
 | `src/teams/ndjson.ts` | Append-only NDJSON writer + reader with byte-offset cursor |
-| `src/tools/dispatcher-tools.ts` | spawn_enclave_team, send_to_team, check_team_status, post_to_slack |
+| `src/dispatcher/internal-ops.ts` | spawn_enclave_team, send_to_team, check_team_status, post_to_slack (internal ops, NOT MCP tools) |
 | `src/slack/bot.ts` | Slack Bolt dual-mode (HTTP + Socket), event handlers call routeEvent() |
 | `src/agent/system-prompt.ts` | Per-role prompt builders (manager, builder, deployer) |
 | `src/config.ts` | All config: Slack, OIDC, MCP, LLM allowlists, git-state, teams, observability |
@@ -74,9 +73,8 @@ shellcheck scripts/entrypoint.sh kraken-hooks/pre-commit
 
 ## References
 
-- Execution plan: `~/.claude/plans/delightful-riding-shamir.md`
-- Detailed design: `scratch/kraken-pi-rewrite-plan.md` (pre-pivot + pivot notice)
+- Execution plan: `~/.claude/plans/delightful-riding-shamir.md` (also at `../scratch/kraken-v2-plan-v0.10.0.md`)
+- Detailed design: `../scratch/kraken-pi-rewrite-plan.md` (pre-pivot + pivot notice)
 - Phase 1 design (authoritative): `openspec/changes/phase1-core-loop/design.md`
-- Followups: `scratch/kraken-v2-followups.md` (F1-F22)
-- Memory: `feedback_kraken_user_identity_hard_partition.md` (D6 policy)
-- Memory: `project_kraken_v2_dispatcher_pivot.md` (full pivot summary)
+- D6 (user identity hard partition): every subprocess carries the user's OIDC token, no service identities
+- D4 (hybrid dispatcher routing): deterministic path for commands, smart path for conversations

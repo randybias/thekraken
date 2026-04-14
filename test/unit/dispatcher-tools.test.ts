@@ -9,7 +9,7 @@
  */
 
 import { describe, it, expect, afterEach, vi, beforeEach } from 'vitest';
-import { buildDispatcherTools } from '../../src/tools/dispatcher-tools.js';
+import { buildDispatcherTools } from '../../src/dispatcher/internal-ops.js';
 import { createTeamFixture } from '../helpers/team-fixture.js';
 import { createDatabase } from '../../src/db/migrations.js';
 import { TeamLifecycleManager } from '../../src/teams/lifecycle.js';
