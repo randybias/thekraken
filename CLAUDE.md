@@ -44,6 +44,12 @@ expires mid-task = fail + re-auth, never fallback. See memory file
 | `src/enclave/authz.ts` | POSIX mode bit checks, role resolution, 60s authz cache |
 | `src/extensions/tool-scoping.ts` | Pi extension: per-enclave tool allow/deny + namespace injection |
 | `src/slack/auth-card.ts` | Ephemeral Block Kit cards: auth prompt, success, timeout, denial |
+| `src/slack/formatter.ts` | Block Kit formatter: Markdown → Block Kit sections, code, tables, lists |
+| `src/slack/cards.ts` | Structured cards: enclave_list, workflow_status, health, auth |
+| `src/slack/home-tab.ts` | Slack App Home Tab builder: authenticated + unauthenticated views |
+| `src/git-state/deploy.ts` | Deploy flow: explanation gate, git ops, wf_apply, SQLite tracking |
+| `src/git-state/rollback.ts` | Rollback flow: tag lookup, git checkout, version bump, wf_apply |
+| `src/git-state/deployments-db.ts` | DeploymentDb: insert, updateStatus, getLatestSuccessful, tagExists |
 | `src/db/schema.ts` | SQLite schema (5 tables, FK cascade on enclave_bindings) |
 | `charts/thekraken/` | Helm chart with mandatory gitState, values-mirantis.yaml overlay |
 | `scripts/entrypoint.sh` | Git-state clone/pull, tntc config, hard-fail on missing git config |
@@ -76,8 +82,8 @@ shellcheck scripts/entrypoint.sh kraken-hooks/pre-commit
 - **Phase 0:** COMPLETE (scaffold, schema, git-state infra, Helm, Docker, CI)
 - **Phase 1:** Implementation complete, reviews in progress (dispatcher + teams)
 - **Phase 2:** COMPLETE (OIDC device flow, AES-256-GCM token store, POSIX authz, tool scoping, 448 tests)
-- **Phase 3:** Commands + channel events + personas
-- **Phase 4:** Polish + deploy (Block Kit, Home Tab, git-state deploy flow, MCP cross-repo)
+- **Phase 3:** COMPLETE (commands, channel events, personas, router D7 fixes)
+- **Phase 4:** COMPLETE (Block Kit formatter, structured cards, Home Tab, deploy/rollback flow, drift detection wiring, 742 tests)
 - **Phase 5:** Hardening (restart resilience, consistency validation, observability)
 
 ## References

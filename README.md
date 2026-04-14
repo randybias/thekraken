@@ -34,16 +34,48 @@ Per-Enclave Team (spawned on first engagement, 30-min idle timeout)
 No service identities for enclave work. Token expires mid-task = fail cleanly
 and prompt re-auth.
 
+### Slack Block Kit Layer
+
+All outbound messages use structured Slack Block Kit rather than plain text:
+
+- **Block Kit formatter** (`src/slack/formatter.ts`) — converts Markdown
+  agent responses to Block Kit sections, code blocks, tables, and lists.
+  Handles 50-block batching for long outputs.
+- **Structured cards** (`src/slack/cards.ts`) — purpose-built cards for
+  enclave list, workflow status, health summary, and auth prompts.
+- **Home Tab** (`src/slack/home-tab.ts`) — Slack App Home surface showing
+  the user's enclaves with health indicators, roles, and Chroma deep links.
+  Authenticated users see live data; unauthenticated users see a login prompt.
+
+### Git-State Deploy + Rollback
+
+Tentacle deployments are git-backed. The Kraken writes workflow YAML to
+the git-state repo, tags it, and calls `wf_apply` on the MCP server.
+
+- **Deploy** (`src/git-state/deploy.ts`) — validates a human-readable
+  explanation (10-80 chars, no infra jargon), commits, monotonically tags
+  `{tentacle}-v{N}`, calls `wf_apply`, records in SQLite.
+- **Rollback** (`src/git-state/rollback.ts`) — checks out a prior tag's
+  directory tree, lets the pre-commit hook bump the version, calls `wf_apply`.
+- **Deployment tracking** (`src/git-state/deployments-db.ts`) — SQLite
+  `deployments` table with status, git SHA, and human summary.
+
+### Drift Detection
+
+The enclave membership drift detector compares MCP enclave member lists
+against Slack channel rosters. Active with real Slack adapters as of Phase 4.
+Posts ephemeral corrections into affected channels.
+
 ### Current Status
 
-Phase 2 complete. The Kraken authenticates users via Keycloak OIDC device
-flow, enforces POSIX mode permissions per enclave, scopes MCP tool calls
-to enclave boundaries, and encrypts OIDC tokens at rest in SQLite. The
-smart path (LLM-powered reasoning) is still a Phase 1 placeholder — it
-will be wired to a real pi AgentSession in Phase 3+.
+Phase 4 complete. The Kraken has a full Block Kit UI layer, git-backed
+deploy/rollback flow, drift detection wiring, and a live Slack Home Tab.
+The smart path (LLM-powered reasoning) is still a Phase 3 placeholder.
 
 No service token concept in this system (D6). Every MCP call carries the
-authenticated user's OIDC token.
+authenticated user's OIDC token. Drift detection uses the service config
+token (the single D6 exception — drift is a background process with no
+user-specific action).
 
 ## Environment Variables
 
@@ -87,7 +119,7 @@ authenticated user's OIDC token.
 ```bash
 npm ci
 npm run build        # Compile TypeScript
-npm test             # 448 tests (unit + integration + scenarios)
+npm test             # 742 tests (unit + integration + scenarios)
 npx tsc --noEmit     # Type check
 npm run lint         # ESLint
 npm run format:check # Prettier

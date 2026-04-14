@@ -108,8 +108,11 @@ const FILLER_RE = /^(and|also|please|then|,)\s*/i;
  * Extract one or more Slack @mentions from text after a verb.
  *
  * Skips filler words (and, also, please, then, commas) between mentions.
- * Returns null if no mentions found, or if the first non-filler token is
- * not an @mention (this distinguishes "add @alice" from "add a new node").
+ * Returns null if:
+ *   - No mentions found
+ *   - The first non-filler token is not an @mention
+ *   - There is trailing non-filler, non-mention text after all mentions
+ *     (D7(c): mutating commands must not silently accept trailing garbage)
  */
 function extractMentions(afterVerb: string): string[] | null {
   let rest = afterVerb.trim();
@@ -126,11 +129,10 @@ function extractMentions(afterVerb: string): string[] | null {
       rest = rest.slice(mention[0].length).trim();
       continue;
     }
-    // Non-filler, non-mention: stop. If we have some mentions already,
-    // trailing text is OK (e.g. "add @alice please"). If we have none,
-    // the first token is not a @mention, so this is not a command.
-    if (mentions.length === 0) return null;
-    break;
+    // Non-filler, non-mention: if no mentions yet, first token is not an
+    // @mention (falls through to smart path). If mentions exist, there is
+    // trailing text — reject to avoid silent misparse of mutating commands.
+    return null;
   }
   return mentions.length > 0 ? mentions : null;
 }
@@ -172,10 +174,11 @@ export function parseCommand(text: string): DeterministicAction | null {
   }
 
   // --- transfer [to] @user ---
-  const transfer = stripped.match(/^transfer\s+(?:to\s+)?<@([A-Z0-9]+)>/i);
+  // D7(c): anchor with \s*$ to reject trailing text after the mention
+  const transfer = stripped.match(/^transfer\s+(?:to\s+)?<@([A-Z0-9]+)>\s*$/i);
   if (transfer)
     return { type: 'enclave_sync_transfer', targetUserId: transfer[1]! };
-  if (/^transfer\b/i.test(stripped)) return null; // transfer without @mention → smart
+  if (/^transfer\b/i.test(stripped)) return null; // transfer without valid @mention → smart
 
   // --- exact-phrase commands ---
   if (/^archive\s*$/i.test(stripped)) return { type: 'enclave_archive' };
@@ -289,14 +292,11 @@ export function routeEvent(
     return { path: 'deterministic', action: { type: 'ignore_unbound' } };
   }
 
-  // Criteria 3-5e: Command parsing (deterministic commands)
-  const command = parseCommand(event.text);
-  if (command) {
-    return { path: 'deterministic', action: command };
-  }
-
   // Criterion 9 (FN-2): In a bound channel, non-@mention non-thread messages
-  // are silently ignored. The enclave is not a general-purpose chat channel.
+  // are silently ignored BEFORE command parsing. This prevents top-level
+  // messages like "add @alice" (without bot @mention) from firing commands.
+  // D7(b): mention gate must come before command parse for bound-channel
+  // top-level messages.
   if (
     binding &&
     event.type === 'message' &&
@@ -306,6 +306,21 @@ export function routeEvent(
     const hasMention = /<@[A-Z0-9]+>/i.test(event.text);
     if (!hasMention) {
       return { path: 'deterministic', action: { type: 'ignore_no_mention' } };
+    }
+  }
+
+  // Criteria 3-5e: Command parsing (deterministic commands).
+  // D7(b): Only parse commands from app_mention events (bot was @mentioned)
+  // or thread replies. Top-level `message` events in bound channels cannot
+  // trigger commands without the bot @mention, even if they contain @mentions
+  // of other users (e.g. "add @alice" without @bot).
+  const isCommandEligible =
+    event.type === 'app_mention' ||
+    (event.type === 'message' && !!event.threadTs);
+  if (isCommandEligible) {
+    const command = parseCommand(event.text);
+    if (command) {
+      return { path: 'deterministic', action: command };
     }
   }
 

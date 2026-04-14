@@ -18,6 +18,7 @@ import { createChildLogger } from '../logger.js';
 import type { KrakenConfig } from '../config.js';
 import type { EnclaveBindingEngine } from '../enclave/binding.js';
 import type { OutboundTracker } from './outbound.js';
+import { buildHomeTab, buildUnauthenticatedHomeTab } from './home-tab.js';
 import {
   routeEvent,
   type InboundEvent,
@@ -71,8 +72,18 @@ export interface SlackBotDeps {
   teams: TeamLifecycleManager;
   /** Token store for OIDC token lookup and storage. */
   tokenStore?: UserTokenStore;
-  /** MCP call function for authz checks. */
-  mcpCall?: (tool: string, params: Record<string, unknown>) => Promise<unknown>;
+  /**
+   * MCP call function.
+   * Accepts an optional userToken — when provided, the call is made on behalf
+   * of the user (Authorization: Bearer <token>). Without a token, the call is
+   * unauthenticated (only safe for read-only tools like enclave_info).
+   * D7(a): command handlers must always pass the user's OIDC token.
+   */
+  mcpCall?: (
+    tool: string,
+    params: Record<string, unknown>,
+    userToken?: string,
+  ) => Promise<unknown>;
   /** Slack WebClient for ephemeral posts (auth card, denial messages). */
   slackClient?: {
     chat: {
@@ -242,6 +253,7 @@ function registerEventHandlers(
           say,
           threadTs,
           pendingConfirmations,
+          app,
         );
 
         span.setStatus({ code: SpanStatusCode.OK });
@@ -299,6 +311,7 @@ function registerEventHandlers(
           say,
           threadTs ?? (event as { ts: string }).ts,
           pendingConfirmations,
+          app,
         );
 
         span.setStatus({ code: SpanStatusCode.OK });
@@ -314,6 +327,34 @@ function registerEventHandlers(
       }
     });
   });
+
+  // ---------------------------------------------------------------------------
+  // app_home_opened — render Home Tab (D3)
+  // ---------------------------------------------------------------------------
+  app.event('app_home_opened', async ({ event }) => {
+    const userId = event.user;
+
+    // Check if the user is authenticated
+    let isAuthenticated = false;
+    if (deps.tokenStore) {
+      const token = deps.tokenStore.getValidTokenForUser(userId);
+      isAuthenticated =
+        token !== null && token !== undefined && token.length > 0;
+    }
+
+    const view = isAuthenticated
+      ? buildHomeTab([]) // TODO: populate enclaves via MCP enclave_list for the user
+      : buildUnauthenticatedHomeTab();
+
+    try {
+      await app.client.views.publish({
+        user_id: userId,
+        view,
+      });
+    } catch (err) {
+      log.warn({ err, userId }, 'failed to publish home tab');
+    }
+  });
 }
 
 /**
@@ -327,6 +368,7 @@ async function executeDecision(
   say: (msg: { text: string; thread_ts: string }) => Promise<unknown>,
   threadTs: string,
   pendingConfirmations: Map<string, PendingConfirmation>,
+  app: App,
 ): Promise<void> {
   if (decision.path === 'deterministic') {
     const action = decision.action;
@@ -592,11 +634,17 @@ async function executeDecision(
 
           if (trimmedText === pending.confirmKey) {
             // Execute confirmed action
+            // D7(a): create per-request user-bound mcpCall for command handlers
+            const userBoundMcpCallConfirm: CommandContext['mcpCall'] =
+              deps.mcpCall
+                ? async (tool, params) => deps.mcpCall!(tool, params, userToken)
+                : async () => undefined;
+
             const authzResult = await checkAccess(
               userEmail,
               enclaveName,
               'write',
-              deps.mcpCall,
+              userBoundMcpCallConfirm,
             );
             const cmdCtx: CommandContext = {
               enclaveName,
@@ -605,8 +653,15 @@ async function executeDecision(
               userEmail,
               userToken,
               userRole: authzResult.role,
-              mcpCall: deps.mcpCall,
-              resolveEmail: async (_slackId: string) => undefined, // Phase 4: wire Slack users.info
+              mcpCall: userBoundMcpCallConfirm,
+              resolveEmail: async (slackId: string) => {
+                try {
+                  const result = await app.client.users.info({ user: slackId });
+                  return result.user?.profile?.email;
+                } catch {
+                  return undefined;
+                }
+              },
               postEphemeral: async (text: string) => {
                 if (deps.slackClient) {
                   await deps.slackClient.chat
@@ -659,12 +714,17 @@ async function executeDecision(
           break;
         }
 
+        // D7(a): create per-request user-bound mcpCall for command handlers
+        const userBoundMcpCall: CommandContext['mcpCall'] = deps.mcpCall
+          ? async (tool, params) => deps.mcpCall!(tool, params, userToken)
+          : async () => undefined;
+
         // Resolve role for authz
         const authzResult = await checkAccess(
           userEmail,
           enclaveName,
           'write',
-          deps.mcpCall,
+          userBoundMcpCall,
         );
         const userRole: Role = authzResult.role;
 
@@ -675,8 +735,15 @@ async function executeDecision(
           userEmail,
           userToken,
           userRole,
-          mcpCall: deps.mcpCall,
-          resolveEmail: async (_slackId: string) => undefined, // Phase 4: wire Slack users.info
+          mcpCall: userBoundMcpCall,
+          resolveEmail: async (slackId: string) => {
+            try {
+              const result = await app.client.users.info({ user: slackId });
+              return result.user?.profile?.email;
+            } catch {
+              return undefined;
+            }
+          },
           postEphemeral: async (text: string) => {
             if (deps.slackClient) {
               await deps.slackClient.chat

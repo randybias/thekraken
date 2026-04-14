@@ -35,8 +35,7 @@ import { OutboundPoller } from './teams/outbound-poller.js';
 import { createSlackBot } from './slack/bot.js';
 import { UserTokenStore } from './auth/tokens.js';
 import { startTokenRefreshLoop, stopTokenRefreshLoop } from './auth/refresh.js';
-// DriftDetector imported when real Slack adapters are wired (Phase 4).
-// import { DriftDetector } from './enclave/drift.js';
+import { DriftDetector } from './enclave/drift.js';
 
 const log = createChildLogger({ module: 'main' });
 
@@ -70,14 +69,24 @@ async function main(): Promise<void> {
     outbound,
     teams,
     tokenStore,
-    // MCP call function for authz checks. Uses the MCP URL from config.
-    // In Phase 2, this does a direct HTTP POST to the MCP server with
-    // no user token (authz check uses enclave_info which is read-only).
-    // Per-user token injection for write ops happens in the team subprocess.
-    mcpCall: async (tool: string, params: Record<string, unknown>) => {
+    // MCP call function. Accepts an optional userToken for D7(a) per-request
+    // user-bound calls. Without a token the call is unauthenticated (safe only
+    // for read-only tools like enclave_info). Command handlers always supply
+    // the user's OIDC token via the userBoundMcpCall wrapper in bot.ts.
+    mcpCall: async (
+      tool: string,
+      params: Record<string, unknown>,
+      userToken?: string,
+    ) => {
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+      };
+      if (userToken) {
+        headers['Authorization'] = `Bearer ${userToken}`;
+      }
       const resp = await fetch(`${config.mcp.url}/mcp`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers,
         body: JSON.stringify({
           jsonrpc: '2.0',
           method: 'tools/call',
@@ -136,22 +145,52 @@ async function main(): Promise<void> {
   poller.start();
   await slackBot.start();
 
-  // 7a. Drift detection (Phase 3) — disabled with warning if no service token
-  // Drift detection DISABLED until Slack adapters are wired (Codex fix #4).
-  // With stub adapters (resolveEmail→undefined, listChannelMembers→[]),
-  // the drift detector would treat empty Slack member lists as authoritative
-  // and REMOVE ALL non-owner members from every active enclave.
-  //
-  // To enable: replace stubs with real Slack WebClient calls after Slack bot
-  // is created (bot.app.client.conversations.members + users.info), then
-  // call driftDetector.start(). The DriftDetector class is implemented and
-  // tested — only the production wiring is gated here.
-  //
-  // TODO(phase4): Wire real Slack adapters and enable drift detection.
-  void config.drift; // Config parsed but drift disabled until Phase 4
-  log.warn(
-    'Drift detection DISABLED: Slack adapters not yet wired. See TODO(phase4) in index.ts.',
-  );
+  // 7a. Drift detection — wired with real Slack adapters (D6).
+  // Uses bot.app.client for member listing and user email resolution.
+  // D6 exception: drift detection uses the service token (configured via
+  // KRAKEN_DRIFT_SERVICE_TOKEN) for MCP calls — this is the one case where
+  // a service identity is used instead of a user token.
+  const driftDetector = new DriftDetector(config.drift, {
+    mcpCall: async (tool, params) => {
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+      };
+      if (config.drift.serviceToken) {
+        headers['Authorization'] = `Bearer ${config.drift.serviceToken}`;
+      }
+      const resp = await fetch(`${config.mcp.url}/mcp`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+          jsonrpc: '2.0',
+          method: 'tools/call',
+          params: { name: tool, arguments: params },
+          id: Date.now(),
+        }),
+      });
+      const json = (await resp.json()) as { result?: unknown };
+      return json.result;
+    },
+    resolveEmail: async (slackId: string) => {
+      try {
+        const result = await slackBot.app.client.users.info({ user: slackId });
+        return result.user?.profile?.email;
+      } catch {
+        return undefined;
+      }
+    },
+    listChannelMembers: async (channelId: string) => {
+      try {
+        const result = await slackBot.app.client.conversations.members({
+          channel: channelId,
+        });
+        return result.members ?? [];
+      } catch {
+        return [];
+      }
+    },
+  });
+  driftDetector.start();
 
   // 7b. Run initial GC and schedule hourly GC (Phase 3, F24)
   teams.gcStaleTeams();
@@ -180,7 +219,7 @@ async function main(): Promise<void> {
 
     try {
       stopTokenRefreshLoop();
-      // driftDetector.stop(); // Disabled until Slack adapters wired (Codex fix #4)
+      driftDetector.stop();
       clearInterval(gcInterval);
       await poller.stop();
       await slackBot.stop();
