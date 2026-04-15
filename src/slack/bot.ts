@@ -30,6 +30,7 @@ import type { TeamLifecycleManager } from '../teams/lifecycle.js';
 import { buildHomeTab, buildUnauthenticatedHomeTab } from './home-tab.js';
 import { randomUUID } from 'node:crypto';
 import {
+  extractEmailFromToken,
   getValidTokenForUser,
   initiateDeviceAuth,
   pollForToken,
@@ -340,6 +341,13 @@ function registerEventHandlers(
                 });
               },
               resolveEmail: async (slackUserId) => {
+                // For the authenticated sender, extract email from the OIDC
+                // JWT (bot token doesn't have users:read.email scope). For
+                // other Slack users, fall back to the Slack API.
+                if (slackUserId === userId) {
+                  const fromJwt = extractEmailFromToken(userToken);
+                  if (fromJwt) return fromJwt;
+                }
                 const info = await client.users.info({ user: slackUserId });
                 return (
                   info.user as { profile?: { email?: string } } | undefined
