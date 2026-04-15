@@ -1,7 +1,9 @@
 /**
  * MCP tool configuration for pi agent.
- * Phase 0: stub. Implemented in Phase 1.
+ *
+ * MCP wrapper runs in team subprocesses with per-user tokens.
+ * Pending implementation.
  */
 
-// TODO(phase2): MCP wrapper moves to team subprocesses with per-user tokens
+// Stub: MCP tool wiring not yet implemented
 export type AgentToolsStub = Record<string, never>;

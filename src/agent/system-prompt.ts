@@ -1,13 +1,13 @@
 /**
- * System prompt builder for The Kraken v2.
+ * System prompt builder for The Kraken.
  *
  * Assembles the agent's system prompt from layered components:
  * 1. Global MEMORY.md — platform-wide context and conventions
  * 2. Enclave MEMORY.md — enclave-specific context (persona, tools)
  * 3. Skill references — Tentacular skill documentation
  *
- * Phase 1: placeholder content for all layers. Phase 3 wires up real
- * MEMORY.md files and skill references from git-state repo.
+ * When MEMORY.md files or skill references are not yet available, placeholder
+ * content is used. Real content is loaded from the git-state repo.
  *
  * Per-role builders (T08): buildManagerPrompt, buildBuilderPrompt,
  * buildDeployerPrompt include a [CONTEXT] identity block (D6) in every
@@ -15,11 +15,11 @@
  */
 
 export interface SystemPromptOptions {
-  /** Global MEMORY.md content. Null in Phase 1. */
+  /** Global MEMORY.md content. Null when not yet loaded. */
   globalMemory: string | null;
-  /** Enclave-specific MEMORY.md content. Null in Phase 1 or for DM mode. */
+  /** Enclave-specific MEMORY.md content. Null for DM mode or when not loaded. */
   enclaveMemory: string | null;
-  /** Skill reference content. Null in Phase 1. */
+  /** Skill reference content. Null when not yet loaded. */
   skills: string | null;
 }
 
@@ -46,16 +46,16 @@ operate within that enclave's Kubernetes namespace by default.
 `.trim();
 
 const SKILLS_PLACEHOLDER = `
-# Tentacular Skills (Phase 1 Placeholder)
+# Tentacular Skills
 
-Full skill references will be injected in Phase 3.
+Skill references will be injected from the git-state repo.
 `.trim();
 
 /**
  * Build the system prompt from available layers.
  *
  * Layers are concatenated with separators. Missing layers use placeholder
- * content in Phase 1.
+ * content until the git-state repo is loaded.
  *
  * @param options - Content layers.
  * @returns The assembled system prompt string.
@@ -71,7 +71,7 @@ export function buildSystemPrompt(options: SystemPromptOptions): string {
       layers.push(options.enclaveMemory);
     }
   } else {
-    // Phase 1: always include placeholder when key is missing entirely
+    // include placeholder when enclave memory is not yet loaded
     layers.push(ENCLAVE_MEMORY_PLACEHOLDER);
   }
 
@@ -113,7 +113,7 @@ export interface RolePromptOptions {
   enclaveName: string;
   /** Slack user ID of the initiating user (e.g. "U12345"). */
   userSlackId: string;
-  /** Email of the initiating user (Phase 1: "unknown" until OIDC in Phase 2). */
+  /** Email of the initiating user ("unknown" until OIDC is wired). */
   userEmail: string;
 }
 
@@ -126,9 +126,9 @@ export interface RolePromptOptions {
  */
 export function buildManagerPrompt(
   options: RolePromptOptions & {
-    /** Enclave MEMORY.md content (null in Phase 1). */
+    /** Enclave MEMORY.md content (null when not yet loaded). */
     enclaveMemory?: string | null;
-    /** Tentacular skill reference content (null in Phase 1). */
+    /** Tentacular skill reference content (null when not yet loaded). */
     skills?: string | null;
   },
 ): string {

@@ -1,5 +1,5 @@
 /**
- * Outbound message tracking for The Kraken v2.
+ * Outbound message tracking for The Kraken.
  *
  * Persists every Slack message The Kraken sends to the outbound_messages
  * SQLite table. On startup, hasOutboundInThread() prevents re-sending

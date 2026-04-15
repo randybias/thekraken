@@ -1,11 +1,11 @@
 /**
- * The Kraken v2 configuration loader.
+ * The Kraken configuration loader.
  *
  * Loads all configuration from environment variables. Validates required vars
  * and throws a single descriptive error listing ALL missing vars (not just the
  * first). Applies sensible defaults for optional vars.
  *
- * Git-state configuration is MANDATORY in v2 — no opt-in toggle. The Kraken
+ * Git-state configuration is MANDATORY — no opt-in toggle. The Kraken
  * refuses to start if GIT_STATE_REPO_URL is unset.
  */
 
@@ -35,8 +35,7 @@ export interface McpConfig {
   /** Port for NetworkPolicy scoping. Default: 8080. */
   port: number;
   // No service token. MCP authentication is per-user only (D6).
-  // Phase 1: no authenticated MCP calls possible (no OIDC yet).
-  // Phase 2: per-user OIDC tokens from device flow stored in SQLite.
+  // Per-user OIDC tokens from device flow are stored in SQLite.
 }
 
 export interface LlmConfig {
@@ -143,7 +142,7 @@ function parseDisallowedModels(raw: string): string[] {
 }
 
 /**
- * Load and validate The Kraken v2 configuration from environment variables.
+ * Load and validate The Kraken configuration from environment variables.
  *
  * Throws an error listing ALL missing required vars (not just the first).
  * Returns a frozen KrakenConfig object on success.

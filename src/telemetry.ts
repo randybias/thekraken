@@ -1,5 +1,5 @@
 /**
- * OpenTelemetry SDK initialization for The Kraken v2.
+ * OpenTelemetry SDK initialization for The Kraken.
  *
  * Uses manual spans only — no auto-instrumentation. This keeps trace data
  * clean by recording only meaningful operations: Slack events, agent
@@ -43,7 +43,7 @@ export function initTelemetry(): void {
   sdk = new NodeSDK({
     resource: resourceFromAttributes({
       [ATTR_SERVICE_NAME]: 'thekraken',
-      [ATTR_SERVICE_VERSION]: '2.0.0',
+      [ATTR_SERVICE_VERSION]: '0.9.0',
     }),
     traceExporter: exporter,
   });

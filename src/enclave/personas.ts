@@ -1,7 +1,8 @@
 /**
  * Enclave persona inference from description text.
- * Phase 0: stub. Implemented in Phase 3.
+ *
+ * Pending implementation.
  */
 
-// TODO(phase3): implement persona inference from enclave description
+// Stub: persona inference not yet implemented
 export type PersonasStub = Record<string, never>;

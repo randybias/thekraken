@@ -25,10 +25,10 @@ import type { SlackPostClient } from '../teams/outbound-poller.js';
 const log = createChildLogger({ module: 'dispatcher-internal-ops' });
 
 /**
- * A pi ToolDefinition (simplified shape for Phase 1).
+ * A pi ToolDefinition (simplified shape).
  *
- * Phase 1: we define our own interface matching pi's ToolDefinition shape.
- * Phase 2: import directly from @mariozechner/pi-coding-agent once the
+ * Defines our own interface matching pi's ToolDefinition shape.
+ * Import directly from @mariozechner/pi-coding-agent once
  * createAgentSession() wiring is complete.
  */
 export interface ToolDefinition {

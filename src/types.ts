@@ -1,5 +1,5 @@
 /**
- * Shared type definitions for The Kraken v2.
+ * Shared type definitions for The Kraken.
  */
 
 /** An active channel-to-enclave binding from the enclave_bindings SQLite table. */

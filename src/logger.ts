@@ -1,5 +1,5 @@
 /**
- * Structured JSON logger for The Kraken v2.
+ * Structured JSON logger for The Kraken.
  *
  * Pino is the sole logger in the process. Pi packages (pi-agent-core, pi-ai)
  * have no logger of their own, so there is no coexistence problem.
