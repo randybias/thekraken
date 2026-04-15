@@ -24,12 +24,12 @@ RUN npm prune --omit=dev
 RUN rm -rf src/ tsconfig.json
 
 # Download tntc CLI binary (arch-aware via Docker TARGETARCH build arg)
-ARG TNTC_VERSION=latest
+# Pin to a known-good release. Lockstep with Tentacular platform releases.
+# CI rate-limits unauthenticated calls to api.github.com, so we must NOT
+# rely on resolving "latest" at build time.
+ARG TNTC_VERSION=v0.9.0
 ARG TARGETARCH
-RUN if [ "$TNTC_VERSION" = "latest" ]; then \
-      TNTC_VERSION=$(curl -fsSL https://api.github.com/repos/randybias/tentacular/releases/latest | grep '"tag_name"' | sed 's/.*"tag_name": *"\(.*\)".*/\1/'); \
-    fi \
-  && TNTC_ARCH="${TARGETARCH}" \
+RUN TNTC_ARCH="${TARGETARCH}" \
   && curl -fsSL "https://github.com/randybias/tentacular/releases/download/${TNTC_VERSION}/tntc_linux_${TNTC_ARCH}" -o /usr/local/bin/tntc \
   && chmod +x /usr/local/bin/tntc
 
