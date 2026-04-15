@@ -17,6 +17,7 @@ import { OutboundPoller } from '../../src/teams/outbound-poller.js';
 import { createDatabase } from '../../src/db/migrations.js';
 import { OutboundTracker } from '../../src/slack/outbound.js';
 import type { KrakenConfig } from '../../src/config.js';
+import * as formatter from '../../src/slack/formatter.js';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -230,6 +231,69 @@ describe('OutboundPoller', () => {
 
     // Should not post again — dedup says already posted
     expect(postedMessages).toHaveLength(0);
+  });
+
+  it('applies formatter blocks when postMessage is called', async () => {
+    const f = createTeamFixture('fmt-enc');
+    fixtures.push(f);
+
+    const fakeBlock = {
+      type: 'section' as const,
+      text: { type: 'mrkdwn' as const, text: 'hi' },
+    };
+    vi.spyOn(formatter, 'formatAgentResponse').mockReturnValue({
+      blocks: [fakeBlock],
+      text: 'hi',
+    });
+
+    f.appendOutbound(makeOutboundRecord({ text: 'hi' }));
+    poller = makePoller(f, ['fmt-enc']);
+    await poller.stop();
+
+    expect(postedMessages).toHaveLength(1);
+    expect(postedMessages[0]!.blocks).toEqual([fakeBlock]);
+
+    vi.restoreAllMocks();
+  });
+
+  it('posts overflow batches as follow-up messages in the same thread', async () => {
+    const f = createTeamFixture('overflow-enc');
+    fixtures.push(f);
+
+    const mainBlock = {
+      type: 'section' as const,
+      text: { type: 'mrkdwn' as const, text: 'main' },
+    };
+    const overflowBlock = {
+      type: 'section' as const,
+      text: { type: 'mrkdwn' as const, text: 'overflow' },
+    };
+
+    vi.spyOn(formatter, 'formatAgentResponse').mockReturnValue({
+      blocks: [mainBlock],
+      text: 'main text',
+      overflow: [[overflowBlock]],
+    });
+
+    f.appendOutbound(
+      makeOutboundRecord({
+        text: 'long message',
+        channelId: 'C_OVER',
+        threadTs: '1234.000',
+      }),
+    );
+
+    poller = makePoller(f, ['overflow-enc']);
+    await poller.stop();
+
+    // Main message + 1 overflow batch = 2 posts
+    expect(postedMessages).toHaveLength(2);
+    expect(postedMessages[0]!.blocks).toEqual([mainBlock]);
+    expect(postedMessages[1]!.blocks).toEqual([overflowBlock]);
+    // Both go to the same channel
+    expect(postedMessages[1]!.channel).toBe('C_OVER');
+
+    vi.restoreAllMocks();
   });
 
   it('start() and stop() lifecycle', async () => {

@@ -13,6 +13,42 @@ import { logger } from '../logger.js';
 
 const execFileAsync = promisify(execFile);
 
+/**
+ * Sensitive keyword pattern used to scrub stderr lines before returning
+ * error details to callers (which may forward them to Slack).
+ */
+const SENSITIVE_LINE_RE = /token|secret|password|key/i;
+
+/**
+ * Build a minimal allow-listed subprocess env.
+ *
+ * D6 compliance: never spread process.env — it leaks OIDC_CLIENT_SECRET,
+ * SLACK_BOT_TOKEN, and other runtime secrets into the subprocess shell.
+ * Only the four variables below are required for `tntc deploy`.
+ */
+function buildSubprocessEnv(userToken: string): Record<string, string> {
+  return {
+    PATH: process.env['PATH'] ?? '/usr/local/bin:/usr/bin:/bin',
+    HOME: process.env['HOME'] ?? '/home/node',
+    NODE_ENV: process.env['NODE_ENV'] ?? 'production',
+    TNTC_ACCESS_TOKEN: userToken,
+  };
+}
+
+/**
+ * Sanitize stderr before surfacing it to callers.
+ *
+ * - Strips lines that match sensitive keywords (token, secret, password, key).
+ * - Truncates the result to 500 characters.
+ */
+function sanitizeStderr(raw: string): string {
+  const filtered = raw
+    .split('\n')
+    .filter((line) => !SENSITIVE_LINE_RE.test(line))
+    .join('\n');
+  return filtered.length > 500 ? filtered.slice(0, 500) + '…' : filtered;
+}
+
 export interface DeployParams {
   /** Absolute path to the tentacle directory inside the git-state repo. */
   tentacleDir: string;
@@ -48,10 +84,7 @@ export async function deployTentacle(
       'tntc',
       ['deploy', '--cluster', enclaveName, tentacleDir],
       {
-        env: {
-          ...process.env,
-          TNTC_ACCESS_TOKEN: userToken,
-        },
+        env: buildSubprocessEnv(userToken),
         cwd: gitStateDir,
         timeout: 120_000,
       },
@@ -66,16 +99,19 @@ export async function deployTentacle(
     const nodeErr = err as NodeJS.ErrnoException & {
       stdout?: string;
       stderr?: string;
+      code?: number | string;
     };
+    // Log full stderr at warn level — stays in pod logs, never sent to Slack.
     logger.warn(
       { enclave: enclaveName, tentacle: tentacleDir, err },
       'deploy failed',
     );
+    const rawStderr =
+      nodeErr.stderr ?? (err instanceof Error ? err.message : String(err));
     return {
       success: false,
       output: nodeErr.stdout ?? '',
-      error:
-        nodeErr.stderr ?? (err instanceof Error ? err.message : String(err)),
+      error: sanitizeStderr(rawStderr),
     };
   }
 }

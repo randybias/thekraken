@@ -220,13 +220,27 @@ export class OutboundPoller {
         // Falls back to plain text if formatting produces no blocks.
         const formatted = formatAgentResponse(text);
 
-        // Post to Slack
+        // Post main message
         const result = await this.deps.slack.postMessage({
           channel: record.channelId,
           thread_ts: record.threadTs || undefined,
           text: formatted.text || text,
           blocks: formatted.blocks.length > 0 ? formatted.blocks : undefined,
         });
+
+        // Post any overflow batches (messages exceeding 50 blocks) as
+        // follow-up messages in the same thread.
+        if (formatted.overflow && formatted.overflow.length > 0) {
+          const threadTs = result.ts ?? record.threadTs;
+          for (const batch of formatted.overflow) {
+            await this.deps.slack.postMessage({
+              channel: record.channelId,
+              thread_ts: threadTs || undefined,
+              text: formatted.text || text,
+              blocks: batch,
+            });
+          }
+        }
 
         // Record in SQLite for dedup (uses content hash, not thread-level)
         this.deps.tracker.store(
