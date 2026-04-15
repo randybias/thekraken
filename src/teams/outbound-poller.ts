@@ -23,6 +23,8 @@ import { trace, SpanStatusCode } from '@opentelemetry/api';
 import { createChildLogger } from '../logger.js';
 import { NdjsonReader } from './ndjson.js';
 import { OutboundTracker } from '../slack/outbound.js';
+import { formatAgentResponse } from '../slack/formatter.js';
+import type { KnownBlock } from '@slack/types';
 import type { KrakenConfig } from '../config.js';
 import type { TeamLifecycleManager } from './lifecycle.js';
 import { filterJargon, filterNarration } from '../extensions/jargon-filter.js';
@@ -53,6 +55,7 @@ export interface SlackPostClient {
     channel: string;
     thread_ts?: string;
     text: string;
+    blocks?: KnownBlock[];
   }) => Promise<{ ts?: string }>;
 }
 
@@ -213,11 +216,16 @@ export class OutboundPoller {
           return;
         }
 
+        // Apply Block Kit formatting for richer Slack rendering.
+        // Falls back to plain text if formatting produces no blocks.
+        const formatted = formatAgentResponse(text);
+
         // Post to Slack
         const result = await this.deps.slack.postMessage({
           channel: record.channelId,
           thread_ts: record.threadTs || undefined,
-          text,
+          text: formatted.text || text,
+          blocks: formatted.blocks.length > 0 ? formatted.blocks : undefined,
         });
 
         // Record in SQLite for dedup (uses content hash, not thread-level)

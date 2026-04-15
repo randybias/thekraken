@@ -5,6 +5,7 @@
  * No side effects, no Slack API calls.
  */
 import type { KnownBlock } from '@slack/types';
+import { stripMarkdownFormatting } from './formatter.js';
 
 // ---------------------------------------------------------------------------
 // Shared return type
@@ -13,32 +14,6 @@ import type { KnownBlock } from '@slack/types';
 export interface CardResult {
   blocks: KnownBlock[];
   text: string;
-}
-
-// ---------------------------------------------------------------------------
-// Inline markdown stripper
-// (formatter.ts is ported separately; cards only need this one helper)
-// ---------------------------------------------------------------------------
-
-function stripMarkdownFormatting(text: string): string {
-  // Bold: **text** or __text__ -> text
-  text = text.replace(/__([^_\n]+)__/g, '$1');
-  text = text.replace(/\*\*([^*\n]+)\*\*/g, '$1');
-
-  // Italic: *text* or _text_ -> text (but not inside words like don't)
-  text = text.replace(/(?<!\w)\*([^*\n]+)\*(?!\w)/g, '$1');
-  text = text.replace(/(?<!\w)_([^_\n]+)_(?!\w)/g, '$1');
-
-  // Strikethrough: ~~text~~ -> text
-  text = text.replace(/~~([^~\n]+)~~/g, '$1');
-
-  // Inline code: `text` -> text
-  text = text.replace(/`([^`\n]+)`/g, '$1');
-
-  // Links: [text](url) -> text
-  text = text.replace(/\[([^\]]+)\]\([^)]+\)/g, '$1');
-
-  return text;
 }
 
 // ---------------------------------------------------------------------------
