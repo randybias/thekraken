@@ -165,6 +165,15 @@ export class TeamLifecycleManager {
     // git-state layout: <repo>/enclaves/<enclave-name>/ — matches mirantis-tentacle-workflows
     const gitStateDir = join(this.config.gitState.dir, 'enclaves', enclaveName);
 
+    // Ensure the enclave's git-state directory exists before spawning.
+    // Node's spawn() returns ENOENT pointing at the binary (misleading!) if
+    // cwd doesn't exist. For new enclaves, lazy-create the directory with a
+    // .gitkeep so the next deploy commit includes it.
+    if (!existsSync(gitStateDir)) {
+      mkdirSync(gitStateDir, { recursive: true });
+      log.info({ enclaveName, gitStateDir }, 'created enclave git-state dir');
+    }
+
     // Construct a MINIMAL allow-listed env. Never spread process.env —
     // it would leak OIDC_CLIENT_SECRET, SLACK_BOT_TOKEN, and other
     // secrets into the subprocess (the builder has bash access).

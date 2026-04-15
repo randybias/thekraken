@@ -320,12 +320,17 @@ function registerEventHandlers(
         if (parsed) {
           const binding = deps.bindings.lookupEnclave(channelId);
           if (binding) {
+            // D6: use the authenticated user's OIDC token for MCP calls.
+            const cmdMcpCall =
+              deps.getMcpCallForToken?.(userToken) ??
+              deps.mcpCall ??
+              (async () => ({}));
             await executeCommand(parsed, {
               channelId,
               threadTs,
               senderSlackId: userId,
               enclaveName: binding.enclaveName,
-              mcpCall: deps.mcpCall ?? (async () => ({})),
+              mcpCall: cmdMcpCall,
               sendMessage: async (msgText) => {
                 await client.chat.postMessage({
                   channel: channelId,
