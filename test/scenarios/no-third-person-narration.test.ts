@@ -45,29 +45,6 @@ async function requireApiKey(ctx: TaskContext): Promise<string> {
 }
 
 /**
- * Extra system prompt that explicitly forbids meta-narration.
- *
- * This mirrors what the real Kraken system prompt SHOULD have. If the test
- * passes without it, the LLM avoids narration naturally. If it requires this
- * to pass, the system prompt is the fix.
- */
-const ANTI_NARRATION_PROMPT = `## Direct Response Rule
-
-NEVER describe your own actions in third person. NEVER narrate what you are doing.
-
-WRONG: "I've responded to [user] in the [channel] channel, letting them know I'm ready."
-WRONG: "I've let [user] know that I'm online."
-WRONG: "I've sent a message to [channel]."
-WRONG: "I've replied in the #channel letting them know..."
-WRONG: "I've informed [user] that..."
-
-RIGHT: "Yes, I'm here! How can I help?"
-RIGHT: "Hello! What can I do for you?"
-RIGHT: "Hi there! I'm ready to help."
-
-Your response IS the reply. Do not narrate that you are replying.`;
-
-/**
  * Check that the agent's response is direct and does not contain
  * third-person narration patterns from the production bug.
  */
@@ -129,108 +106,93 @@ function assertNoNarration(
 // ---------------------------------------------------------------------------
 
 describe('Scenario 14: no third-person narration (production bug)', () => {
-  it(
-    '"are you there?" gets a direct first-person response, no narration',
-    async (ctx) => {
-      await requireApiKey(ctx);
+  it('"are you there?" gets a direct first-person response, no narration', async (ctx) => {
+    await requireApiKey(ctx);
 
-      const result = await runScenario({
-        userMessage: 'are you there?',
-        enclaveName: 'tentacular-agensys',
-        mcpResponses: {},
-        timeoutMs: 60000,
-        minOutboundRecords: 1,
-        extraSystemPrompt: ANTI_NARRATION_PROMPT,
-      });
+    const result = await runScenario({
+      userMessage: 'are you there?',
+      enclaveName: 'tentacular-agensys',
+      mcpResponses: {},
+      timeoutMs: 60000,
+      minOutboundRecords: 1,
+    });
 
+    console.log(
+      `[scenario:no-narration] "are you there?" duration=${result.durationMs}ms`,
+    );
+    if (result.outbound.length > 0) {
       console.log(
-        `[scenario:no-narration] "are you there?" duration=${result.durationMs}ms`,
+        `[scenario:no-narration] outbound[0].text: ${result.outbound[0]?.text}`,
       );
-      if (result.outbound.length > 0) {
-        console.log(
-          `[scenario:no-narration] outbound[0].text: ${result.outbound[0]?.text}`,
-        );
-      }
+    }
 
-      expect(result.outbound.length).toBeGreaterThanOrEqual(1);
+    expect(result.outbound.length).toBeGreaterThanOrEqual(1);
 
-      const allText = result.outbound
-        .map((r) => r.text ?? '')
-        .join('\n')
-        .toLowerCase();
+    const allText = result.outbound
+      .map((r) => r.text ?? '')
+      .join('\n')
+      .toLowerCase();
 
-      assertNoNarration(allText, 'user', 'tentacular-agensys');
-    },
-    90000,
-  );
+    assertNoNarration(allText, 'user', 'tentacular-agensys');
+  }, 90000);
 
-  it(
-    '"hello" gets a direct first-person response, no narration',
-    async (ctx) => {
-      await requireApiKey(ctx);
+  it('"hello" gets a direct first-person response, no narration', async (ctx) => {
+    await requireApiKey(ctx);
 
-      const result = await runScenario({
-        userMessage: 'hello',
-        enclaveName: 'tentacular-agensys',
-        mcpResponses: {},
-        timeoutMs: 60000,
-        minOutboundRecords: 1,
-        extraSystemPrompt: ANTI_NARRATION_PROMPT,
-      });
+    const result = await runScenario({
+      userMessage: 'hello',
+      enclaveName: 'tentacular-agensys',
+      mcpResponses: {},
+      timeoutMs: 60000,
+      minOutboundRecords: 1,
+    });
 
+    console.log(
+      `[scenario:no-narration] "hello" duration=${result.durationMs}ms`,
+    );
+    if (result.outbound.length > 0) {
       console.log(
-        `[scenario:no-narration] "hello" duration=${result.durationMs}ms`,
+        `[scenario:no-narration] outbound[0].text: ${result.outbound[0]?.text}`,
       );
-      if (result.outbound.length > 0) {
-        console.log(
-          `[scenario:no-narration] outbound[0].text: ${result.outbound[0]?.text}`,
-        );
-      }
+    }
 
-      expect(result.outbound.length).toBeGreaterThanOrEqual(1);
+    expect(result.outbound.length).toBeGreaterThanOrEqual(1);
 
-      const allText = result.outbound
-        .map((r) => r.text ?? '')
-        .join('\n')
-        .toLowerCase();
+    const allText = result.outbound
+      .map((r) => r.text ?? '')
+      .join('\n')
+      .toLowerCase();
 
-      assertNoNarration(allText, 'user', 'tentacular-agensys');
-    },
-    90000,
-  );
+    assertNoNarration(allText, 'user', 'tentacular-agensys');
+  }, 90000);
 
-  it(
-    '"can you help me?" gets a direct first-person response, no narration',
-    async (ctx) => {
-      await requireApiKey(ctx);
+  it('"can you help me?" gets a direct first-person response, no narration', async (ctx) => {
+    await requireApiKey(ctx);
 
-      const result = await runScenario({
-        userMessage: 'can you help me?',
-        enclaveName: 'tentacular-agensys',
-        mcpResponses: {},
-        timeoutMs: 60000,
-        minOutboundRecords: 1,
-        extraSystemPrompt: ANTI_NARRATION_PROMPT,
-      });
+    const result = await runScenario({
+      userMessage: 'can you help me?',
+      enclaveName: 'tentacular-agensys',
+      mcpResponses: {},
+      timeoutMs: 60000,
+      minOutboundRecords: 1,
+    });
 
+    console.log(
+      `[scenario:no-narration] "can you help me?" duration=${result.durationMs}ms`,
+    );
+    if (result.outbound.length > 0) {
       console.log(
-        `[scenario:no-narration] "can you help me?" duration=${result.durationMs}ms`,
+        `[scenario:no-narration] outbound[0].text: ${result.outbound[0]?.text}`,
       );
-      if (result.outbound.length > 0) {
-        console.log(
-          `[scenario:no-narration] outbound[0].text: ${result.outbound[0]?.text}`,
-        );
-      }
+    }
 
-      expect(result.outbound.length).toBeGreaterThanOrEqual(1);
+    expect(result.outbound.length).toBeGreaterThanOrEqual(1);
 
-      const allText = result.outbound
-        .map((r) => r.text ?? '')
-        .join('\n')
-        .toLowerCase();
+    const allText = result.outbound
+      .map((r) => r.text ?? '')
+      .join('\n')
+      .toLowerCase();
 
-      assertNoNarration(allText, 'user', 'tentacular-agensys');
-    },
-    90000,
-  );
+    assertNoNarration(allText, 'user', 'tentacular-agensys');
+  }, 90000);
 });

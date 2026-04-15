@@ -48,26 +48,6 @@ const MOCK_WORKFLOWS = [
 ];
 
 /**
- * Extra system prompt that reinforces the scoping rule.
- *
- * This mirrors what the real Kraken system prompt SHOULD say but apparently
- * didn't in the version that produced this bug. If the test passes with no
- * extra prompt, the LLM gets it right on its own. If it requires this hint,
- * the system prompt is the fix needed.
- */
-const SCOPING_REINFORCEMENT = `## Tool Scoping: Tentacles vs Enclaves
-
-IMPORTANT: "tentacle" and "workflow" are synonyms for workflow tentacles running
-in the CURRENT enclave. They are NOT enclaves.
-
-- "list tentacles" → call wf_list with enclave="${'test-enclave'}" (the CURRENT enclave)
-- "list enclaves" → only then call enclave_list
-
-NEVER call enclave_list when the user says "tentacles". NEVER tell the user
-to DM you or go somewhere else to list tentacles in the current enclave.
-You ARE in the enclave. Use wf_list.`;
-
-/**
  * Assert that a scenario result correctly scoped to wf_list, not enclave_list.
  */
 async function assertCorrectScoping(
@@ -93,7 +73,6 @@ async function assertCorrectScoping(
     },
     timeoutMs: 60000,
     minOutboundRecords: 1,
-    extraSystemPrompt: SCOPING_REINFORCEMENT,
   });
 
   console.log(
@@ -150,27 +129,15 @@ async function assertCorrectScoping(
 // ---------------------------------------------------------------------------
 
 describe('Scenario 13: list tentacles scoping (production bug)', () => {
-  it(
-    'phrasing "list the current tentacles" calls wf_list, not enclave_list',
-    async (ctx) => {
-      await assertCorrectScoping(ctx, 'list the current tentacles');
-    },
-    90000,
-  );
+  it('phrasing "list the current tentacles" calls wf_list, not enclave_list', async (ctx) => {
+    await assertCorrectScoping(ctx, 'list the current tentacles');
+  }, 90000);
 
-  it(
-    'phrasing "show me the tentacles" calls wf_list, not enclave_list',
-    async (ctx) => {
-      await assertCorrectScoping(ctx, 'show me the tentacles');
-    },
-    90000,
-  );
+  it('phrasing "show me the tentacles" calls wf_list, not enclave_list', async (ctx) => {
+    await assertCorrectScoping(ctx, 'show me the tentacles');
+  }, 90000);
 
-  it(
-    'phrasing "what tentacles do we have" calls wf_list, not enclave_list',
-    async (ctx) => {
-      await assertCorrectScoping(ctx, 'what tentacles do we have');
-    },
-    90000,
-  );
+  it('phrasing "what tentacles do we have" calls wf_list, not enclave_list', async (ctx) => {
+    await assertCorrectScoping(ctx, 'what tentacles do we have');
+  }, 90000);
 });
