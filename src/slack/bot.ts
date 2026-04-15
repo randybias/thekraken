@@ -222,8 +222,6 @@ function registerEventHandlers(
   // app_mention — user @mentions the bot in a channel
   // ---------------------------------------------------------------------------
   app.event('app_mention', async ({ event, client, say }) => {
-    if ('bot_id' in event) return;
-
     const threadTs = event.thread_ts ?? event.ts;
     const channelId = event.channel;
     const userId = event.user ?? '';
@@ -473,7 +471,6 @@ function registerEventHandlers(
   app.event('message', async ({ event, say, client }) => {
     if ('subtype' in event && event.subtype) return;
     if (!('user' in event)) return;
-    if ('bot_id' in event) return;
 
     const channelId = event.channel;
     const threadTs = ('thread_ts' in event ? event.thread_ts : undefined) as
