@@ -6,13 +6,15 @@ TNTC_HOME="${HOME}/.tentacular"
 mkdir -p "${TNTC_HOME}"
 
 if [ -n "${TENTACULAR_MCP_URL:-}" ]; then
+  # tntc v0.9.0 schema: `clusters:` (not `environments:`), `default_cluster:`
+  # (not `default_env:`). Older schema is silently dropped by tntc on load.
   cat > "${TNTC_HOME}/config.yaml" <<EOF
-environments:
+clusters:
     default:
         mcp_endpoint: ${TENTACULAR_MCP_URL:-}
         oidc_issuer: ${OIDC_ISSUER:-}
         oidc_client_id: ${OIDC_CLIENT_ID:-}
-default_env: default
+default_cluster: default
 registry: ${TNTC_REGISTRY:-ghcr.io/randybias}
 workspace: /app/data/workspaces
 EOF
