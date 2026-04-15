@@ -26,7 +26,7 @@ const SENSITIVE_LINE_RE = /token|secret|password|key/i;
  * SLACK_BOT_TOKEN, and other runtime secrets into the subprocess shell.
  * Only the four variables below are required for `tntc deploy`.
  */
-function buildSubprocessEnv(userToken: string): Record<string, string> {
+export function buildSubprocessEnv(userToken: string): Record<string, string> {
   return {
     PATH: process.env['PATH'] ?? '/usr/local/bin:/usr/bin:/bin',
     HOME: process.env['HOME'] ?? '/home/node',

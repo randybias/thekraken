@@ -10,6 +10,7 @@
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { logger } from '../logger.js';
+import { buildSubprocessEnv } from './deploy.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -72,10 +73,7 @@ export async function rollbackTentacle(
       'tntc',
       ['deploy', '--cluster', enclaveName, tentacleDir],
       {
-        env: {
-          ...process.env,
-          TNTC_ACCESS_TOKEN: userToken,
-        },
+        env: buildSubprocessEnv(userToken),
         cwd: gitStateDir,
         timeout: 120_000,
       },
