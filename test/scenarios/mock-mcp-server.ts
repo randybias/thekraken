@@ -141,6 +141,15 @@ const MOCK_TOOL_SCHEMAS: Record<
       required: ['enclave', 'confirm'],
     },
   },
+  enclave_list: {
+    description:
+      'List ALL enclaves the caller has access to. Use for cross-enclave operations only.',
+    inputSchema: {
+      type: 'object',
+      properties: {},
+      required: [],
+    },
+  },
 };
 
 /**
