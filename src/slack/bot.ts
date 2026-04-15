@@ -82,7 +82,9 @@ export interface SlackBotDeps {
     text: string;
     enclaveName: string | null;
     mode: 'enclave' | 'dm';
-  }) => Promise<string>;
+    /** Authenticated user's OIDC access token (D6). */
+    userToken: string;
+  }) => Promise<string | null>;
   /**
    * Returns a valid OIDC access token for the given Slack user ID, or null
    * if the user has not authenticated. Wired in by the main entry point.
@@ -706,6 +708,7 @@ async function executeDecision(
     text: inbound.text,
     enclaveName: decision.context.enclaveName,
     mode: decision.context.mode,
+    userToken,
   });
 
   if (response) {

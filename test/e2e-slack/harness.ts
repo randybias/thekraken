@@ -147,9 +147,13 @@ async function resolveChannelId(
   driver: SlackDriver,
   channelName: string,
 ): Promise<string | null> {
-  // We reach into the driver's underlying WebClient via a workaround:
-  // the driver doesn't expose conversations.list, so we import directly.
-  // In dry-run mode this isn't called.
+  // 1. Explicit env var override — useful when user token lacks channels:read scope.
+  //    Set KRAKEN_E2E_CHANNEL_<NAME>=C01234 (uppercased, dashes → underscores).
+  const envKey = `KRAKEN_E2E_CHANNEL_${channelName.toUpperCase().replace(/-/g, '_')}`;
+  const explicitId = process.env[envKey];
+  if (explicitId) return explicitId;
+
+  // 2. Fall back to conversations.list (requires channels:read or groups:read).
   const { WebClient } = await import('@slack/web-api');
   const token = process.env['KRAKEN_E2E_USER_TOKEN'];
   if (!token) return null;

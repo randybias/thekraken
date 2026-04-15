@@ -34,6 +34,9 @@ gitState:
 llm:
   defaultProvider: 'anthropic'
   defaultModel: 'claude-sonnet-4-6'
+  # Only allow anthropic since the cluster secret only has ANTHROPIC_API_KEY.
+  # Override to 'anthropic,openai,google' once those keys are added.
+  allowedProviders: 'anthropic'
 
 # Slack HTTP mode (socket mode uses SLACK_APP_TOKEN; keep same mode as old)
 slack:

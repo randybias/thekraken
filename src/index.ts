@@ -36,6 +36,7 @@ import { TeamLifecycleManager } from './teams/lifecycle.js';
 import { OutboundPoller } from './teams/outbound-poller.js';
 import { createSlackBot } from './slack/bot.js';
 import { createMcpConnection } from './agent/mcp-connection.js';
+import { runSmartPath } from './dispatcher/smart-path.js';
 
 const log = createChildLogger({ module: 'main' });
 
@@ -99,21 +100,41 @@ async function main(): Promise<void> {
       };
     },
     onSmartPath: async (ctx) => {
-      // Smart path placeholder: returns a static message until
-      // the pi AgentSession is wired via createAgentSession().
       log.info(
         {
-          reason: 'smart_path',
           channelId: ctx.channelId,
           mode: ctx.mode,
           userId: ctx.userId,
+          enclaveName: ctx.enclaveName,
+          textLen: ctx.text.length,
         },
-        'smart path invoked (stub)',
+        'smart path invoked',
       );
-      if (ctx.mode === 'dm') {
-        return "I can see your message, but my full reasoning capabilities aren't wired up yet. This will be available soon.";
+
+      const apiKey = config.llm.anthropicApiKey;
+      if (!apiKey) {
+        log.error('smart path: ANTHROPIC_API_KEY not configured');
+        return "I'm not configured to reason right now (no API key). Please contact an administrator.";
       }
-      return 'I heard you, but I need my full reasoning to help with that. Coming soon.';
+
+      try {
+        const answer = await runSmartPath({
+          userMessage: ctx.text,
+          userToken: ctx.userToken,
+          userSlackId: ctx.userId,
+          enclaveName: ctx.enclaveName,
+          mcpUrl: config.mcp.url,
+          anthropicApiKey: apiKey,
+          modelId: config.llm.defaultModel,
+        });
+        return (
+          answer ??
+          "I couldn't produce a response. Please try rephrasing or ask again in a moment."
+        );
+      } catch (err) {
+        log.error({ err }, 'smart path: runtime error');
+        return 'Something went wrong while I was reasoning about that. Please try again.';
+      }
     },
   });
 

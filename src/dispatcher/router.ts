@@ -207,20 +207,25 @@ export function routeEvent(
   }
 
   // Criteria 7-8: Enclave-bound @mention or thread reply
+  //
+  // Routed through the SMART path (dispatcher's own pi AgentSession with
+  // MCP tools) per D4. The per-enclave team subprocess model exists but
+  // its pi/NDJSON bridge is not wired yet — team dispatch would be a
+  // black hole for the user's message. Until the team bridge lands,
+  // the dispatcher handles all conversational traffic inline.
   if (binding) {
-    const teamActive = deps.teams.isTeamActive(binding.enclaveName);
-    if (teamActive) {
-      return {
-        path: 'deterministic',
-        action: {
-          type: 'forward_to_active_team',
-          enclaveName: binding.enclaveName,
-        },
-      };
-    }
     return {
-      path: 'deterministic',
-      action: { type: 'spawn_and_forward', enclaveName: binding.enclaveName },
+      path: 'smart',
+      reason: classifySmartReason(event),
+      context: {
+        eventType: event.type,
+        channelId: event.channelId,
+        threadTs: event.threadTs ?? '',
+        userId: event.userId,
+        text: event.text,
+        enclaveName: binding.enclaveName,
+        mode: 'enclave',
+      },
     };
   }
 

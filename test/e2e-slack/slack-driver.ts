@@ -96,6 +96,15 @@ export function createSlackDriver(opts: SlackDriverOptions): SlackDriver {
     return testPrefix ? `[e2e-test] ${text}` : text;
   }
 
+  /**
+   * Convert plain `@Kraken` (and variants) into a real Slack user mention
+   * `<@U_BOT_ID>`. Without this, Slack treats `@Kraken` as literal text,
+   * no `app_mention` event fires, and the bot never sees the message.
+   */
+  function resolveMention(text: string): string {
+    return text.replace(/@Kraken\b/gi, `<@${krakenBotUserId}>`);
+  }
+
   async function postAsUser(
     channel: string,
     text: string,
@@ -103,7 +112,7 @@ export function createSlackDriver(opts: SlackDriverOptions): SlackDriver {
   ): Promise<string> {
     const payload: ChatPostMessageArguments = {
       channel,
-      text: prefixed(text),
+      text: prefixed(resolveMention(text)),
       ...(threadTs ? { thread_ts: threadTs } : {}),
     };
 

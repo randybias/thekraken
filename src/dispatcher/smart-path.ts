@@ -1,0 +1,252 @@
+/**
+ * Smart-path: inline dispatcher LLM + MCP tools, per D4.
+ *
+ * For enclave-bound mentions that aren't deterministic commands, the
+ * dispatcher itself runs a minimal agent loop:
+ *   1. Connect to MCP with the user's OIDC token → tool list.
+ *   2. Call the LLM with manager system prompt + user message + tools.
+ *   3. If toolUse, execute via MCP, append tool-result, loop.
+ *   4. Return final assistant text.
+ *
+ * This bypasses the per-enclave team subprocess (which doesn't have a
+ * pi/NDJSON bridge yet) and gives users a working smart path today.
+ * The team model remains valid for longer-horizon work (code build,
+ * deploy) — that's Phase 3/4.
+ */
+
+import {
+  complete,
+  getModel,
+  registerBuiltInApiProviders,
+  type Context,
+  type Message,
+  type ToolResultMessage,
+} from '@mariozechner/pi-ai';
+import { createChildLogger } from '../logger.js';
+import { buildManagerPrompt } from '../agent/system-prompt.js';
+import {
+  createMcpConnection,
+  type McpConnection,
+} from '../agent/mcp-connection.js';
+import { extractEmailFromToken } from '../auth/index.js';
+
+const log = createChildLogger({ module: 'smart-path' });
+
+/** Maximum number of LLM ↔ tool turns per request. Guards against loops. */
+const MAX_TURNS = 8;
+
+// Ensure providers are registered once at module load.
+let providersRegistered = false;
+function ensureProviders(): void {
+  if (providersRegistered) return;
+  registerBuiltInApiProviders();
+  providersRegistered = true;
+}
+
+export interface SmartPathInput {
+  /** Full raw message text (will be cleaned of bot mention). */
+  userMessage: string;
+  /** Authenticated user's OIDC access token (D6). */
+  userToken: string;
+  /** Slack user ID. */
+  userSlackId: string;
+  /** Enclave name (null for DM / unbound). */
+  enclaveName: string | null;
+  /** MCP server URL. */
+  mcpUrl: string;
+  /** Anthropic API key. */
+  anthropicApiKey: string;
+  /** Model ID (e.g. 'claude-sonnet-4-6'). */
+  modelId: string;
+  /** Slack bot user ID — used to strip the leading mention. */
+  botUserId?: string;
+}
+
+/**
+ * Run one smart-path turn and return the final assistant text.
+ *
+ * Returns null if the LLM produced no usable response (e.g., errored).
+ */
+export async function runSmartPath(
+  input: SmartPathInput,
+): Promise<string | null> {
+  ensureProviders();
+
+  const cleanedText = stripBotMention(input.userMessage, input.botUserId);
+  if (!cleanedText.trim()) {
+    return "Yes, I'm here. How can I help?";
+  }
+
+  const userEmail = extractEmailFromToken(input.userToken) ?? 'unknown';
+  const systemPrompt = input.enclaveName
+    ? buildManagerPrompt({
+        enclaveName: input.enclaveName,
+        userSlackId: input.userSlackId,
+        userEmail,
+      })
+    : buildDmSystemPrompt(userEmail);
+
+  let mcp: McpConnection | null = null;
+  try {
+    mcp = await createMcpConnection(input.mcpUrl, input.userToken);
+  } catch (err) {
+    log.error({ err }, 'smart-path: MCP connection failed');
+    // Fall through to tool-less mode — we can still answer conversationally.
+  }
+
+  const model = getModel('anthropic' as never, input.modelId as never);
+  const messages: Message[] = [
+    {
+      role: 'user',
+      content: cleanedText,
+      timestamp: Date.now(),
+    },
+  ];
+
+  const baseContext: Context = {
+    systemPrompt,
+    messages,
+    tools: mcp?.tools ?? [],
+  };
+
+  let finalText: string | null = null;
+
+  try {
+    for (let turn = 0; turn < MAX_TURNS; turn++) {
+      const assistant = await complete(model, baseContext, {
+        apiKey: input.anthropicApiKey,
+      });
+
+      messages.push(assistant);
+
+      const toolCalls = assistant.content.filter(
+        (c): c is Extract<typeof c, { type: 'toolCall' }> =>
+          c.type === 'toolCall',
+      );
+
+      if (toolCalls.length === 0 || assistant.stopReason !== 'toolUse') {
+        // Terminal — collect final text
+        const text = assistant.content
+          .filter(
+            (c): c is Extract<typeof c, { type: 'text' }> => c.type === 'text',
+          )
+          .map((c) => c.text)
+          .join('')
+          .trim();
+        finalText = text || null;
+        if (assistant.stopReason === 'error') {
+          log.warn(
+            { errorMessage: assistant.errorMessage },
+            'smart-path: LLM stopped with error',
+          );
+        }
+        break;
+      }
+
+      // Execute tool calls in sequence (keep order deterministic)
+      const results: ToolResultMessage[] = [];
+      for (const toolCall of toolCalls) {
+        const tool = mcp?.tools.find((t) => t.name === toolCall.name);
+        if (!tool) {
+          results.push({
+            role: 'toolResult',
+            toolCallId: toolCall.id,
+            toolName: toolCall.name,
+            content: [
+              {
+                type: 'text',
+                text: `Tool ${toolCall.name} is not available in this context.`,
+              },
+            ],
+            isError: true,
+            timestamp: Date.now(),
+          });
+          continue;
+        }
+
+        // Auto-inject enclave when the tool's input schema accepts it.
+        const args: Record<string, unknown> = {
+          ...(toolCall.arguments as Record<string, unknown>),
+        };
+        if (
+          input.enclaveName &&
+          toolAcceptsEnclave(tool) &&
+          args['enclave'] === undefined
+        ) {
+          args['enclave'] = input.enclaveName;
+        }
+
+        try {
+          const result = await tool.execute(
+            toolCall.id,
+            args as never,
+            undefined,
+          );
+          results.push({
+            role: 'toolResult',
+            toolCallId: toolCall.id,
+            toolName: toolCall.name,
+            content: result.content,
+            details: result.details,
+            isError: false,
+            timestamp: Date.now(),
+          });
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err);
+          log.warn(
+            { tool: toolCall.name, err: msg },
+            'smart-path: tool failed',
+          );
+          results.push({
+            role: 'toolResult',
+            toolCallId: toolCall.id,
+            toolName: toolCall.name,
+            content: [{ type: 'text', text: `Error: ${msg}` }],
+            isError: true,
+            timestamp: Date.now(),
+          });
+        }
+      }
+
+      messages.push(...results);
+    }
+  } finally {
+    if (mcp) await mcp.close().catch(() => undefined);
+  }
+
+  return finalText;
+}
+
+/** Strip leading `<@BOTID>` or `@kraken` mention from text. */
+function stripBotMention(text: string, botUserId?: string): string {
+  let s = text.trim();
+  if (botUserId) {
+    const re = new RegExp(`^<@${botUserId}>\\s*`, 'i');
+    s = s.replace(re, '');
+  }
+  s = s.replace(/^<@[A-Z0-9_]+>\s*/i, '');
+  s = s.replace(/^@kraken\s*/i, '');
+  return s.trim();
+}
+
+function toolAcceptsEnclave(tool: { parameters: unknown }): boolean {
+  const schema = tool.parameters as
+    | { properties?: Record<string, unknown> }
+    | undefined;
+  return Boolean(schema?.properties && 'enclave' in schema.properties);
+}
+
+function buildDmSystemPrompt(userEmail: string): string {
+  return [
+    '# Role: The Kraken (DM mode)',
+    '',
+    'You are The Kraken, a conversational assistant for the Tentacular platform.',
+    'The user is currently messaging you in a direct message (no enclave context).',
+    `User email: ${userEmail}`,
+    '',
+    '## Response Style',
+    '- Respond directly in first person. Never narrate your own actions.',
+    '- Be concise and technical. Users are engineers.',
+    '- If the user asks about workflows/tentacles, remind them those live inside enclave channels.',
+  ].join('\n');
+}
