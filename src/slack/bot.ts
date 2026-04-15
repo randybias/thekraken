@@ -521,6 +521,11 @@ function registerEventHandlers(
     // Self-loop guard: never process our own bot's posts.
     if (userId && deps.botUserId && userId === deps.botUserId) return;
 
+    // Avoid double-firing with app_mention: Slack dispatches both `message`
+    // and `app_mention` for a mention in a channel. Let app_mention own
+    // those; this handler only covers DMs and non-mention thread replies.
+    if (deps.botUserId && text.includes(`<@${deps.botUserId}>`)) return;
+
     return tracer.startActiveSpan('slack.message', async (span) => {
       span.setAttribute('slack.event_type', 'message');
       span.setAttribute('slack.channel_id', channelId);
