@@ -310,17 +310,26 @@ async function getMcpCallForUser(): Promise<{
     process.env['KRAKEN_E2E_MCP_URL'] ??
     'http://tentacular-mcp.tentacular-system.svc.cluster.local:8080/mcp';
 
-  // Fetch the user's access token from the pod's SQLite
+  // Fetch a FRESH OIDC token via getValidTokenForUser (which refreshes
+  // if the stored access_token is expired). Pipe ESM script to node
+  // via kubectl exec -i to avoid shell-escaping headaches.
   const { execSync } = await import('node:child_process');
-  const script = `
-    const Database = require('better-sqlite3');
-    const db = new Database('/app/data/kraken.db', { readonly: true });
-    const row = db.prepare("SELECT access_token FROM user_tokens WHERE slack_user_id=?").get(${JSON.stringify(slackUserId)});
-    if (row) process.stdout.write(row.access_token);
-  `;
+  const tokenScript =
+    "import('/app/dist/auth/tokens.js').then(async (t) => {" +
+    "  const Database = (await import('better-sqlite3')).default;" +
+    "  const db = new Database('/app/data/kraken.db');" +
+    '  t.initTokenStore(db);' +
+    "  const oidc = await import('/app/dist/auth/oidc.js');" +
+    `  const tok = await oidc.getValidTokenForUser(${JSON.stringify(slackUserId)});` +
+    "  if (tok) process.stdout.write(tok);" +
+    '});';
   const token = execSync(
-    `kubectl exec -n ${namespace} deploy/thekraken -- node -e ${JSON.stringify(script)}`,
-    { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] },
+    `kubectl exec -i -n ${namespace} deploy/thekraken -- node --input-type=module -`,
+    {
+      input: tokenScript,
+      encoding: 'utf8',
+      stdio: ['pipe', 'pipe', 'pipe'],
+    },
   ).trim();
   if (!token) {
     throw new Error('could not fetch user OIDC token from Kraken pod');
@@ -330,24 +339,20 @@ async function getMcpCallForUser(): Promise<{
   // OR exec the call inside the pod. Exec-in-pod is simpler and avoids races.
   return {
     mcpCall: async (tool, params) => {
-      const callScript = `
-        (async () => {
-          const { createMcpConnection } = await import('/app/dist/agent/mcp-connection.js');
-          const conn = await createMcpConnection(${JSON.stringify(mcpUrl)}, ${JSON.stringify(token)});
-          try {
-            const r = await conn.client.callTool({ name: ${JSON.stringify(tool)}, arguments: ${JSON.stringify(params)} });
-            const text = r.content?.[0]?.text;
-            if (text) {
-              try { process.stdout.write(text); } catch { process.stdout.write(''); }
-            }
-          } finally {
-            await conn.close().catch(() => undefined);
-          }
-        })();
-      `;
+      // Single-line ESM script piped to node via kubectl exec -i
+      const callScript =
+        "import('/app/dist/agent/mcp-connection.js').then(async (m) => {" +
+        `const conn = await m.createMcpConnection(${JSON.stringify(mcpUrl)}, ${JSON.stringify(token)});` +
+        `try { const r = await conn.client.callTool({ name: ${JSON.stringify(tool)}, arguments: ${JSON.stringify(params)} });` +
+        'const t = r.content && r.content[0] && r.content[0].text;' +
+        "if (t) process.stdout.write(t); } finally { await conn.close().catch(() => undefined); } });";
       const out = execSync(
-        `kubectl exec -n ${namespace} deploy/thekraken -- node --input-type=module -e ${JSON.stringify(callScript)}`,
-        { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] },
+        `kubectl exec -i -n ${namespace} deploy/thekraken -- node --input-type=module -`,
+        {
+          input: callScript,
+          encoding: 'utf8',
+          stdio: ['pipe', 'pipe', 'pipe'],
+        },
       );
       try {
         return JSON.parse(out);
