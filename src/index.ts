@@ -26,6 +26,7 @@ import { initTelemetry, shutdownTelemetry } from './telemetry.js';
 import { createChildLogger } from './logger.js';
 import { initDatabase } from './db/index.js';
 import {
+  getValidTokenForUser,
   initTokenStore,
   startTokenRefreshLoop,
   stopTokenRefreshLoop,
@@ -127,6 +128,10 @@ async function main(): Promise<void> {
           anthropicApiKey: apiKey,
           modelId: config.llm.defaultModel,
           priorTurns: ctx.priorTurns,
+          // Allow smart-path to re-source a fresh OIDC token between turns.
+          // getValidTokenForUser auto-refreshes via the stored refresh_token,
+          // so long agent loops survive Keycloak's ~5 min access-token TTL.
+          getFreshToken: () => getValidTokenForUser(ctx.userId),
         });
         return (
           answer ??

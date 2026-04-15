@@ -66,6 +66,13 @@ export interface SmartPathInput {
    * Each entry is the cleaned text (no mention prefix) plus who said it.
    */
   priorTurns?: Array<{ role: 'user' | 'assistant'; text: string }>;
+  /**
+   * Resolve a fresh, valid OIDC access token. Called at each tool-call
+   * boundary so long-running agent loops survive Keycloak's short
+   * (~5 minute) access-token TTL. The implementation should transparently
+   * auto-refresh via the stored refresh_token.
+   */
+  getFreshToken?: () => Promise<string | null>;
 }
 
 /**
@@ -164,6 +171,28 @@ export async function runSmartPath(
           );
         }
         break;
+      }
+
+      // Refresh the MCP connection between turns if the token is about to
+      // expire. Keycloak access tokens in eastus are ~5 min; long agent
+      // loops (wf_run can take 60+s) outlive the original token. Calling
+      // getFreshToken() pulls a refreshed token from the store.
+      if (input.getFreshToken && mcp) {
+        try {
+          const fresh = await input.getFreshToken();
+          if (fresh && fresh !== input.userToken) {
+            log.debug(
+              'smart-path: rotating MCP connection with refreshed token',
+            );
+            const oldMcp = mcp;
+            mcp = await createMcpConnection(input.mcpUrl, fresh);
+            baseContext.tools = mcp.tools;
+            input.userToken = fresh;
+            await oldMcp.close().catch(() => undefined);
+          }
+        } catch (err) {
+          log.warn({ err }, 'smart-path: token refresh between turns failed');
+        }
       }
 
       // Execute tool calls in sequence (keep order deterministic)

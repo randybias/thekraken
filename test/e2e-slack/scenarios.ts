@@ -188,6 +188,111 @@ export const COMMAND_SCENARIOS: ScenarioDef[] = [
     forbiddenPatterns: [/group member/i, /namespace/i],
     timeoutMs: 45_000,
   },
+  {
+    id: 'D4',
+    name: 'help command',
+    channel: CHANNELS.enclave,
+    message: '@Kraken help',
+    expectedPatterns: [
+      // Help response should mention at least a handful of the documented commands
+      /members|whoami|add|remove|mode|help/i,
+    ],
+    forbiddenPatterns: [/kubectl/i, /namespace/i],
+    timeoutMs: 30_000,
+  },
+  {
+    id: 'D5',
+    name: 'set mode invalid preset',
+    channel: CHANNELS.enclave,
+    message: '@Kraken set mode banana',
+    expectedPatterns: [
+      // Should either list valid modes or reject the bogus one
+      /invalid|valid|preset|private|team|shared|open|must be/i,
+    ],
+    forbiddenPatterns: [],
+    timeoutMs: 30_000,
+  },
+];
+
+// ---------------------------------------------------------------------------
+// I. Membership + authorization (owner/member/visitor differentiation)
+// ---------------------------------------------------------------------------
+
+export const MEMBERSHIP_SCENARIOS: ScenarioDef[] = [
+  {
+    id: 'I1',
+    name: 'add member (owner) — test user email',
+    channel: CHANNELS.enclave,
+    // Use a literal email (Slack won't resolve @user via API post anyway)
+    message: '@Kraken add e2e-test-noop@mirantis.com',
+    expectedPatterns: [
+      // Accept either "added" or an error about the user not existing in Keycloak —
+      // both are correct behaviors (the Kraken reached enclave_sync either way).
+      /added|added to|member|updated|not found|doesn't exist|cannot find|unknown user/i,
+    ],
+    forbiddenPatterns: [/undefined|null\.|mcp.*exception/i],
+    timeoutMs: 60_000,
+  },
+  {
+    id: 'I2',
+    name: 'remove non-member (owner) — should fail gracefully',
+    channel: CHANNELS.enclave,
+    message: '@Kraken remove e2e-test-noop@mirantis.com',
+    expectedPatterns: [
+      /removed|not a member|not in the enclave|doesn't exist|no such member|unknown/i,
+    ],
+    forbiddenPatterns: [/undefined|null\.|crash/i],
+    timeoutMs: 45_000,
+  },
+  {
+    id: 'I3',
+    name: 'whoami reports ownership correctly',
+    channel: CHANNELS.enclave,
+    message: '@Kraken whoami',
+    expectedPatterns: [/owner|member|visitor|you are|you're/i],
+    forbiddenPatterns: [/not authenticated|must.*login/i],
+    timeoutMs: 30_000,
+  },
+];
+
+// ---------------------------------------------------------------------------
+// J. Multi-turn thread memory
+// ---------------------------------------------------------------------------
+
+export const MEMORY_SCENARIOS: ScenarioDef[] = [
+  {
+    id: 'J1',
+    name: 'thread memory — recall a fact from an earlier turn',
+    channel: CHANNELS.enclave,
+    message: '@Kraken my favorite color is cerulean — please remember that',
+    followUpMessages: ['@Kraken what is my favorite color?'],
+    expectedReplyCount: 2,
+    expectedPatterns: [
+      // Second reply should contain "cerulean"
+      /cerulean/i,
+    ],
+    forbiddenPatterns: [
+      // Must not claim ignorance of the fact
+      /I don't (know|remember)|no .*context/i,
+    ],
+    timeoutMs: 90_000,
+  },
+  {
+    id: 'J2',
+    name: 'thread memory — clarifying follow-up about enclave',
+    channel: CHANNELS.enclave,
+    message: '@Kraken list my workflows',
+    followUpMessages: ['@Kraken which of those were deployed most recently?'],
+    expectedReplyCount: 2,
+    expectedPatterns: [
+      // Second reply should name a specific workflow or discuss recency
+      /workflow|tentacle|deployed|most recent|newest|latest|age/i,
+    ],
+    forbiddenPatterns: [
+      /what workflows|which workflows are you/i, // Must not ask "what are you talking about"
+    ],
+    timeoutMs: 120_000,
+  },
 ];
 
 // ---------------------------------------------------------------------------
@@ -342,6 +447,8 @@ export const ALL_SCENARIOS: ScenarioDef[] = [
   ...SCOPING_SCENARIOS,
   ...WORKFLOW_SCENARIOS,
   ...COMMAND_SCENARIOS,
+  ...MEMBERSHIP_SCENARIOS,
+  ...MEMORY_SCENARIOS,
   ...PROVISIONING_SCENARIOS,
   ...TENTACLE_SCENARIOS,
   ...ERROR_SCENARIOS,
