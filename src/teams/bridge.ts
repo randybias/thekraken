@@ -1,0 +1,396 @@
+/**
+ * Team bridge: wires a pi-coding-agent subprocess (spawned in RPC mode)
+ * to the NDJSON IPC files (mailbox.ndjson in, outbound.ndjson out).
+ *
+ * Each enclave's team has ONE TeamBridge. On creation, it spawns
+ * `pi --mode rpc`, then starts tailing mailbox.ndjson for dispatcher
+ * records. For each user_message record:
+ *
+ *   1. Send a `{type:"prompt"}` JSON command on pi's stdin.
+ *   2. Watch the stdout event stream for an `agent_end` event.
+ *   3. Query `{type:"get_last_assistant_text"}` and capture the reply.
+ *   4. Append an OutboundRecord to outbound.ndjson so the poller posts
+ *      it to Slack.
+ *
+ * Messages are processed sequentially per-enclave; new mailbox records
+ * queue while pi is working on the previous turn.
+ *
+ * D6 (user identity hard partition): the env passed to pi already carries
+ * TNTC_ACCESS_TOKEN (set by TeamLifecycleManager on spawn).
+ */
+
+import { spawn, type ChildProcess } from 'node:child_process';
+import { join } from 'node:path';
+import { existsSync, mkdirSync } from 'node:fs';
+import { randomUUID } from 'node:crypto';
+import { createChildLogger } from '../logger.js';
+import { appendNdjson, NdjsonReader } from './ndjson.js';
+import type { MailboxRecord } from './lifecycle.js';
+import type { OutboundRecord } from './outbound-poller.js';
+
+const log = createChildLogger({ module: 'team-bridge' });
+
+/** Max time to wait for the agent to finish one prompt (build/deploy can be long). */
+const IDLE_TIMEOUT_MS = 10 * 60 * 1000; // 10 minutes
+
+/** Poll the mailbox every 1s. */
+const MAILBOX_POLL_MS = 1_000;
+
+/** Max time to wait for a single RPC command response. */
+const RPC_RESPONSE_TIMEOUT_MS = 30_000;
+
+export interface TeamBridgeOptions {
+  enclaveName: string;
+  teamDir: string;
+  gitStateDir: string;
+  /** LLM provider (e.g. "anthropic"). */
+  provider: string;
+  /** Model ID (e.g. "claude-sonnet-4-6"). */
+  modelId: string;
+  /** Env to pass to the pi subprocess (already contains the user's token). */
+  env: Record<string, string>;
+  /** Path to the pi CLI binary (the .bin/pi symlink target). */
+  piCliPath: string;
+  /**
+   * System prompt to append to pi's default coding-agent prompt. Gives
+   * the team Kraken-specific context (enclave, build flow, vocabulary,
+   * response style).
+   */
+  appendSystemPrompt?: string;
+  /**
+   * Called when the pi subprocess exits unexpectedly so the owner
+   * (TeamLifecycleManager) can clean up.
+   */
+  onExit?: (code: number | null) => void;
+}
+
+/** A pending RPC request waiting on its response. */
+interface PendingRequest {
+  resolve: (data: unknown) => void;
+  reject: (err: Error) => void;
+  timer: NodeJS.Timeout;
+}
+
+export class TeamBridge {
+  private proc: ChildProcess | null = null;
+  private reader: NdjsonReader;
+  private pollTimer: NodeJS.Timeout | null = null;
+  private queue: MailboxRecord[] = [];
+  private processing = false;
+  private stopped = false;
+  private stdoutBuffer = '';
+  private pending = new Map<string, PendingRequest>();
+  /** Resolved when pi emits an `agent_end` event. */
+  private idleResolver: (() => void) | null = null;
+  private idleTimer: NodeJS.Timeout | null = null;
+  private readonly mailboxPath: string;
+  private readonly outboundPath: string;
+
+  constructor(private readonly opts: TeamBridgeOptions) {
+    this.mailboxPath = join(opts.teamDir, 'mailbox.ndjson');
+    this.outboundPath = join(opts.teamDir, 'outbound.ndjson');
+    this.reader = new NdjsonReader(this.mailboxPath);
+
+    if (!existsSync(opts.gitStateDir)) {
+      mkdirSync(opts.gitStateDir, { recursive: true });
+    }
+  }
+
+  /** Start the pi RPC subprocess and begin polling mailbox. */
+  async start(): Promise<void> {
+    const args = [
+      '--mode',
+      'rpc',
+      '--provider',
+      this.opts.provider,
+      '--model',
+      this.opts.modelId,
+      '--cwd',
+      this.opts.gitStateDir,
+      '--no-session',
+    ];
+    if (this.opts.appendSystemPrompt) {
+      args.push('--append-system-prompt', this.opts.appendSystemPrompt);
+    }
+    this.proc = spawn(this.opts.piCliPath, args, {
+      cwd: this.opts.gitStateDir,
+      env: this.opts.env,
+      stdio: ['pipe', 'pipe', 'pipe'],
+    });
+
+    this.proc.stdout?.on('data', (chunk: Buffer) => {
+      this.stdoutBuffer += chunk.toString('utf8');
+      let nl: number;
+      while ((nl = this.stdoutBuffer.indexOf('\n')) !== -1) {
+        const line = this.stdoutBuffer.slice(0, nl).trim();
+        this.stdoutBuffer = this.stdoutBuffer.slice(nl + 1);
+        if (line) this.handleLine(line);
+      }
+    });
+
+    this.proc.stderr?.on('data', (chunk: Buffer) => {
+      log.debug(
+        {
+          enclaveName: this.opts.enclaveName,
+          stderr: chunk.toString('utf8').slice(0, 400),
+        },
+        'team-bridge: pi stderr',
+      );
+    });
+
+    this.proc.on('exit', (code, signal) => {
+      log.info(
+        { enclaveName: this.opts.enclaveName, code, signal },
+        'team-bridge: pi RPC process exited',
+      );
+      this.stopped = true;
+      this.proc = null;
+      // Reject all pending requests
+      for (const [, pending] of this.pending) {
+        clearTimeout(pending.timer);
+        pending.reject(new Error(`pi exited (code=${code})`));
+      }
+      this.pending.clear();
+      if (this.idleResolver) {
+        this.idleResolver();
+        this.idleResolver = null;
+      }
+      this.opts.onExit?.(code);
+    });
+
+    this.proc.on('error', (err) => {
+      log.error(
+        { enclaveName: this.opts.enclaveName, err },
+        'team-bridge: pi RPC process error',
+      );
+    });
+
+    // Wait for pi to be ready by sending get_state and awaiting the response.
+    // This confirms the RPC loop is listening.
+    try {
+      await this.sendCommand('get_state', {});
+      log.info(
+        { enclaveName: this.opts.enclaveName },
+        'team-bridge: pi RPC ready',
+      );
+    } catch (err) {
+      log.error(
+        { err, enclaveName: this.opts.enclaveName },
+        'team-bridge: pi RPC handshake failed',
+      );
+      throw err;
+    }
+
+    this.pollTimer = setInterval(() => {
+      this.poll().catch((err: unknown) => {
+        log.error(
+          { err, enclaveName: this.opts.enclaveName },
+          'team-bridge: poll cycle failed',
+        );
+      });
+    }, MAILBOX_POLL_MS);
+    this.pollTimer.unref?.();
+  }
+
+  async stop(): Promise<void> {
+    this.stopped = true;
+    if (this.pollTimer) {
+      clearInterval(this.pollTimer);
+      this.pollTimer = null;
+    }
+    if (this.proc) {
+      this.proc.kill('SIGTERM');
+      // Force-kill after 3s
+      setTimeout(() => {
+        if (this.proc && !this.proc.killed) this.proc.kill('SIGKILL');
+      }, 3000).unref?.();
+    }
+  }
+
+  isActive(): boolean {
+    return !this.stopped && this.proc !== null;
+  }
+
+  /** Handle a single JSON line from pi's stdout. */
+  private handleLine(line: string): void {
+    let msg: Record<string, unknown>;
+    try {
+      msg = JSON.parse(line) as Record<string, unknown>;
+    } catch {
+      // Non-JSON output — log and skip (pi may emit non-RPC text).
+      log.debug(
+        { enclaveName: this.opts.enclaveName, line: line.slice(0, 200) },
+        'team-bridge: non-JSON stdout',
+      );
+      return;
+    }
+
+    // RPC response?
+    if (msg['type'] === 'response' && typeof msg['id'] === 'string') {
+      const pending = this.pending.get(msg['id'] as string);
+      if (pending) {
+        clearTimeout(pending.timer);
+        this.pending.delete(msg['id'] as string);
+        if (msg['success']) {
+          pending.resolve(msg['data']);
+        } else {
+          pending.reject(new Error(String(msg['error'] ?? 'rpc error')));
+        }
+      }
+      return;
+    }
+
+    // Agent event? We care about agent_end for idle detection.
+    if (msg['type'] === 'agent_end' && this.idleResolver) {
+      const resolve = this.idleResolver;
+      this.idleResolver = null;
+      if (this.idleTimer) {
+        clearTimeout(this.idleTimer);
+        this.idleTimer = null;
+      }
+      resolve();
+    }
+  }
+
+  /** Send a JSON RPC command and await the response. */
+  private sendCommand<T = unknown>(
+    type: string,
+    extra: Record<string, unknown>,
+  ): Promise<T> {
+    if (!this.proc || !this.proc.stdin || this.stopped) {
+      return Promise.reject(new Error('pi RPC process is not running'));
+    }
+    const id = randomUUID();
+    const cmd = { id, type, ...extra };
+    const line = JSON.stringify(cmd) + '\n';
+    return new Promise<T>((resolve, reject) => {
+      const timer = setTimeout(() => {
+        this.pending.delete(id);
+        reject(new Error(`RPC command ${type} timed out`));
+      }, RPC_RESPONSE_TIMEOUT_MS);
+      timer.unref?.();
+      this.pending.set(id, {
+        resolve: (data) => resolve(data as T),
+        reject,
+        timer,
+      });
+      this.proc!.stdin!.write(line, (err) => {
+        if (err) {
+          clearTimeout(timer);
+          this.pending.delete(id);
+          reject(err);
+        }
+      });
+    });
+  }
+
+  /** Wait for the next agent_end event (or timeout). */
+  private waitForIdle(timeoutMs: number): Promise<void> {
+    return new Promise<void>((resolve, reject) => {
+      this.idleResolver = resolve;
+      this.idleTimer = setTimeout(() => {
+        this.idleResolver = null;
+        this.idleTimer = null;
+        reject(new Error(`agent idle wait timed out after ${timeoutMs}ms`));
+      }, timeoutMs);
+      this.idleTimer.unref?.();
+    });
+  }
+
+  private async poll(): Promise<void> {
+    if (this.stopped) return;
+    const records = this.reader.readNew() as MailboxRecord[];
+    for (const r of records) {
+      if (r.type !== 'user_message') continue;
+      this.queue.push(r);
+    }
+    if (this.queue.length > 0 && !this.processing) {
+      void this.drain();
+    }
+  }
+
+  private async drain(): Promise<void> {
+    if (this.processing) return;
+    this.processing = true;
+    try {
+      while (this.queue.length > 0 && !this.stopped) {
+        const record = this.queue.shift()!;
+        await this.processOne(record).catch((err: unknown) => {
+          log.error(
+            { err, recordId: record.id },
+            'team-bridge: processOne failed',
+          );
+          this.writeOutboundError(record, err);
+        });
+      }
+    } finally {
+      this.processing = false;
+    }
+  }
+
+  private async processOne(record: MailboxRecord): Promise<void> {
+    log.info(
+      {
+        enclaveName: this.opts.enclaveName,
+        recordId: record.id,
+        channelId: record.channelId,
+        threadTs: record.threadTs,
+        msgLen: record.message.length,
+      },
+      'team-bridge: processing mailbox record',
+    );
+
+    // Send the user turn to pi
+    await this.sendCommand('prompt', { message: record.message });
+    // Wait for the agent to finish (agent_end event)
+    await this.waitForIdle(IDLE_TIMEOUT_MS);
+    // Pull the final assistant text
+    const data = (await this.sendCommand('get_last_assistant_text', {})) as {
+      text: string | null;
+    } | null;
+    const text = data?.text?.trim();
+
+    if (!text) {
+      log.warn(
+        { enclaveName: this.opts.enclaveName, recordId: record.id },
+        'team-bridge: agent produced no assistant text; skipping outbound',
+      );
+      return;
+    }
+
+    const outbound: OutboundRecord = {
+      id: randomUUID(),
+      timestamp: new Date().toISOString(),
+      type: 'slack_message',
+      channelId: record.channelId,
+      threadTs: record.threadTs,
+      text,
+    };
+    appendNdjson(this.outboundPath, outbound);
+    log.info(
+      {
+        enclaveName: this.opts.enclaveName,
+        recordId: record.id,
+        outLen: text.length,
+      },
+      'team-bridge: wrote outbound record',
+    );
+  }
+
+  private writeOutboundError(record: MailboxRecord, err: unknown): void {
+    const errMsg = err instanceof Error ? err.message : String(err);
+    const outbound: OutboundRecord = {
+      id: randomUUID(),
+      timestamp: new Date().toISOString(),
+      type: 'error',
+      channelId: record.channelId,
+      threadTs: record.threadTs,
+      text: `I hit an error while working on that: ${errMsg}`,
+    };
+    try {
+      appendNdjson(this.outboundPath, outbound);
+    } catch {
+      // best-effort
+    }
+  }
+}

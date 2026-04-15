@@ -16,11 +16,13 @@
 
 import { mkdirSync, readdirSync, statSync, rmSync, existsSync } from 'node:fs';
 import { join, resolve } from 'node:path';
-import { spawn, type ChildProcess } from 'node:child_process';
 import type Database from 'better-sqlite3';
 import { createChildLogger } from '../logger.js';
 import type { KrakenConfig } from '../config.js';
 import { appendNdjson } from './ndjson.js';
+import { TeamBridge } from './bridge.js';
+import { buildTeamBuilderPrompt } from '../agent/system-prompt.js';
+import { extractEmailFromToken } from '../auth/index.js';
 
 const log = createChildLogger({ module: 'team-lifecycle' });
 
@@ -33,7 +35,7 @@ const GC_STALE_THRESHOLD_MS = 7 * 24 * 60 * 60 * 1000;
 /** Per-enclave runtime state. */
 interface TeamState {
   enclaveName: string;
-  proc: ChildProcess;
+  bridge: TeamBridge;
   lastActivity: number;
   /** Map of slackUserId -> OIDC token, updated as messages arrive. */
   userTokens: Map<string, string>;
@@ -203,28 +205,38 @@ export class TeamLifecycleManager {
         : {}),
     };
 
-    const proc = spawn(
-      piPath,
-      [
-        '--mode',
-        'json',
-        '--provider',
-        this.config.llm.defaultProvider,
-        '--model',
-        this.config.llm.defaultModel,
-        '--cwd',
-        gitStateDir,
-      ],
-      {
-        cwd: gitStateDir,
-        env: subprocessEnv,
-        stdio: ['pipe', 'pipe', 'pipe'],
+    const initiatingEmail =
+      extractEmailFromToken(userToken) ?? 'unknown@example.com';
+    const bridge = new TeamBridge({
+      enclaveName,
+      teamDir,
+      gitStateDir,
+      provider: this.config.llm.defaultProvider,
+      modelId: this.config.llm.defaultModel,
+      env: subprocessEnv,
+      piCliPath: piPath,
+      appendSystemPrompt: buildTeamBuilderPrompt({
+        enclaveName,
+        userSlackId: initiatingUserId,
+        userEmail: initiatingEmail,
+      }),
+      onExit: (code) => {
+        log.info({ enclaveName, code }, 'team bridge exited');
+        this.teams.delete(enclaveName);
+        this.onTeamExited?.(enclaveName);
       },
-    );
+    });
+
+    try {
+      await bridge.start();
+    } catch (err) {
+      log.error({ enclaveName, err }, 'team-lifecycle: bridge start failed');
+      throw err;
+    }
 
     const state: TeamState = {
       enclaveName,
-      proc,
+      bridge,
       lastActivity: Date.now(),
       userTokens: new Map([[initiatingUserId, userToken]]),
       currentToken: userToken,
@@ -232,30 +244,9 @@ export class TeamLifecycleManager {
     };
     this.teams.set(enclaveName, state);
 
-    proc.on('exit', (code, signal) => {
-      log.info({ enclaveName, code, signal }, 'team manager exited');
-      this.teams.delete(enclaveName);
-      // Notify poller so it drains final outbound records (Codex fix #3)
-      this.onTeamExited?.(enclaveName);
-    });
-
-    proc.on('error', (err) => {
-      log.error({ enclaveName, err }, 'team manager process error');
-      this.teams.delete(enclaveName);
-      this.onTeamExited?.(enclaveName);
-    });
-
-    // Drain stderr to prevent buffer blocking
-    proc.stderr?.on('data', (chunk: Buffer) => {
-      log.debug(
-        { enclaveName, stderr: chunk.toString('utf8').slice(0, 200) },
-        'team stderr',
-      );
-    });
-
     log.info(
       { enclaveName, teamDir, userId: initiatingUserId },
-      'team spawned',
+      'team spawned (bridge active)',
     );
   }
 
@@ -319,17 +310,12 @@ export class TeamLifecycleManager {
 
     const shutdowns: Promise<void>[] = [];
     for (const [name, state] of this.teams) {
-      log.info({ enclaveName: name }, 'sending SIGTERM to team manager');
-      const p = new Promise<void>((resolve) => {
-        state.proc.once('exit', () => resolve());
-        state.proc.kill('SIGTERM');
-        // Force kill after 5s
-        setTimeout(() => {
-          if (!state.proc.killed) state.proc.kill('SIGKILL');
-          resolve();
-        }, 5000).unref?.();
-      });
-      shutdowns.push(p);
+      log.info({ enclaveName: name }, 'stopping team bridge');
+      shutdowns.push(
+        state.bridge.stop().catch((err: unknown) => {
+          log.warn({ err, enclaveName: name }, 'team bridge stop failed');
+        }),
+      );
     }
 
     await Promise.all(shutdowns);
@@ -382,9 +368,9 @@ export class TeamLifecycleManager {
       if (now - state.lastActivity > IDLE_TIMEOUT_MS) {
         log.info(
           { enclaveName: name, idleMs: now - state.lastActivity },
-          'idle timeout, sending SIGTERM',
+          'idle timeout, stopping team bridge',
         );
-        state.proc.kill('SIGTERM');
+        void state.bridge.stop();
         this.teams.delete(name);
       }
     }

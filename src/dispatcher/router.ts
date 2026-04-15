@@ -138,6 +138,24 @@ export function parseCommand(text: string): DeterministicAction | null {
  *
  * Used to give the LLM a hint about what the user is likely asking.
  */
+/**
+ * True if the message is a build/deploy/scaffold request for a tentacle.
+ * These go to the team subprocess (long-running, has write+bash tools,
+ * can run `tntc deploy`). Everything else stays on the smart path.
+ */
+function isBuildOrDeployRequest(text: string): boolean {
+  const lower = (text ?? '').toLowerCase();
+  // Must mention one of the action verbs AND "tentacle" (or a synonym).
+  // "run X" / "status X" / "logs X" are NOT build requests — they're
+  // reads that the smart path handles with wf_run / wf_status / wf_logs.
+  const verb =
+    /\b(build|create|scaffold|generate|make me a|write me a|deploy|redeploy)\b/.test(
+      lower,
+    );
+  const noun = /\b(tentacle|workflow|pipeline)\b/.test(lower);
+  return verb && noun;
+}
+
 function classifySmartReason(event: InboundEvent): SmartReason {
   if (event.channelType === 'im') return 'dm_query';
 
@@ -208,12 +226,26 @@ export function routeEvent(
 
   // Criteria 7-8: Enclave-bound @mention or thread reply
   //
-  // Routed through the SMART path (dispatcher's own pi AgentSession with
-  // MCP tools) per D4. The per-enclave team subprocess model exists but
-  // its pi/NDJSON bridge is not wired yet — team dispatch would be a
-  // black hole for the user's message. Until the team bridge lands,
-  // the dispatcher handles all conversational traffic inline.
+  // Classify:
+  //   - "build/deploy/scaffold/create a tentacle/..." → team subprocess
+  //     (long-running, writes code, runs tntc deploy, commits to git-state)
+  //   - everything else → smart path (inline dispatcher LLM + MCP tools)
   if (binding) {
+    if (isBuildOrDeployRequest(event.text)) {
+      const teamActive = deps.teams.isTeamActive(binding.enclaveName);
+      return {
+        path: 'deterministic',
+        action: teamActive
+          ? {
+              type: 'forward_to_active_team',
+              enclaveName: binding.enclaveName,
+            }
+          : {
+              type: 'spawn_and_forward',
+              enclaveName: binding.enclaveName,
+            },
+      };
+    }
     return {
       path: 'smart',
       reason: classifySmartReason(event),
