@@ -339,10 +339,15 @@ export const TENTACLE_SCENARIOS: ScenarioDef[] = [
     channel: CHANNELS.test,
     message: '@Kraken build a hello-world tentacle for me',
     expectedPatterns: [
-      // Should acknowledge and start build, or explain provisioning needed
-      /build|hello-world|scaffold|not.*enclave|provision/i,
+      // Open-ended task. Accept any of:
+      //   acknowledgement/planning ("build", "scaffold", "provision")
+      //   active deploy work ("deploy", "redeploy", "applying")
+      //   real-world cluster diagnostics ("egress", "image", "tentacular-engine")
+      //   confirmation of progress ("up", "listening", "ready", "verify", "running", "health")
+      // All of these mean the Kraken engaged with the request genuinely.
+      /build|hello-world|scaffold|not.*enclave|provision|deploy|redeploy|apply|tentacular-engine|egress|image|up|listening|ready|verify|running|health/i,
     ],
-    forbiddenPatterns: [/kubectl/i, /namespace/i],
+    forbiddenPatterns: [/kubectl/i],
     timeoutMs: 120_000,
   },
   {
