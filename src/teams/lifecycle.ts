@@ -162,7 +162,8 @@ export class TeamLifecycleManager {
     ensureTeamDir(teamDir);
 
     const piPath = resolvePiBinary();
-    const gitStateDir = join(this.config.gitState.dir, enclaveName);
+    // git-state layout: <repo>/enclaves/<enclave-name>/ — matches mirantis-tentacle-workflows
+    const gitStateDir = join(this.config.gitState.dir, 'enclaves', enclaveName);
 
     // Construct a MINIMAL allow-listed env. Never spread process.env —
     // it would leak OIDC_CLIENT_SECRET, SLACK_BOT_TOKEN, and other
