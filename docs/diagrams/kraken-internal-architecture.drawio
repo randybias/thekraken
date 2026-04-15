@@ -1,0 +1,240 @@
+<mxGraphModel dx="1422" dy="762" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1654" pageHeight="1169" math="0" shadow="0">
+  <root>
+    <mxCell id="0"/>
+    <mxCell id="1" parent="0"/>
+
+    <!-- Title -->
+    <mxCell id="title" value="The Kraken - Internal Architecture" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=20;fontStyle=1;" vertex="1" parent="1">
+      <mxGeometry x="527" y="20" width="700" height="40" as="geometry"/>
+    </mxCell>
+
+    <!-- === OUTER KRAKEN CONTAINER === -->
+    <mxCell id="kraken-outer" value="The Kraken Process" style="swimlane;startSize=35;fillColor=#f5f5f5;strokeColor=#666666;fontStyle=1;fontSize=14;html=1;" vertex="1" parent="1">
+      <mxGeometry x="40" y="80" width="1570" height="1050" as="geometry"/>
+    </mxCell>
+
+    <!-- === SLACK LAYER === -->
+    <mxCell id="slack-layer" value="Slack Layer" style="swimlane;startSize=30;fillColor=#f8cecc;strokeColor=#b85450;fontStyle=1;fontSize=12;html=1;" vertex="1" parent="kraken-outer">
+      <mxGeometry x="20" y="50" width="400" height="160" as="geometry"/>
+    </mxCell>
+    <mxCell id="slack-bolt" value="Slack Bolt&lt;br&gt;(HTTP / Socket Mode)" style="rounded=1;whiteSpace=wrap;fillColor=#f8cecc;strokeColor=#b85450;fontSize=11;html=1;" vertex="1" parent="slack-layer">
+      <mxGeometry x="30" y="45" width="160" height="60" as="geometry"/>
+    </mxCell>
+    <mxCell id="cmd-handlers" value="Command Handlers&lt;br&gt;add / remove / members&lt;br&gt;whoami / set mode / show prompts" style="rounded=1;whiteSpace=wrap;fillColor=#f8cecc;strokeColor=#b85450;fontSize=10;html=1;" vertex="1" parent="slack-layer">
+      <mxGeometry x="210" y="40" width="170" height="75" as="geometry"/>
+    </mxCell>
+
+    <!-- === AUTH MODULE === -->
+    <mxCell id="auth-layer" value="Auth Module" style="swimlane;startSize=30;fillColor=#fff2cc;strokeColor=#d6b656;fontStyle=1;fontSize=12;html=1;" vertex="1" parent="kraken-outer">
+      <mxGeometry x="450" y="50" width="400" height="160" as="geometry"/>
+    </mxCell>
+    <mxCell id="oidc-flow" value="OIDC Device Flow&lt;br&gt;(initiate + poll)" style="rounded=1;whiteSpace=wrap;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=11;html=1;" vertex="1" parent="auth-layer">
+      <mxGeometry x="20" y="45" width="160" height="60" as="geometry"/>
+    </mxCell>
+    <mxCell id="token-refresh" value="Token Refresh Loop&lt;br&gt;(every 5 min&lt;br&gt;refresh if expiring &lt;10 min)" style="rounded=1;whiteSpace=wrap;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=10;html=1;" vertex="1" parent="auth-layer">
+      <mxGeometry x="220" y="40" width="160" height="75" as="geometry"/>
+    </mxCell>
+
+    <!-- === DISPATCHER === -->
+    <mxCell id="dispatcher" value="Dispatcher Router" style="rounded=1;whiteSpace=wrap;fillColor=#dae8fc;strokeColor=#6c8ebf;fontStyle=1;fontSize=12;html=1;" vertex="1" parent="kraken-outer">
+      <mxGeometry x="580" y="260" width="200" height="70" as="geometry"/>
+    </mxCell>
+    <mxCell id="dispatcher-label" value="deterministic vs smart path" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=10;fontStyle=2;" vertex="1" parent="kraken-outer">
+      <mxGeometry x="545" y="330" width="270" height="20" as="geometry"/>
+    </mxCell>
+
+    <!-- === ENCLAVE AUTHZ === -->
+    <mxCell id="authz" value="Enclave Authz&lt;br&gt;(POSIX mode checking)" style="rounded=1;whiteSpace=wrap;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=11;html=1;" vertex="1" parent="kraken-outer">
+      <mxGeometry x="870" y="50" width="180" height="70" as="geometry"/>
+    </mxCell>
+
+    <!-- === TOOL SCOPING === -->
+    <mxCell id="tool-scope" value="Tool Scoping Extension&lt;br&gt;ENCLAVE_SCOPED&lt;br&gt;BLOCKED / DM_ALLOWED" style="rounded=1;whiteSpace=wrap;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=10;html=1;" vertex="1" parent="kraken-outer">
+      <mxGeometry x="1080" y="50" width="180" height="75" as="geometry"/>
+    </mxCell>
+
+    <!-- === TEAM LIFECYCLE MANAGER === -->
+    <mxCell id="team-lifecycle" value="TeamLifecycleManager&lt;br&gt;spawn / idle / GC" style="rounded=1;whiteSpace=wrap;fillColor=#d5e8d4;strokeColor=#82b366;fontStyle=1;fontSize=11;html=1;" vertex="1" parent="kraken-outer">
+      <mxGeometry x="250" y="270" width="200" height="70" as="geometry"/>
+    </mxCell>
+
+    <!-- === PER-ENCLAVE TEAM CONTAINER === -->
+    <mxCell id="team-container" value="Per-Enclave Team (subprocess)" style="swimlane;startSize=30;fillColor=#d5e8d4;strokeColor=#82b366;fontStyle=1;fontSize=12;html=1;" vertex="1" parent="kraken-outer">
+      <mxGeometry x="20" y="390" width="560" height="260" as="geometry"/>
+    </mxCell>
+    <mxCell id="manager-agent" value="Manager&lt;br&gt;pi-coding-agent" style="rounded=1;whiteSpace=wrap;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=11;html=1;" vertex="1" parent="team-container">
+      <mxGeometry x="30" y="50" width="140" height="60" as="geometry"/>
+    </mxCell>
+    <mxCell id="builder-agent" value="Builder&lt;br&gt;pi-coding-agent" style="rounded=1;whiteSpace=wrap;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=11;html=1;" vertex="1" parent="team-container">
+      <mxGeometry x="210" y="50" width="140" height="60" as="geometry"/>
+    </mxCell>
+    <mxCell id="deployer-agent" value="Deployer&lt;br&gt;pi-coding-agent" style="rounded=1;whiteSpace=wrap;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=11;html=1;" vertex="1" parent="team-container">
+      <mxGeometry x="390" y="50" width="140" height="60" as="geometry"/>
+    </mxCell>
+    <mxCell id="ndjson-label" value="NDJSON IPC" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=11;fontStyle=1;" vertex="1" parent="team-container">
+      <mxGeometry x="20" y="150" width="100" height="25" as="geometry"/>
+    </mxCell>
+    <mxCell id="mailbox" value="mailbox.ndjson" style="shape=mxgraph.flowchart.document;whiteSpace=wrap;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=10;html=1;" vertex="1" parent="team-container">
+      <mxGeometry x="30" y="180" width="130" height="60" as="geometry"/>
+    </mxCell>
+    <mxCell id="outbound" value="outbound.ndjson" style="shape=mxgraph.flowchart.document;whiteSpace=wrap;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=10;html=1;" vertex="1" parent="team-container">
+      <mxGeometry x="210" y="180" width="130" height="60" as="geometry"/>
+    </mxCell>
+    <mxCell id="signals" value="signals.ndjson" style="shape=mxgraph.flowchart.document;whiteSpace=wrap;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=10;html=1;" vertex="1" parent="team-container">
+      <mxGeometry x="390" y="180" width="130" height="60" as="geometry"/>
+    </mxCell>
+
+    <!-- === OUTBOUND POLLER === -->
+    <mxCell id="outbound-poller" value="OutboundPoller&lt;br&gt;(poll team outputs)" style="rounded=1;whiteSpace=wrap;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=11;html=1;" vertex="1" parent="kraken-outer">
+      <mxGeometry x="630" y="480" width="180" height="70" as="geometry"/>
+    </mxCell>
+
+    <!-- === FORMATTING LAYER === -->
+    <mxCell id="format-layer" value="Formatting Layer" style="swimlane;startSize=30;fillColor=#e1d5e7;strokeColor=#9673a6;fontStyle=1;fontSize=12;html=1;" vertex="1" parent="kraken-outer">
+      <mxGeometry x="850" y="390" width="560" height="160" as="geometry"/>
+    </mxCell>
+    <mxCell id="jargon" value="Jargon Filter" style="rounded=1;whiteSpace=wrap;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=11;html=1;" vertex="1" parent="format-layer">
+      <mxGeometry x="20" y="45" width="130" height="60" as="geometry"/>
+    </mxCell>
+    <mxCell id="blockkit" value="Block Kit Formatter" style="rounded=1;whiteSpace=wrap;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=11;html=1;" vertex="1" parent="format-layer">
+      <mxGeometry x="170" y="45" width="130" height="60" as="geometry"/>
+    </mxCell>
+    <mxCell id="cards" value="Cards" style="rounded=1;whiteSpace=wrap;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=11;html=1;" vertex="1" parent="format-layer">
+      <mxGeometry x="320" y="45" width="100" height="60" as="geometry"/>
+    </mxCell>
+    <mxCell id="home-tab" value="Home Tab" style="rounded=1;whiteSpace=wrap;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=11;html=1;" vertex="1" parent="format-layer">
+      <mxGeometry x="440" y="45" width="100" height="60" as="geometry"/>
+    </mxCell>
+
+    <!-- === SQLITE === -->
+    <mxCell id="sqlite" value="SQLite" style="shape=cylinder3;whiteSpace=wrap;fillColor=#ffe6cc;strokeColor=#d79b00;fontStyle=1;fontSize=12;html=1;" vertex="1" parent="kraken-outer">
+      <mxGeometry x="890" y="620" width="120" height="90" as="geometry"/>
+    </mxCell>
+    <mxCell id="sqlite-tables" value="user_tokens&lt;br&gt;enclave_bindings&lt;br&gt;outbound_messages&lt;br&gt;deployments&lt;br&gt;thread_sessions" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=10;" vertex="1" parent="kraken-outer">
+      <mxGeometry x="1020" y="620" width="160" height="90" as="geometry"/>
+    </mxCell>
+
+    <!-- === DATA FLOW EDGES (internal) === -->
+
+    <!-- Slack Bolt to Dispatcher -->
+    <mxCell id="e-bolt-dispatch" value="events" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;exitX=0.5;exitY=1;entryX=0;entryY=0.5;" edge="1" source="slack-bolt" target="dispatcher" parent="kraken-outer">
+      <mxGeometry relative="1" as="geometry">
+        <Array as="points">
+          <mxPoint x="110" y="245"/>
+          <mxPoint x="110" y="295"/>
+          <mxPoint x="580" y="295"/>
+        </Array>
+      </mxGeometry>
+    </mxCell>
+
+    <!-- Slack Bolt to Auth Module -->
+    <mxCell id="e-bolt-auth" value="auth gate" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;exitX=1;exitY=0.5;entryX=0;entryY=0.5;" edge="1" source="slack-bolt" target="oidc-flow" parent="kraken-outer">
+      <mxGeometry relative="1" as="geometry">
+        <Array as="points">
+          <mxPoint x="240" y="125"/>
+          <mxPoint x="240" y="140"/>
+          <mxPoint x="460" y="140"/>
+          <mxPoint x="460" y="125"/>
+        </Array>
+      </mxGeometry>
+    </mxCell>
+
+    <!-- Slack Bolt to Command Handlers -->
+    <mxCell id="e-bolt-cmd" value="commands" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;exitX=1;exitY=0.5;entryX=0;entryY=0.5;" edge="1" source="slack-bolt" target="cmd-handlers" parent="kraken-outer">
+      <mxGeometry relative="1" as="geometry"/>
+    </mxCell>
+
+    <!-- Dispatcher to TeamLifecycleManager -->
+    <mxCell id="e-dispatch-tlm" value="route to team" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;exitX=0;entryX=1;exitY=0.5;entryY=0.5;" edge="1" source="dispatcher" target="team-lifecycle" parent="kraken-outer">
+      <mxGeometry relative="1" as="geometry"/>
+    </mxCell>
+
+    <!-- TeamLifecycleManager to Team container -->
+    <mxCell id="e-tlm-team" value="spawn / manage" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;exitX=0.5;exitY=1;entryX=0.5;entryY=0;" edge="1" source="team-lifecycle" target="team-container" parent="kraken-outer">
+      <mxGeometry relative="1" as="geometry"/>
+    </mxCell>
+
+    <!-- Dispatcher writes to mailbox -->
+    <mxCell id="e-dispatch-mailbox" value="write" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;dashed=1;exitX=0;exitY=1;entryX=0.5;entryY=0;" edge="1" source="dispatcher" target="mailbox" parent="kraken-outer">
+      <mxGeometry relative="1" as="geometry">
+        <Array as="points">
+          <mxPoint x="580" y="380"/>
+          <mxPoint x="165" y="380"/>
+        </Array>
+      </mxGeometry>
+    </mxCell>
+
+    <!-- outbound.ndjson to OutboundPoller -->
+    <mxCell id="e-outbound-poller" value="poll" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;exitX=1;exitY=0.5;entryX=0;entryY=0.5;" edge="1" source="outbound" target="outbound-poller" parent="kraken-outer">
+      <mxGeometry relative="1" as="geometry">
+        <Array as="points">
+          <mxPoint x="640" y="570"/>
+          <mxPoint x="620" y="570"/>
+          <mxPoint x="620" y="515"/>
+          <mxPoint x="630" y="515"/>
+        </Array>
+      </mxGeometry>
+    </mxCell>
+
+    <!-- OutboundPoller to Formatting Layer -->
+    <mxCell id="e-poller-format" value="pass message" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;exitX=1;exitY=0.5;entryX=0;entryY=0.5;" edge="1" source="outbound-poller" target="format-layer" parent="kraken-outer">
+      <mxGeometry relative="1" as="geometry">
+        <Array as="points">
+          <mxPoint x="860" y="515"/>
+          <mxPoint x="860" y="470"/>
+        </Array>
+      </mxGeometry>
+    </mxCell>
+
+    <!-- Auth to SQLite -->
+    <mxCell id="e-auth-sqlite" value="read/write tokens" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;exitX=0.5;exitY=1;entryX=0;entryY=0.5;" edge="1" source="auth-layer" target="sqlite" parent="kraken-outer">
+      <mxGeometry relative="1" as="geometry">
+        <Array as="points">
+          <mxPoint x="650" y="250"/>
+          <mxPoint x="650" y="665"/>
+          <mxPoint x="890" y="665"/>
+        </Array>
+      </mxGeometry>
+    </mxCell>
+
+    <!-- Dispatcher to Authz -->
+    <mxCell id="e-dispatch-authz" value="check permissions" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;exitX=1;exitY=0;entryX=0;entryY=0.5;" edge="1" source="dispatcher" target="authz" parent="kraken-outer">
+      <mxGeometry relative="1" as="geometry">
+        <Array as="points">
+          <mxPoint x="780" y="270"/>
+          <mxPoint x="780" y="85"/>
+          <mxPoint x="870" y="85"/>
+        </Array>
+      </mxGeometry>
+    </mxCell>
+
+    <!-- Authz to Tool Scoping -->
+    <mxCell id="e-authz-tool" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;exitX=1;exitY=0.5;entryX=0;entryY=0.5;" edge="1" source="authz" target="tool-scope" parent="kraken-outer">
+      <mxGeometry relative="1" as="geometry"/>
+    </mxCell>
+
+    <!-- Format layer to Slack (output) -->
+    <mxCell id="e-format-slack" value="post to Slack" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;exitX=0;exitY=0.5;entryX=0.5;entryY=1;" edge="1" source="format-layer" target="slack-layer" parent="kraken-outer">
+      <mxGeometry relative="1" as="geometry">
+        <Array as="points">
+          <mxPoint x="840" y="470"/>
+          <mxPoint x="220" y="470"/>
+          <mxPoint x="220" y="210"/>
+        </Array>
+      </mxGeometry>
+    </mxCell>
+
+    <!-- Team to SQLite (thread sessions) -->
+    <mxCell id="e-team-sqlite" value="thread sessions" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;dashed=1;exitX=1;exitY=1;entryX=0;entryY=1;" edge="1" source="team-container" target="sqlite" parent="kraken-outer">
+      <mxGeometry relative="1" as="geometry">
+        <Array as="points">
+          <mxPoint x="620" y="680"/>
+          <mxPoint x="820" y="680"/>
+          <mxPoint x="820" y="700"/>
+          <mxPoint x="890" y="700"/>
+        </Array>
+      </mxGeometry>
+    </mxCell>
+
+  </root>
+</mxGraphModel>

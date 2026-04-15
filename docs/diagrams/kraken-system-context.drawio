@@ -1,0 +1,154 @@
+<mxGraphModel dx="1422" dy="762" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1654" pageHeight="1169" math="0" shadow="0">
+  <root>
+    <mxCell id="0"/>
+    <mxCell id="1" parent="0"/>
+
+    <!-- Title -->
+    <mxCell id="title" value="The Kraken - System Context" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=20;fontStyle=1;" vertex="1" parent="1">
+      <mxGeometry x="527" y="40" width="600" height="40" as="geometry"/>
+    </mxCell>
+
+    <!-- End Users -->
+    <mxCell id="users" value="End Users" style="shape=mxgraph.archimate3.actor;fillColor=#f5f5f5;strokeColor=#666666;fontColor=#333333;whiteSpace=wrap;html=1;fontSize=13;" vertex="1" parent="1">
+      <mxGeometry x="100" y="480" width="80" height="80" as="geometry"/>
+    </mxCell>
+    <mxCell id="users-label" value="(via Slack)" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=11;fontStyle=2;" vertex="1" parent="1">
+      <mxGeometry x="80" y="565" width="120" height="20" as="geometry"/>
+    </mxCell>
+
+    <!-- The Kraken (central box) -->
+    <mxCell id="kraken" value="The Kraken" style="swimlane;startSize=40;fillColor=#dae8fc;strokeColor=#6c8ebf;fontStyle=1;fontSize=15;whiteSpace=wrap;html=1;" vertex="1" parent="1">
+      <mxGeometry x="540" y="380" width="580" height="200" as="geometry"/>
+    </mxCell>
+    <mxCell id="kraken-desc" value="Conversational Slack bot for Tentacular&lt;br&gt;Pi-based, LLM-agnostic (Anthropic / OpenAI / Google)&lt;br&gt;Per-enclave team agents with git-backed state" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=12;" vertex="1" parent="kraken">
+      <mxGeometry x="40" y="50" width="500" height="120" as="geometry"/>
+    </mxCell>
+
+    <!-- Slack API -->
+    <mxCell id="slack" value="Slack API" style="rounded=1;whiteSpace=wrap;fillColor=#f8cecc;strokeColor=#b85450;fontSize=13;html=1;" vertex="1" parent="1">
+      <mxGeometry x="100" y="200" width="160" height="70" as="geometry"/>
+    </mxCell>
+    <mxCell id="slack-desc" value="Inbound events&lt;br&gt;Outbound messages" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=10;fontStyle=2;" vertex="1" parent="1">
+      <mxGeometry x="80" y="275" width="200" height="30" as="geometry"/>
+    </mxCell>
+
+    <!-- Keycloak -->
+    <mxCell id="keycloak" value="Keycloak" style="rounded=1;whiteSpace=wrap;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=13;html=1;" vertex="1" parent="1">
+      <mxGeometry x="340" y="120" width="160" height="70" as="geometry"/>
+    </mxCell>
+    <mxCell id="keycloak-desc" value="OIDC device flow&lt;br&gt;Token refresh" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=10;fontStyle=2;" vertex="1" parent="1">
+      <mxGeometry x="340" y="195" width="160" height="30" as="geometry"/>
+    </mxCell>
+
+    <!-- Tentacular MCP Server -->
+    <mxCell id="mcp" value="Tentacular MCP Server" style="rounded=1;whiteSpace=wrap;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=13;html=1;" vertex="1" parent="1">
+      <mxGeometry x="760" y="120" width="200" height="70" as="geometry"/>
+    </mxCell>
+    <mxCell id="mcp-desc" value="tools/call via HTTP&lt;br&gt;Bearer token (transitive trust)" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=10;fontStyle=2;" vertex="1" parent="1">
+      <mxGeometry x="760" y="195" width="200" height="30" as="geometry"/>
+    </mxCell>
+
+    <!-- tntc CLI -->
+    <mxCell id="tntc" value="tntc CLI" style="rounded=1;whiteSpace=wrap;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=13;html=1;" vertex="1" parent="1">
+      <mxGeometry x="1060" y="200" width="160" height="70" as="geometry"/>
+    </mxCell>
+    <mxCell id="tntc-desc" value="Subprocess (deploy)&lt;br&gt;Tentacle lifecycle" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=10;fontStyle=2;" vertex="1" parent="1">
+      <mxGeometry x="1060" y="275" width="160" height="30" as="geometry"/>
+    </mxCell>
+
+    <!-- Git State Repo -->
+    <mxCell id="git" value="Git-State Repo" style="rounded=1;whiteSpace=wrap;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=13;html=1;" vertex="1" parent="1">
+      <mxGeometry x="1060" y="480" width="160" height="70" as="geometry"/>
+    </mxCell>
+    <mxCell id="git-desc" value="Tentacle source of truth&lt;br&gt;SOPS-encrypted secrets" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=10;fontStyle=2;" vertex="1" parent="1">
+      <mxGeometry x="1060" y="555" width="160" height="30" as="geometry"/>
+    </mxCell>
+
+    <!-- OTel Collector -->
+    <mxCell id="otel" value="OTel Collector" style="rounded=1;whiteSpace=wrap;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=13;html=1;" vertex="1" parent="1">
+      <mxGeometry x="760" y="650" width="160" height="70" as="geometry"/>
+    </mxCell>
+    <mxCell id="otel-desc" value="Observability&lt;br&gt;Traces + Metrics" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=10;fontStyle=2;" vertex="1" parent="1">
+      <mxGeometry x="760" y="725" width="160" height="30" as="geometry"/>
+    </mxCell>
+
+    <!-- Edge: Users to Slack API -->
+    <mxCell id="e-users-slack" value="messages" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;exitX=0.5;exitY=0;entryX=0.5;entryY=1;" edge="1" source="users" target="slack" parent="1">
+      <mxGeometry relative="1" as="geometry"/>
+    </mxCell>
+
+    <!-- Edge: Slack API to Kraken (inbound events) -->
+    <mxCell id="e-slack-kraken" value="HTTP events" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;exitX=1;exitY=0.5;entryX=0;entryY=0.5;" edge="1" source="slack" target="kraken" parent="1">
+      <mxGeometry relative="1" as="geometry">
+        <Array as="points">
+          <mxPoint x="370" y="235"/>
+          <mxPoint x="370" y="480"/>
+        </Array>
+      </mxGeometry>
+    </mxCell>
+
+    <!-- Edge: Kraken to Slack API (outbound messages) -->
+    <mxCell id="e-kraken-slack" value="post messages" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;dashed=1;exitX=0;exitY=0.5;entryX=1;entryY=0.3;endArrow=block;" edge="1" source="kraken" target="slack" parent="1">
+      <mxGeometry relative="1" as="geometry">
+        <Array as="points">
+          <mxPoint x="430" y="440"/>
+          <mxPoint x="430" y="255"/>
+          <mxPoint x="260" y="255"/>
+        </Array>
+      </mxGeometry>
+    </mxCell>
+
+    <!-- Edge: Kraken to Keycloak -->
+    <mxCell id="e-kraken-keycloak" value="device auth&lt;br&gt;token refresh" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;exitX=0.3;exitY=0;entryX=0.5;entryY=1;" edge="1" source="kraken" target="keycloak" parent="1">
+      <mxGeometry relative="1" as="geometry">
+        <Array as="points">
+          <mxPoint x="714" y="300"/>
+          <mxPoint x="420" y="300"/>
+          <mxPoint x="420" y="190"/>
+        </Array>
+      </mxGeometry>
+    </mxCell>
+
+    <!-- Edge: Kraken to MCP Server -->
+    <mxCell id="e-kraken-mcp" value="tools/call" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;exitX=0.6;exitY=0;entryX=0.5;entryY=1;" edge="1" source="kraken" target="mcp" parent="1">
+      <mxGeometry relative="1" as="geometry">
+        <Array as="points">
+          <mxPoint x="888" y="300"/>
+          <mxPoint x="860" y="300"/>
+          <mxPoint x="860" y="190"/>
+        </Array>
+      </mxGeometry>
+    </mxCell>
+
+    <!-- Edge: Kraken to tntc CLI -->
+    <mxCell id="e-kraken-tntc" value="spawn subprocess" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;exitX=1;exitY=0.3;entryX=0;entryY=0.5;" edge="1" source="kraken" target="tntc" parent="1">
+      <mxGeometry relative="1" as="geometry">
+        <Array as="points">
+          <mxPoint x="1200" y="420"/>
+          <mxPoint x="1200" y="235"/>
+        </Array>
+      </mxGeometry>
+    </mxCell>
+
+    <!-- Edge: Kraken to Git-State Repo -->
+    <mxCell id="e-kraken-git" value="read/write&lt;br&gt;tentacle state" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;exitX=1;exitY=0.7;entryX=0;entryY=0.5;" edge="1" source="kraken" target="git" parent="1">
+      <mxGeometry relative="1" as="geometry">
+        <Array as="points">
+          <mxPoint x="1200" y="515"/>
+        </Array>
+      </mxGeometry>
+    </mxCell>
+
+    <!-- Edge: Kraken to OTel -->
+    <mxCell id="e-kraken-otel" value="traces / metrics" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;exitX=0.7;exitY=1;entryX=0.5;entryY=0;" edge="1" source="kraken" target="otel" parent="1">
+      <mxGeometry relative="1" as="geometry">
+        <Array as="points">
+          <mxPoint x="950" y="580"/>
+          <mxPoint x="840" y="580"/>
+          <mxPoint x="840" y="650"/>
+        </Array>
+      </mxGeometry>
+    </mxCell>
+
+  </root>
+</mxGraphModel>

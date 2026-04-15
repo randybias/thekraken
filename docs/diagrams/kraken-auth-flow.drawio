@@ -1,0 +1,263 @@
+<mxGraphModel dx="1422" dy="762" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1654" pageHeight="1169" math="0" shadow="0">
+  <root>
+    <mxCell id="0"/>
+    <mxCell id="1" parent="0"/>
+
+    <!-- Title -->
+    <mxCell id="title" value="The Kraken - OIDC Device Auth Flow" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=18;fontStyle=1;" vertex="1" parent="1">
+      <mxGeometry x="200" y="20" width="1200" height="40" as="geometry"/>
+    </mxCell>
+
+    <!-- ===== SWIMLANE HEADERS ===== -->
+
+    <!-- User / Browser -->
+    <mxCell id="lane-user" value="User / Browser" style="swimlane;startSize=40;horizontal=0;fillColor=#f8cecc;strokeColor=#b85450;fontStyle=1;fontSize=13;" vertex="1" parent="1">
+      <mxGeometry x="40" y="80" width="200" height="1020" as="geometry"/>
+    </mxCell>
+
+    <!-- Slack -->
+    <mxCell id="lane-slack" value="Slack" style="swimlane;startSize=40;horizontal=0;fillColor=#f8cecc;strokeColor=#b85450;fontStyle=1;fontSize=13;" vertex="1" parent="1">
+      <mxGeometry x="260" y="80" width="200" height="1020" as="geometry"/>
+    </mxCell>
+
+    <!-- The Kraken -->
+    <mxCell id="lane-kraken" value="The Kraken" style="swimlane;startSize=40;horizontal=0;fillColor=#dae8fc;strokeColor=#6c8ebf;fontStyle=1;fontSize=13;" vertex="1" parent="1">
+      <mxGeometry x="480" y="80" width="200" height="1020" as="geometry"/>
+    </mxCell>
+
+    <!-- Keycloak -->
+    <mxCell id="lane-keycloak" value="Keycloak" style="swimlane;startSize=40;horizontal=0;fillColor=#fff2cc;strokeColor=#d6b656;fontStyle=1;fontSize=13;" vertex="1" parent="1">
+      <mxGeometry x="700" y="80" width="200" height="1020" as="geometry"/>
+    </mxCell>
+
+    <!-- SQLite -->
+    <mxCell id="lane-sqlite" value="SQLite (user_tokens)" style="swimlane;startSize=40;horizontal=0;fillColor=#ffe6cc;strokeColor=#d79b00;fontStyle=1;fontSize=13;" vertex="1" parent="1">
+      <mxGeometry x="920" y="80" width="200" height="1020" as="geometry"/>
+    </mxCell>
+
+    <!-- Background Refresh -->
+    <mxCell id="lane-refresh" value="Background Refresh Loop" style="swimlane;startSize=40;horizontal=0;fillColor=#e1d5e7;strokeColor=#9673a6;fontStyle=1;fontSize=13;" vertex="1" parent="1">
+      <mxGeometry x="1140" y="80" width="200" height="1020" as="geometry"/>
+    </mxCell>
+
+    <!-- ===== STEP 1: User @mentions, no token ===== -->
+    <mxCell id="s1" value="1. User @mentions Kraken" style="rounded=1;whiteSpace=wrap;fillColor=#f8cecc;strokeColor=#b85450;fontSize=11;html=1;" vertex="1" parent="1">
+      <mxGeometry x="60" y="160" width="160" height="50" as="geometry"/>
+    </mxCell>
+
+    <!-- ===== STEP 2: Kraken checks SQLite, no token ===== -->
+    <mxCell id="s2" value="2. getValidTokenForUser&lt;br&gt;(no token in SQLite)" style="rounded=1;whiteSpace=wrap;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=11;html=1;" vertex="1" parent="1">
+      <mxGeometry x="500" y="250" width="160" height="60" as="geometry"/>
+    </mxCell>
+
+    <!-- ===== STEP 3: initiateDeviceAuth ===== -->
+    <mxCell id="s3-call" value="3. initiateDeviceAuth()" style="rounded=1;whiteSpace=wrap;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=11;html=1;" vertex="1" parent="1">
+      <mxGeometry x="500" y="360" width="160" height="50" as="geometry"/>
+    </mxCell>
+
+    <!-- ===== STEP 3b: Keycloak returns device code ===== -->
+    <mxCell id="s3b-resp" value="returns: device_code&lt;br&gt;user_code&lt;br&gt;verification_uri" style="rounded=1;whiteSpace=wrap;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=11;html=1;" vertex="1" parent="1">
+      <mxGeometry x="720" y="360" width="160" height="70" as="geometry"/>
+    </mxCell>
+
+    <!-- ===== STEP 4: Post ephemeral Slack message ===== -->
+    <mxCell id="s4-ephemeral" value="4. Post ephemeral Slack message&lt;br&gt;with URL + user_code" style="rounded=1;whiteSpace=wrap;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=11;html=1;" vertex="1" parent="1">
+      <mxGeometry x="500" y="480" width="160" height="60" as="geometry"/>
+    </mxCell>
+
+    <!-- ===== STEP 4b: Slack shows message to user ===== -->
+    <mxCell id="s4b-slack" value="ephemeral message&lt;br&gt;shown to user only" style="rounded=1;whiteSpace=wrap;fillColor=#f8cecc;strokeColor=#b85450;fontSize=11;html=1;" vertex="1" parent="1">
+      <mxGeometry x="280" y="490" width="160" height="55" as="geometry"/>
+    </mxCell>
+
+    <!-- ===== STEP 5: User opens URL in browser ===== -->
+    <mxCell id="s5-browser" value="5. User opens URL&lt;br&gt;enters user_code&lt;br&gt;logs in (Google SSO)" style="rounded=1;whiteSpace=wrap;fillColor=#f8cecc;strokeColor=#b85450;fontSize=11;html=1;" vertex="1" parent="1">
+      <mxGeometry x="60" y="580" width="160" height="70" as="geometry"/>
+    </mxCell>
+
+    <!-- ===== STEP 5b: Keycloak processes login ===== -->
+    <mxCell id="s5b-keycloak" value="Keycloak processes&lt;br&gt;login + device consent" style="rounded=1;whiteSpace=wrap;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=11;html=1;" vertex="1" parent="1">
+      <mxGeometry x="720" y="590" width="160" height="60" as="geometry"/>
+    </mxCell>
+
+    <!-- ===== STEP 6: Kraken polls token endpoint ===== -->
+    <mxCell id="s6-poll" value="6. Poll token endpoint&lt;br&gt;(device_code)&lt;br&gt;until success" style="rounded=1;whiteSpace=wrap;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=11;html=1;" vertex="1" parent="1">
+      <mxGeometry x="500" y="700" width="160" height="70" as="geometry"/>
+    </mxCell>
+
+    <!-- ===== STEP 6b: Keycloak returns tokens ===== -->
+    <mxCell id="s6b-tokens" value="returns: access_token&lt;br&gt;refresh_token&lt;br&gt;expires_in" style="rounded=1;whiteSpace=wrap;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=11;html=1;" vertex="1" parent="1">
+      <mxGeometry x="720" y="705" width="160" height="65" as="geometry"/>
+    </mxCell>
+
+    <!-- ===== STEP 7: Store tokens in SQLite ===== -->
+    <mxCell id="s7-store" value="7. Store tokens&lt;br&gt;in user_tokens table" style="rounded=1;whiteSpace=wrap;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=11;html=1;" vertex="1" parent="1">
+      <mxGeometry x="500" y="820" width="160" height="60" as="geometry"/>
+    </mxCell>
+
+    <!-- ===== SQLite record ===== -->
+    <mxCell id="s7b-sqlite" value="INSERT user_tokens&lt;br&gt;(user_id, access_token,&lt;br&gt;refresh_token, expires_at)" style="rounded=1;whiteSpace=wrap;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=10;html=1;" vertex="1" parent="1">
+      <mxGeometry x="940" y="820" width="160" height="65" as="geometry"/>
+    </mxCell>
+
+    <!-- ===== STEP 8: Background refresh loop ===== -->
+    <mxCell id="s8-refresh-header" value="Background loop (every 5 min)" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=11;fontStyle=1;" vertex="1" parent="1">
+      <mxGeometry x="1150" y="580" width="180" height="25" as="geometry"/>
+    </mxCell>
+
+    <mxCell id="s8-check" value="8. Check all tokens&lt;br&gt;expires_at - now &lt; 10 min?" style="rhombus;whiteSpace=wrap;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=10;html=1;" vertex="1" parent="1">
+      <mxGeometry x="1150" y="620" width="170" height="80" as="geometry"/>
+    </mxCell>
+
+    <mxCell id="s8-refresh" value="refresh_token flow&lt;br&gt;Keycloak returns new tokens" style="rounded=1;whiteSpace=wrap;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=10;html=1;" vertex="1" parent="1">
+      <mxGeometry x="1155" y="750" width="160" height="55" as="geometry"/>
+    </mxCell>
+
+    <!-- ===== 12-hour session note ===== -->
+    <mxCell id="s9-session" value="Session window: 12 hours&lt;br&gt;Tokens older than 12h are deleted&lt;br&gt;User must re-auth after 12h" style="rounded=1;whiteSpace=wrap;fillColor=#f5f5f5;strokeColor=#666666;fontColor=#333333;fontSize=11;html=1;" vertex="1" parent="1">
+      <mxGeometry x="1150" y="860" width="180" height="70" as="geometry"/>
+    </mxCell>
+
+    <!-- ===== EDGES ===== -->
+
+    <!-- s1 -> s2 -->
+    <mxCell id="e1" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;exitX=1;exitY=0.5;entryX=0;entryY=0.5;" edge="1" source="s1" target="s2" parent="1">
+      <mxGeometry relative="1" as="geometry">
+        <Array as="points">
+          <mxPoint x="230" y="185"/>
+          <mxPoint x="230" y="280"/>
+          <mxPoint x="500" y="280"/>
+        </Array>
+      </mxGeometry>
+    </mxCell>
+
+    <!-- s2 -> s3 -->
+    <mxCell id="e2" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;exitX=0.5;exitY=1;entryX=0.5;entryY=0;" edge="1" source="s2" target="s3-call" parent="1">
+      <mxGeometry relative="1" as="geometry"/>
+    </mxCell>
+
+    <!-- s3 -> Keycloak -->
+    <mxCell id="e3a" value="POST /device/auth" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;exitX=1;exitY=0.5;entryX=0;entryY=0.5;" edge="1" source="s3-call" target="s3b-resp" parent="1">
+      <mxGeometry relative="1" as="geometry">
+        <Array as="points">
+          <mxPoint x="700" y="385"/>
+        </Array>
+      </mxGeometry>
+    </mxCell>
+
+    <!-- Keycloak -> s3 (response) -->
+    <mxCell id="e3b" value="device codes" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;dashed=1;exitX=0;exitY=1;entryX=1;entryY=0;" edge="1" source="s3b-resp" target="s4-ephemeral" parent="1">
+      <mxGeometry relative="1" as="geometry">
+        <Array as="points">
+          <mxPoint x="720" y="460"/>
+          <mxPoint x="690" y="460"/>
+          <mxPoint x="690" y="480"/>
+          <mxPoint x="660" y="480"/>
+        </Array>
+      </mxGeometry>
+    </mxCell>
+
+    <!-- s4 -> Slack (post ephemeral) -->
+    <mxCell id="e4a" value="post ephemeral" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;exitX=0;exitY=0.5;entryX=1;entryY=0.5;" edge="1" source="s4-ephemeral" target="s4b-slack" parent="1">
+      <mxGeometry relative="1" as="geometry">
+        <Array as="points">
+          <mxPoint x="460" y="510"/>
+        </Array>
+      </mxGeometry>
+    </mxCell>
+
+    <!-- Slack -> User (message) -->
+    <mxCell id="e4b" value="sees prompt" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;dashed=1;exitX=0;exitY=0.5;entryX=1;entryY=0.5;" edge="1" source="s4b-slack" target="s5-browser" parent="1">
+      <mxGeometry relative="1" as="geometry">
+        <Array as="points">
+          <mxPoint x="250" y="518"/>
+          <mxPoint x="250" y="615"/>
+          <mxPoint x="220" y="615"/>
+        </Array>
+      </mxGeometry>
+    </mxCell>
+
+    <!-- User browser -> Keycloak -->
+    <mxCell id="e5" value="device login" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;exitX=1;exitY=0.5;entryX=0;entryY=0.5;" edge="1" source="s5-browser" target="s5b-keycloak" parent="1">
+      <mxGeometry relative="1" as="geometry">
+        <Array as="points">
+          <mxPoint x="240" y="615"/>
+          <mxPoint x="240" y="620"/>
+          <mxPoint x="680" y="620"/>
+          <mxPoint x="680" y="620"/>
+          <mxPoint x="720" y="620"/>
+        </Array>
+      </mxGeometry>
+    </mxCell>
+
+    <!-- s6 poll -> Keycloak -->
+    <mxCell id="e6a" value="POST /token (poll)" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;exitX=1;exitY=0.5;entryX=0;entryY=0.5;" edge="1" source="s6-poll" target="s6b-tokens" parent="1">
+      <mxGeometry relative="1" as="geometry">
+        <Array as="points">
+          <mxPoint x="700" y="735"/>
+        </Array>
+      </mxGeometry>
+    </mxCell>
+
+    <!-- Keycloak -> s6 (tokens) -->
+    <mxCell id="e6b" value="tokens" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;dashed=1;exitX=0;exitY=1;entryX=1;entryY=0;" edge="1" source="s6b-tokens" target="s7-store" parent="1">
+      <mxGeometry relative="1" as="geometry">
+        <Array as="points">
+          <mxPoint x="720" y="800"/>
+          <mxPoint x="690" y="800"/>
+          <mxPoint x="690" y="820"/>
+          <mxPoint x="660" y="820"/>
+        </Array>
+      </mxGeometry>
+    </mxCell>
+
+    <!-- s7 -> SQLite -->
+    <mxCell id="e7" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;exitX=1;exitY=0.5;entryX=0;entryY=0.5;" edge="1" source="s7-store" target="s7b-sqlite" parent="1">
+      <mxGeometry relative="1" as="geometry">
+        <Array as="points">
+          <mxPoint x="900" y="850"/>
+          <mxPoint x="940" y="850"/>
+        </Array>
+      </mxGeometry>
+    </mxCell>
+
+    <!-- Refresh loop -> SQLite (check) -->
+    <mxCell id="e8a" value="read" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;exitX=0;exitY=0.5;entryX=1;entryY=0.3;" edge="1" source="s8-check" target="s7b-sqlite" parent="1">
+      <mxGeometry relative="1" as="geometry">
+        <Array as="points">
+          <mxPoint x="1120" y="660"/>
+          <mxPoint x="1120" y="835"/>
+          <mxPoint x="1100" y="835"/>
+        </Array>
+      </mxGeometry>
+    </mxCell>
+
+    <!-- Refresh -> refresh tokens -->
+    <mxCell id="e8b" value="yes, expiring" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;exitX=0.5;exitY=1;entryX=0.5;entryY=0;" edge="1" source="s8-check" target="s8-refresh" parent="1">
+      <mxGeometry relative="1" as="geometry"/>
+    </mxCell>
+
+    <!-- s6 poll setup (Kraken starts polling after posting ephemeral) -->
+    <mxCell id="e-poll-setup" value="start polling" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;dashed=1;exitX=0.5;exitY=1;entryX=0.5;entryY=0;" edge="1" source="s4-ephemeral" target="s6-poll" parent="1">
+      <mxGeometry relative="1" as="geometry">
+        <Array as="points">
+          <mxPoint x="580" y="600"/>
+          <mxPoint x="580" y="700"/>
+        </Array>
+      </mxGeometry>
+    </mxCell>
+
+    <!-- Refresh updated tokens back to SQLite -->
+    <mxCell id="e8c" value="update" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;dashed=1;exitX=0;exitY=1;entryX=1;entryY=0.5;" edge="1" source="s8-refresh" target="s7b-sqlite" parent="1">
+      <mxGeometry relative="1" as="geometry">
+        <Array as="points">
+          <mxPoint x="1155" y="805"/>
+          <mxPoint x="1130" y="805"/>
+          <mxPoint x="1130" y="852"/>
+          <mxPoint x="1100" y="852"/>
+        </Array>
+      </mxGeometry>
+    </mxCell>
+
+  </root>
+</mxGraphModel>
