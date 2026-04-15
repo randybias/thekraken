@@ -255,23 +255,46 @@ function registerEventHandlers(
         if (deps.bindings.lookupEnclave(channelId) === null) {
           const mcpCallForReconstitute =
             deps.getMcpCallForToken?.(userToken) ?? deps.mcpCall;
-          if (mcpCallForReconstitute) {
-            const reconstituted =
-              await deps.bindings.lookupEnclaveWithReconstitute(
-                channelId,
-                userId,
-                mcpCallForReconstitute,
-              );
-            if (reconstituted === null) {
-              // Channel has no associated enclave — respond politely and stop.
-              await say({
-                text: "This channel isn't an enclave. I can only help in channels that are connected to a Tentacular enclave.",
-                thread_ts: threadTs,
-              });
-              span.setStatus({ code: SpanStatusCode.OK });
-              return;
-            }
+          if (!mcpCallForReconstitute) {
+            log.error(
+              { channelId },
+              'lazy reconstitute unavailable — deps.getMcpCallForToken and deps.mcpCall both undefined',
+            );
+            await say({
+              text: 'Internal error: MCP client not wired. Please contact support.',
+              thread_ts: threadTs,
+            });
+            span.setStatus({ code: SpanStatusCode.OK });
+            return;
           }
+          log.info(
+            { channelId, userId },
+            'lazy reconstitute: looking up enclave binding via MCP',
+          );
+          const reconstituted = await deps.bindings.lookupEnclaveWithReconstitute(
+            channelId,
+            userId,
+            mcpCallForReconstitute,
+          );
+          if (reconstituted === null) {
+            log.info(
+              { channelId },
+              'lazy reconstitute: channel is not an enclave',
+            );
+            await say({
+              text: "This channel isn't an enclave. I can only help in channels that are connected to a Tentacular enclave.",
+              thread_ts: threadTs,
+            });
+            span.setStatus({ code: SpanStatusCode.OK });
+            return;
+          }
+          log.info(
+            {
+              channelId,
+              enclaveName: reconstituted.enclaveName,
+            },
+            'lazy reconstitute: binding recovered',
+          );
         }
 
         // Command router: deterministic commands handled before team dispatch.

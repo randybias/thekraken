@@ -35,6 +35,7 @@ import { OutboundTracker } from './slack/outbound.js';
 import { TeamLifecycleManager } from './teams/lifecycle.js';
 import { OutboundPoller } from './teams/outbound-poller.js';
 import { createSlackBot } from './slack/bot.js';
+import { createMcpConnection } from './agent/mcp-connection.js';
 
 const log = createChildLogger({ module: 'main' });
 
@@ -68,6 +69,35 @@ async function main(): Promise<void> {
     outbound,
     teams,
     db,
+    // Per-user MCP call wiring for lazy enclave reconstitution (D6: uses the
+    // authenticated user's OIDC token, not a service token). Fresh connection
+    // per call — low-frequency path, no connection pooling needed yet.
+    getMcpCallForToken: (userToken: string) => {
+      return async (tool: string, params: Record<string, unknown>) => {
+        const conn = await createMcpConnection(config.mcp.url, userToken);
+        try {
+          const result = await conn.client.callTool({
+            name: tool,
+            arguments: params,
+          });
+          // Extract text content from the MCP response
+          const content = result.content as
+            | Array<{ type: string; text?: string }>
+            | undefined;
+          const text = content?.[0]?.text;
+          if (text) {
+            try {
+              return JSON.parse(text);
+            } catch {
+              return text;
+            }
+          }
+          return result;
+        } finally {
+          await conn.close().catch(() => undefined);
+        }
+      };
+    },
     onSmartPath: async (ctx) => {
       // Smart path placeholder: returns a static message until
       // the pi AgentSession is wired via createAgentSession().
