@@ -307,6 +307,31 @@ export const ERROR_SCENARIOS: ScenarioDef[] = [
 ];
 
 // ---------------------------------------------------------------------------
+// H. App Home Tab scenarios
+// ---------------------------------------------------------------------------
+//
+// These scenarios cannot be tested with message-based assertions alone.
+// The App Home Tab is rendered via views.publish and requires a different
+// harness (Slack doesn't expose views.read publicly).
+//
+// To validate Home Tab:
+// 1. Manual: open The Kraken in Slack's sidebar → Home tab → verify rendering
+// 2. Log-based: trigger app_home_opened event, confirm log line
+//    "home tab published" with the user_id in the pod logs
+// 3. API: use views.publish with the bot token to set a known state, then
+//    test that subsequent app_home_opened doesn't overwrite (idempotency)
+//
+// Implementation TODO — add a new ScenarioDef.kind = 'home_tab' variant
+// with a logAssertion callback that reads pod logs during the test window.
+//
+// Manual checklist for rollout:
+//   H1: Unauthenticated user opens Home tab → auth prompt
+//   H2: Authenticated user opens Home tab → enclave list with health emoji
+//   H3: User with no enclaves opens Home tab → empty state with DM prompt
+//   H4: User with multiple enclaves opens Home tab → all shown, Chroma links work
+//   H5: Home tab re-renders on repeated app_home_opened events (idempotent)
+
+// ---------------------------------------------------------------------------
 // All scenarios in run order
 // ---------------------------------------------------------------------------
 
