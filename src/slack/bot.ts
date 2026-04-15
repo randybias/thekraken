@@ -134,6 +134,23 @@ export function createSlackBot(deps: SlackBotDeps): SlackBot {
   return {
     app,
     async start(): Promise<void> {
+      // Auto-resolve botUserId from the bot token if not provided. This
+      // enables the self-loop guard without requiring manual config.
+      if (!deps.botUserId) {
+        try {
+          const authResult = await app.client.auth.test();
+          if (authResult.ok && authResult.user_id) {
+            deps.botUserId = authResult.user_id;
+            log.info(
+              { botUserId: deps.botUserId },
+              'resolved bot user id from auth.test',
+            );
+          }
+        } catch (err) {
+          log.warn({ err }, 'auth.test failed — self-loop guard will not work');
+        }
+      }
+
       if (config.slack.mode === 'http') {
         await app.start(config.server.port);
       } else {
@@ -226,6 +243,9 @@ function registerEventHandlers(
     const channelId = event.channel;
     const userId = event.user ?? '';
     const text = event.text ?? '';
+
+    // Self-loop guard: never process our own bot's posts. Other bots are fine.
+    if (userId && deps.botUserId && userId === deps.botUserId) return;
 
     return tracer.startActiveSpan('slack.app_mention', async (span) => {
       span.setAttribute('slack.event_type', 'app_mention');
@@ -481,6 +501,9 @@ function registerEventHandlers(
     const channelType = (
       'channel_type' in event ? event.channel_type : undefined
     ) as string | undefined;
+
+    // Self-loop guard: never process our own bot's posts.
+    if (userId && deps.botUserId && userId === deps.botUserId) return;
 
     return tracer.startActiveSpan('slack.message', async (span) => {
       span.setAttribute('slack.event_type', 'message');
