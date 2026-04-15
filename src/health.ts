@@ -90,19 +90,3 @@ export function makeHealthHandler(
     res.end(JSON.stringify(body));
   };
 }
-
-/**
- * Legacy healthHandler for backwards compatibility.
- * Use makeHealthHandler(db) instead when a DB instance is available.
- *
- * @param _req - Incoming request (unused).
- * @param res - Server response.
- */
-export function healthHandler(
-  _req: IncomingMessage,
-  res: ServerResponse,
-): void {
-  const body: HealthResponse = { status: 'ok' };
-  res.writeHead(200, { 'Content-Type': 'application/json' });
-  res.end(JSON.stringify(body));
-}
