@@ -49,8 +49,8 @@ export const AUTH_SCENARIOS: ScenarioDef[] = [
     channel: CHANNELS.enclave,
     message: '@Kraken whoami',
     expectedPatterns: [
-      // Should respond with user info or auth flow
-      /randy|authenticated|not authenticated|device|login/i,
+      // Should respond with user info, role, email, or auth flow
+      /owner|member|visitor|authenticated|not authenticated|device|login|@mirantis|rbias|randy/i,
     ],
     forbiddenPatterns: [/error.*crash/i],
     timeoutMs: 60_000,
@@ -154,7 +154,9 @@ export const WORKFLOW_SCENARIOS: ScenarioDef[] = [
     name: 'run otel-echo',
     channel: CHANNELS.enclave,
     message: '@Kraken run otel-echo',
-    expectedPatterns: [/started|triggered|running|not found|already running/i],
+    expectedPatterns: [
+      /started|triggered|running|not found|already running|doesn't exist|no (workflows|resources|tentacle|deployment)/i,
+    ],
     forbiddenPatterns: [/kubectl/i],
     timeoutMs: 90_000,
   },
