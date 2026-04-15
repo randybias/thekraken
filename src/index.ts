@@ -145,6 +145,41 @@ async function main(): Promise<void> {
     },
     // Home Tab: auth gate check — token store is the source of truth.
     getUserToken: (userId: string) => getValidTokenForUser(userId),
+    // Drift sync: channel events (member_left, rename, archive) don't
+    // come from an authenticated user message. We use the enclave
+    // owner's stored OIDC token to call MCP on their behalf. If the
+    // owner isn't currently authenticated, drift sync is a no-op —
+    // next time they talk to the bot, we reconcile then (or they
+    // can manually `@kraken members`).
+    getMcpCallForEnclaveOwner: async (enclaveName: string) => {
+      const binding = bindings.lookupByEnclaveName(enclaveName);
+      if (!binding) return null;
+      const ownerToken = await getValidTokenForUser(binding.ownerSlackId);
+      if (!ownerToken) return null;
+      return async (tool, params) => {
+        const conn = await createMcpConnection(config.mcp.url, ownerToken);
+        try {
+          const result = await conn.client.callTool({
+            name: tool,
+            arguments: params,
+          });
+          const content = result.content as
+            | Array<{ type: string; text?: string }>
+            | undefined;
+          const text = content?.[0]?.text;
+          if (text) {
+            try {
+              return JSON.parse(text);
+            } catch {
+              return text;
+            }
+          }
+          return result;
+        } finally {
+          await conn.close().catch(() => undefined);
+        }
+      };
+    },
     // Home Tab: fetch the set of enclaves this user has access to.
     // Calls enclave_list with the user's email, then wf_list per enclave
     // for tentacle counts. Role is inferred from owner/members.
@@ -175,6 +210,7 @@ async function main(): Promise<void> {
           tentacleCount: number;
           healthyCount: number;
           role: 'owner' | 'member';
+          chromaUrl?: string;
         }> = [];
         for (const e of rawEnclaves) {
           if (!e.name) continue;
@@ -207,7 +243,16 @@ async function main(): Promise<void> {
           } catch {
             // non-fatal
           }
-          results.push({ name: e.name, tentacleCount, healthyCount, role });
+          const chromaUrl = config.chroma.baseUrl
+            ? `${config.chroma.baseUrl}/enclaves/${encodeURIComponent(e.name)}`
+            : undefined;
+          results.push({
+            name: e.name,
+            tentacleCount,
+            healthyCount,
+            role,
+            chromaUrl,
+          });
         }
         return results;
       } finally {

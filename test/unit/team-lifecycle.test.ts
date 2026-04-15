@@ -93,6 +93,10 @@ vi.mock('node:child_process', () => ({
 import { TeamLifecycleManager } from '../../src/teams/lifecycle.js';
 import { createDatabase } from '../../src/db/migrations.js';
 import type { KrakenConfig } from '../../src/config.js';
+import {
+  createMockBridgeFactory,
+  type MockBridge,
+} from '../helpers/mock-bridge.js';
 
 function makeConfig(teamsDir: string): KrakenConfig {
   return {
@@ -130,6 +134,7 @@ describe('TeamLifecycleManager', () => {
   const fixtures: ReturnType<typeof createTeamFixture>[] = [];
   let manager: TeamLifecycleManager;
   let fixture: ReturnType<typeof createTeamFixture>;
+  let mockBridges: MockBridge[];
 
   beforeEach(() => {
     spawnCalls = [];
@@ -137,7 +142,13 @@ describe('TeamLifecycleManager', () => {
     fixtures.push(fixture);
 
     const db = createDatabase(':memory:');
-    manager = new TeamLifecycleManager(makeConfig(fixture.teamsDir), db);
+    // Inject a mock TeamBridge so tests don't need a real pi subprocess.
+    // The mock records all the spawn options the bridge WOULD have used.
+    const { factory, bridges } = createMockBridgeFactory();
+    mockBridges = bridges;
+    manager = new TeamLifecycleManager(makeConfig(fixture.teamsDir), db, {
+      bridgeFactory: factory,
+    });
   });
 
   afterEach(async () => {
@@ -146,50 +157,39 @@ describe('TeamLifecycleManager', () => {
     vi.clearAllMocks();
   });
 
-  it('spawnTeam() calls spawn with correct arguments', async () => {
+  it('spawnTeam() creates a bridge with correct provider + model', async () => {
     await manager.spawnTeam('test-enclave', 'U_ALICE', 'token-alice');
-
-    expect(spawnCalls).toHaveLength(1);
-    const call = spawnCalls[0]!;
-    expect(call.args).toContain('--mode');
-    expect(call.args).toContain('json');
+    expect(mockBridges).toHaveLength(1);
+    const b = mockBridges[0]!;
+    expect(b.opts.provider).toBe('anthropic');
+    expect(b.opts.modelId).toBe('claude-sonnet-4-6');
+    expect(b.startMock).toHaveBeenCalledOnce();
   });
 
-  it('spawnTeam() passes --provider and --model from config (Bug 1)', async () => {
+  it('spawnTeam() passes provider and model from config (Bug 1)', async () => {
     await manager.spawnTeam('test-enclave', 'U_ALICE', 'token-alice');
-
-    const call = spawnCalls[0]!;
-    // pi must be invoked with the configured provider so it does not
-    // silently fall back to a different LLM when multiple API keys are set.
-    const providerIdx = call.args.indexOf('--provider');
-    expect(providerIdx).toBeGreaterThanOrEqual(0);
-    expect(call.args[providerIdx + 1]).toBe('anthropic');
-
-    const modelIdx = call.args.indexOf('--model');
-    expect(modelIdx).toBeGreaterThanOrEqual(0);
-    expect(call.args[modelIdx + 1]).toBe('claude-sonnet-4-6');
+    const b = mockBridges[0]!;
+    expect(b.opts.provider).toBe('anthropic');
+    expect(b.opts.modelId).toBe('claude-sonnet-4-6');
   });
 
   it('spawnTeam() sets TNTC_ACCESS_TOKEN env var (D6)', async () => {
     await manager.spawnTeam('test-enclave', 'U_ALICE', 'token-alice-oidc');
-
-    const call = spawnCalls[0]!;
-    expect(call.env['TNTC_ACCESS_TOKEN']).toBe('token-alice-oidc');
+    const b = mockBridges[0]!;
+    expect(b.opts.env['TNTC_ACCESS_TOKEN']).toBe('token-alice-oidc');
   });
 
   it('spawnTeam() sets PI_SUBAGENT_DEPTH for depth guard (D11)', async () => {
     await manager.spawnTeam('test-enclave', 'U_ALICE', 'token-alice');
-
-    const call = spawnCalls[0]!;
-    expect(call.env['PI_SUBAGENT_DEPTH']).toBe('0');
-    expect(call.env['PI_SUBAGENT_MAX_DEPTH']).toBe('3');
+    const b = mockBridges[0]!;
+    expect(b.opts.env['PI_SUBAGENT_DEPTH']).toBe('0');
+    expect(b.opts.env['PI_SUBAGENT_MAX_DEPTH']).toBe('3');
   });
 
   it('spawnTeam() sets KRAKEN_TEAM_DIR in env', async () => {
     await manager.spawnTeam('test-enclave', 'U_ALICE', 'token-alice');
-
-    const call = spawnCalls[0]!;
-    expect(call.env['KRAKEN_TEAM_DIR']).toContain('test-enclave');
+    const b = mockBridges[0]!;
+    expect(b.opts.env['KRAKEN_TEAM_DIR']).toContain('test-enclave');
   });
 
   it('isTeamActive() returns true after spawn', async () => {
@@ -204,8 +204,8 @@ describe('TeamLifecycleManager', () => {
   it('spawnTeam() on already-active team does NOT spawn again', async () => {
     await manager.spawnTeam('test-enclave', 'U_ALICE', 'token-alice');
     await manager.spawnTeam('test-enclave', 'U_ALICE', 'token-alice');
-
-    expect(spawnCalls).toHaveLength(1); // only one spawn
+    // Only one bridge created — second call is a refresh, not a new spawn.
+    expect(mockBridges).toHaveLength(1);
   });
 
   it('sendToTeam() writes mailbox record', async () => {
@@ -234,9 +234,12 @@ describe('TeamLifecycleManager', () => {
     const f2 = createTeamFixture('lazy-enclave');
     fixtures.push(f2);
 
-    // Build a manager with f2's teamsDir
+    // Build a manager with f2's teamsDir + mock bridge factory.
     const db = createDatabase(':memory:');
-    const m2 = new TeamLifecycleManager(makeConfig(f2.teamsDir), db);
+    const { factory: f2Factory } = createMockBridgeFactory();
+    const m2 = new TeamLifecycleManager(makeConfig(f2.teamsDir), db, {
+      bridgeFactory: f2Factory,
+    });
 
     await m2.sendToTeam('lazy-enclave', {
       id: 'msg-lazy',
@@ -273,8 +276,8 @@ describe('TeamLifecycleManager', () => {
     await manager.spawnTeam('test-enclave', 'U_ALICE', 'token-alice');
     await manager.spawnTeam('test-enclave', 'U_BOB', 'token-bob');
 
-    // Only one spawn should have occurred (team was already active for bob)
-    expect(spawnCalls).toHaveLength(1);
+    // Only one bridge should have been created (team was already active for bob)
+    expect(mockBridges).toHaveLength(1);
 
     // Send mailbox records for both users
     await manager.sendToTeam('test-enclave', {

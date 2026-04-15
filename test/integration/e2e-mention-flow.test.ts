@@ -43,7 +43,9 @@ describe('e2e: @mention flow (auth → dispatcher → team → outbound → Slac
     const event = createAppMention({
       user: 'U_ALICE',
       channel: 'C_ENCLAVE_ALPHA',
-      text: '<@KRAKEN> what workflows are running?',
+      // Build/deploy phrasing routes to the team subprocess.
+      // Conversational mentions now go to smart-path (no team).
+      text: '<@KRAKEN> build a test tentacle for me',
     });
 
     const mentionTs = (event.event as { ts: string }).ts;
@@ -92,7 +94,7 @@ describe('e2e: @mention flow (auth → dispatcher → team → outbound → Slac
     const event1 = createAppMention({
       user: 'U_ALICE',
       channel: 'C_ENCLAVE_ALPHA',
-      text: '<@KRAKEN> first message',
+      text: '<@KRAKEN> build first tentacle',
     });
 
     await h.sendSlackEvent(event1);
@@ -107,7 +109,7 @@ describe('e2e: @mention flow (auth → dispatcher → team → outbound → Slac
     const event2 = createAppMention({
       user: 'U_ALICE',
       channel: 'C_ENCLAVE_ALPHA',
-      text: '<@KRAKEN> second message',
+      text: '<@KRAKEN> build second tentacle',
     });
     await h.sendSlackEvent(event2);
 

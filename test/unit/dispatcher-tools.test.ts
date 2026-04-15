@@ -14,6 +14,7 @@ import { createTeamFixture } from '../helpers/team-fixture.js';
 import { createDatabase } from '../../src/db/migrations.js';
 import { TeamLifecycleManager } from '../../src/teams/lifecycle.js';
 import type { KrakenConfig } from '../../src/config.js';
+import { createMockBridgeFactory } from '../helpers/mock-bridge.js';
 
 // ---------------------------------------------------------------------------
 // Mock child_process.spawn (same pattern as team-lifecycle tests)
@@ -105,7 +106,9 @@ describe('buildDispatcherTools', () => {
     fixtures.push(fixture);
 
     const db = createDatabase(':memory:');
-    teams = new TeamLifecycleManager(makeConfig(fixture.teamsDir), db);
+    teams = new TeamLifecycleManager(makeConfig(fixture.teamsDir), db, {
+      bridgeFactory: createMockBridgeFactory().factory,
+    });
     postedMessages.length = 0;
   });
 

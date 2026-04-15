@@ -100,6 +100,36 @@ export class EnclaveBindingEngine {
   }
 
   /**
+   * Look up the binding by enclave name (not channel ID).
+   * Used by drift sync to fetch the owner for a named enclave.
+   */
+  lookupByEnclaveName(enclaveName: string): EnclaveBinding | null {
+    const row = this.db
+      .prepare(
+        `SELECT channel_id, enclave_name, owner_slack_id, status, created_at
+         FROM enclave_bindings
+         WHERE enclave_name = ? AND status = 'active'`,
+      )
+      .get(enclaveName) as
+      | {
+          channel_id: string;
+          enclave_name: string;
+          owner_slack_id: string;
+          status: string;
+          created_at: string;
+        }
+      | undefined;
+    if (!row) return null;
+    return {
+      channelId: row.channel_id,
+      enclaveName: row.enclave_name,
+      ownerSlackId: row.owner_slack_id,
+      status: 'active',
+      createdAt: row.created_at,
+    };
+  }
+
+  /**
    * Insert a new active enclave binding row.
    *
    * Uses INSERT OR IGNORE so concurrent reconstitutions for the same channel

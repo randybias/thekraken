@@ -52,3 +52,7 @@ ingress:
 
 # Registry for built tentacle images
 registry: 'ghcr.io/randybias'
+
+# Chroma (enclave UI) — deep-linked from Home Tab per enclave.
+chroma:
+  baseUrl: 'https://chroma.eastus-dev1.ospo-dev.miralabs.dev'

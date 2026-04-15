@@ -102,6 +102,11 @@ llm:
 # Per-enclave team state directory
 teamsDir: '/app/data/teams'
 
+# Chroma (enclave UI) — used for "Open in Chroma" deep links in the
+# Slack Home Tab. Empty = no deep-link buttons rendered.
+chroma:
+  baseUrl: ''
+
 # Git-backed state — REQUIRED (no enabled toggle)
 # Both repoUrl and credentialsSecret are validated by Helm required() before pod creation.
 gitState:

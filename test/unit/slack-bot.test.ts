@@ -70,6 +70,7 @@ const mockTeams = {
 
 const mockBindings = {
   lookupEnclave: vi.fn().mockReturnValue(null),
+  lookupEnclaveWithReconstitute: vi.fn().mockResolvedValue(null),
   count: vi.fn().mockReturnValue(0),
 };
 
@@ -122,6 +123,12 @@ async function getSlackBot() {
     outbound: mockOutbound as any,
     teams: mockTeams as any,
     onSmartPath: mockSmartPath,
+    // Provide a noop MCP call factory so the lazy-reconstitute path
+    // has something to try. The mocked
+    // lookupEnclaveWithReconstitute always returns null, so this is
+    // never actually called — but it has to be wired to avoid the
+    // "Internal error: MCP client not wired" early exit.
+    getMcpCallForToken: () => async () => ({}),
   });
 }
 
@@ -150,9 +157,10 @@ describe('createSlackBot event handlers (post-pivot)', () => {
   });
 
   describe('app_mention handler', () => {
-    it('ignores mentions in unbound channels (deterministic: ignore_unbound)', async () => {
+    it('tells user the channel is not an enclave when lookup + reconstitute both fail', async () => {
       await getSlackBot();
       mockBindings.lookupEnclave.mockReturnValue(null);
+      mockBindings.lookupEnclaveWithReconstitute.mockResolvedValue(null);
 
       const say = vi.fn();
       await registeredHandlers['app_mention']!({
@@ -167,8 +175,13 @@ describe('createSlackBot event handlers (post-pivot)', () => {
         client: mockClient,
       });
 
-      expect(say).not.toHaveBeenCalled();
+      // New behavior: lazy reconstitute ran, failed, and we explicitly
+      // told the user. No team dispatch, no silent ignore.
       expect(mockTeams.sendToTeam).not.toHaveBeenCalled();
+      // One message describing that it's not an enclave.
+      expect(say).toHaveBeenCalledTimes(1);
+      const msg = (say.mock.calls[0]![0] as { text: string }).text;
+      expect(msg.toLowerCase()).toMatch(/enclave/);
     });
 
     it('forwards mentions in enclave channels to team (deterministic: spawn_and_forward)', async () => {
@@ -206,15 +219,21 @@ describe('createSlackBot event handlers (post-pivot)', () => {
       );
     });
 
-    it('ignores bot-originated mentions', async () => {
+    it('processes mentions from OTHER bots (allows third-party bot integrations)', async () => {
+      // The blanket bot_id filter was removed so E2E driver bots can
+      // talk to us. Self-loops are still prevented via userId ===
+      // botUserId. A mention from a different bot should be processed
+      // normally — routed like any user mention. Here the channel is
+      // unbound (default mock returns null) so we expect the "not an
+      // enclave" fallback rather than team dispatch.
       await getSlackBot();
       const say = vi.fn();
       await registeredHandlers['app_mention']!({
         event: {
           type: 'app_mention',
           channel: 'C_ENC',
-          user: 'U_BOT',
-          text: 'bot mention',
+          user: 'U_OTHER_BOT',
+          text: '<@BOTID> hello from another bot',
           ts: '1000.2',
           bot_id: 'B123',
         },
@@ -222,7 +241,7 @@ describe('createSlackBot event handlers (post-pivot)', () => {
         client: mockClient,
       });
 
-      expect(say).not.toHaveBeenCalled();
+      // Not silently ignored — goes through the dispatcher like any user.
       expect(mockTeams.sendToTeam).not.toHaveBeenCalled();
     });
   });

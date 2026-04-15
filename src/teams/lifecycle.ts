@@ -20,9 +20,22 @@ import type Database from 'better-sqlite3';
 import { createChildLogger } from '../logger.js';
 import type { KrakenConfig } from '../config.js';
 import { appendNdjson } from './ndjson.js';
-import { TeamBridge } from './bridge.js';
+import { TeamBridge, type TeamBridgeOptions } from './bridge.js';
 import { buildTeamBuilderPrompt } from '../agent/system-prompt.js';
 import { extractEmailFromToken } from '../auth/index.js';
+
+/**
+ * Minimal bridge-shaped interface that TeamLifecycleManager depends on.
+ * Tests can inject a mock via the bridgeFactory option to avoid spawning
+ * a real pi subprocess.
+ */
+export interface TeamBridgeLike {
+  start(): Promise<void>;
+  stop(): Promise<void>;
+  isActive(): boolean;
+}
+
+export type TeamBridgeFactory = (opts: TeamBridgeOptions) => TeamBridgeLike;
 
 const log = createChildLogger({ module: 'team-lifecycle' });
 
@@ -35,7 +48,7 @@ const GC_STALE_THRESHOLD_MS = 7 * 24 * 60 * 60 * 1000;
 /** Per-enclave runtime state. */
 interface TeamState {
   enclaveName: string;
-  bridge: TeamBridge;
+  bridge: TeamBridgeLike;
   lastActivity: number;
   /** Map of slackUserId -> OIDC token, updated as messages arrive. */
   userTokens: Map<string, string>;
@@ -114,10 +127,14 @@ export class TeamLifecycleManager {
   /** Called when a team exits so the outbound poller can drain final records. */
   private onTeamExited?: (enclaveName: string) => void;
 
+  private readonly bridgeFactory: TeamBridgeFactory;
+
   constructor(
     private readonly config: KrakenConfig,
     _db: Database.Database,
+    opts?: { bridgeFactory?: TeamBridgeFactory },
   ) {
+    this.bridgeFactory = opts?.bridgeFactory ?? ((o) => new TeamBridge(o));
     this.idleCheckInterval = setInterval(() => this.checkIdle(), 60_000);
     // Allow the process to exit even if the timer is pending
     this.idleCheckInterval.unref?.();
@@ -207,7 +224,7 @@ export class TeamLifecycleManager {
 
     const initiatingEmail =
       extractEmailFromToken(userToken) ?? 'unknown@example.com';
-    const bridge = new TeamBridge({
+    const bridge = this.bridgeFactory({
       enclaveName,
       teamDir,
       gitStateDir,

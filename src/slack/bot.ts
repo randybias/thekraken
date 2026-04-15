@@ -112,6 +112,18 @@ export interface SlackBotDeps {
     userId: string,
     userToken: string,
   ) => Promise<EnclaveData[]>;
+  /**
+   * Return an MCP call bound to the current enclave owner's token.
+   * Used by drift-sync handlers (channel_rename, member_left,
+   * channel_archive) since those events don't come from an
+   * authenticated user message. Returns null if the owner isn't
+   * authenticated — in which case drift sync is a no-op.
+   */
+  getMcpCallForEnclaveOwner?: (
+    enclaveName: string,
+  ) => Promise<
+    ((tool: string, params: Record<string, unknown>) => Promise<unknown>) | null
+  >;
 }
 
 export interface SlackBot {
@@ -463,16 +475,26 @@ function registerEventHandlers(
     const binding = deps.bindings.lookupEnclave(channelId);
     if (!binding) return;
 
+    const ownerMcpCall = deps.getMcpCallForEnclaveOwner
+      ? await deps.getMcpCallForEnclaveOwner(binding.enclaveName)
+      : null;
+    if (!ownerMcpCall) {
+      log.info(
+        { enclaveName: binding.enclaveName },
+        'drift: owner not authenticated; member_left sync skipped',
+      );
+      return;
+    }
     await handleChannelEvent(
       'member_left',
       binding.enclaveName,
       { userId },
       {
         botUserId: deps.botUserId ?? '',
-        mcpCall: deps.mcpCall ?? (async () => ({})),
+        mcpCall: ownerMcpCall ?? (async () => ({})),
         getEnclaveInfo: async (name) => {
           try {
-            const mcpFn = deps.mcpCall ?? (async () => ({}));
+            const mcpFn = ownerMcpCall ?? (async () => ({}));
             const r = (await mcpFn('enclave_info', { name })) as {
               owner?: string;
               members?: string[];
@@ -498,16 +520,26 @@ function registerEventHandlers(
     const binding = deps.bindings.lookupEnclave(channelId);
     if (!binding) return;
 
+    const ownerMcpCall = deps.getMcpCallForEnclaveOwner
+      ? await deps.getMcpCallForEnclaveOwner(binding.enclaveName)
+      : null;
+    if (!ownerMcpCall) {
+      log.info(
+        { enclaveName: binding.enclaveName },
+        'drift: owner not authenticated; channel_archive sync skipped',
+      );
+      return;
+    }
     await handleChannelEvent(
       'channel_archive',
       binding.enclaveName,
       {},
       {
         botUserId: deps.botUserId ?? '',
-        mcpCall: deps.mcpCall ?? (async () => ({})),
+        mcpCall: ownerMcpCall ?? (async () => ({})),
         getEnclaveInfo: async (name) => {
           try {
-            const mcpFn = deps.mcpCall ?? (async () => ({}));
+            const mcpFn = ownerMcpCall ?? (async () => ({}));
             const r = (await mcpFn('enclave_info', { name })) as {
               owner?: string;
               members?: string[];
@@ -531,16 +563,26 @@ function registerEventHandlers(
     const binding = deps.bindings.lookupEnclave(channelId);
     if (!binding) return;
 
+    const ownerMcpCall = deps.getMcpCallForEnclaveOwner
+      ? await deps.getMcpCallForEnclaveOwner(binding.enclaveName)
+      : null;
+    if (!ownerMcpCall) {
+      log.info(
+        { enclaveName: binding.enclaveName },
+        'drift: owner not authenticated; channel_rename sync skipped',
+      );
+      return;
+    }
     await handleChannelEvent(
       'channel_rename',
       binding.enclaveName,
       { newName },
       {
         botUserId: deps.botUserId ?? '',
-        mcpCall: deps.mcpCall ?? (async () => ({})),
+        mcpCall: ownerMcpCall ?? (async () => ({})),
         getEnclaveInfo: async (name) => {
           try {
-            const mcpFn = deps.mcpCall ?? (async () => ({}));
+            const mcpFn = ownerMcpCall ?? (async () => ({}));
             const r = (await mcpFn('enclave_info', { name })) as {
               owner?: string;
               members?: string[];

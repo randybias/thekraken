@@ -28,6 +28,7 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { createDatabase } from '../../src/db/migrations.js';
 import type { KrakenConfig } from '../../src/config.js';
+import { createMockBridgeFactory } from '../helpers/mock-bridge.js';
 
 // ---------------------------------------------------------------------------
 // Mock child_process.spawn (TeamLifecycleManager spawns subprocesses)
@@ -165,7 +166,9 @@ describe('TeamLifecycleManager.gcStaleTeams()', () => {
   it('removes directories older than 7 days', () => {
     const teamsDir = makeTempTeamsDir();
     const db = createDatabase(':memory:');
-    manager = new TeamLifecycleManager(makeConfig(teamsDir), db);
+    manager = new TeamLifecycleManager(makeConfig(teamsDir), db, {
+      bridgeFactory: createMockBridgeFactory().factory,
+    });
 
     const staleDir = createStaleTeamDir(teamsDir, 'old-enclave', 8);
     expect(existsSync(staleDir)).toBe(true);
@@ -179,7 +182,9 @@ describe('TeamLifecycleManager.gcStaleTeams()', () => {
   it('does not remove directories younger than 7 days', () => {
     const teamsDir = makeTempTeamsDir();
     const db = createDatabase(':memory:');
-    manager = new TeamLifecycleManager(makeConfig(teamsDir), db);
+    manager = new TeamLifecycleManager(makeConfig(teamsDir), db, {
+      bridgeFactory: createMockBridgeFactory().factory,
+    });
 
     const freshDir = createFreshTeamDir(teamsDir, 'fresh-enclave');
     expect(existsSync(freshDir)).toBe(true);
@@ -193,7 +198,9 @@ describe('TeamLifecycleManager.gcStaleTeams()', () => {
   it('does not remove directories exactly at the 7-day boundary', () => {
     const teamsDir = makeTempTeamsDir();
     const db = createDatabase(':memory:');
-    manager = new TeamLifecycleManager(makeConfig(teamsDir), db);
+    manager = new TeamLifecycleManager(makeConfig(teamsDir), db, {
+      bridgeFactory: createMockBridgeFactory().factory,
+    });
 
     // 6.9 days: just under threshold, should be kept
     const boundaryDir = createStaleTeamDir(teamsDir, 'boundary-enclave', 6.9);
@@ -208,7 +215,9 @@ describe('TeamLifecycleManager.gcStaleTeams()', () => {
   it('removes multiple stale directories in one call', () => {
     const teamsDir = makeTempTeamsDir();
     const db = createDatabase(':memory:');
-    manager = new TeamLifecycleManager(makeConfig(teamsDir), db);
+    manager = new TeamLifecycleManager(makeConfig(teamsDir), db, {
+      bridgeFactory: createMockBridgeFactory().factory,
+    });
 
     const stale1 = createStaleTeamDir(teamsDir, 'stale-1', 8);
     const stale2 = createStaleTeamDir(teamsDir, 'stale-2', 14);
@@ -225,7 +234,9 @@ describe('TeamLifecycleManager.gcStaleTeams()', () => {
   it('mixed: removes only stale directories, leaves fresh ones', () => {
     const teamsDir = makeTempTeamsDir();
     const db = createDatabase(':memory:');
-    manager = new TeamLifecycleManager(makeConfig(teamsDir), db);
+    manager = new TeamLifecycleManager(makeConfig(teamsDir), db, {
+      bridgeFactory: createMockBridgeFactory().factory,
+    });
 
     const stale = createStaleTeamDir(teamsDir, 'stale-old', 10);
     const fresh1 = createFreshTeamDir(teamsDir, 'fresh-alpha');
@@ -242,7 +253,9 @@ describe('TeamLifecycleManager.gcStaleTeams()', () => {
   it('does not remove active team directories even if mtime is old', async () => {
     const teamsDir = makeTempTeamsDir();
     const db = createDatabase(':memory:');
-    manager = new TeamLifecycleManager(makeConfig(teamsDir), db);
+    manager = new TeamLifecycleManager(makeConfig(teamsDir), db, {
+      bridgeFactory: createMockBridgeFactory().factory,
+    });
 
     // Create the directory with an old mtime
     const activeDir = createStaleTeamDir(teamsDir, 'active-enclave', 10);
@@ -265,6 +278,7 @@ describe('TeamLifecycleManager.gcStaleTeams()', () => {
     manager = new TeamLifecycleManager(
       makeConfig('/nonexistent/path/that/does/not/exist'),
       db,
+      { bridgeFactory: createMockBridgeFactory().factory },
     );
 
     expect(() => manager.gcStaleTeams()).not.toThrow();
@@ -274,7 +288,9 @@ describe('TeamLifecycleManager.gcStaleTeams()', () => {
   it('is a no-op when teamsDir is empty', () => {
     const teamsDir = makeTempTeamsDir();
     const db = createDatabase(':memory:');
-    manager = new TeamLifecycleManager(makeConfig(teamsDir), db);
+    manager = new TeamLifecycleManager(makeConfig(teamsDir), db, {
+      bridgeFactory: createMockBridgeFactory().factory,
+    });
 
     // Empty dir — nothing to GC
     expect(() => manager.gcStaleTeams()).not.toThrow();
@@ -298,7 +314,9 @@ describe('TeamLifecycleManager.gcStaleTeams()', () => {
 
     // After restart: no teams are active (all subprocesses died)
     const db = createDatabase(':memory:');
-    manager = new TeamLifecycleManager(makeConfig(teamsDir), db);
+    manager = new TeamLifecycleManager(makeConfig(teamsDir), db, {
+      bridgeFactory: createMockBridgeFactory().factory,
+    });
 
     manager.gcStaleTeams();
 

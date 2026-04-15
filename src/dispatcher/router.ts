@@ -139,21 +139,25 @@ export function parseCommand(text: string): DeterministicAction | null {
  * Used to give the LLM a hint about what the user is likely asking.
  */
 /**
- * True if the message is a build/deploy/scaffold request for a tentacle.
+ * True if the message is a build/deploy/scaffold/create request.
  * These go to the team subprocess (long-running, has write+bash tools,
  * can run `tntc deploy`). Everything else stays on the smart path.
+ *
+ * We match just on the action verb — "build X", "create X", "scaffold X"
+ * are almost always build requests regardless of the direct object. Read
+ * verbs (run/status/logs/list/show/describe) are explicitly excluded in
+ * the opening dispatch above (they don't match any of these verbs), so
+ * they route to smart path and get handled with wf_run / wf_status /
+ * wf_logs / etc.
  */
 function isBuildOrDeployRequest(text: string): boolean {
   const lower = (text ?? '').toLowerCase();
-  // Must mention one of the action verbs AND "tentacle" (or a synonym).
-  // "run X" / "status X" / "logs X" are NOT build requests — they're
-  // reads that the smart path handles with wf_run / wf_status / wf_logs.
-  const verb =
-    /\b(build|create|scaffold|generate|make me a|write me a|deploy|redeploy)\b/.test(
-      lower,
-    );
-  const noun = /\b(tentacle|workflow|pipeline)\b/.test(lower);
-  return verb && noun;
+  // Strip leading bot mention before testing so regex can anchor on the
+  // action verb.
+  const cleaned = lower.replace(/^<@[a-z0-9_]+>\s*/i, '').trim();
+  return /\b(build|create|scaffold|generate|make(?:\s+me)?(?:\s+an?)?|write(?:\s+me)?(?:\s+an?)?|deploy|redeploy)\b/i.test(
+    cleaned,
+  );
 }
 
 function classifySmartReason(event: InboundEvent): SmartReason {

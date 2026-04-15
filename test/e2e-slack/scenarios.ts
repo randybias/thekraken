@@ -368,19 +368,29 @@ export const TENTACLE_SCENARIOS: ScenarioDef[] = [
     // when the tentacle didn't exist. This forces the end-to-end check.
     mcpAssertion: {
       pollMs: 5_000,
-      timeoutMs: 3 * 60 * 1000,
+      timeoutMs: 5 * 60 * 1000,
       check: async (mcpCall) => {
         const res = (await mcpCall('wf_list', {
           enclave: 'tentacular-e2e-test',
-        })) as { workflows?: Array<{ name: string }> } | string;
+        })) as
+          | { workflows?: Array<{ name: string; ready?: boolean }> }
+          | string;
         const parsed =
           typeof res === 'string'
-            ? (JSON.parse(res) as { workflows?: Array<{ name: string }> })
+            ? (JSON.parse(res) as {
+                workflows?: Array<{ name: string; ready?: boolean }>;
+              })
             : res;
         const workflows = parsed.workflows ?? [];
         const hw = workflows.find((w) => w.name === 'hello-world');
         if (!hw) {
           return `hello-world not in wf_list (${workflows.length} workflows: ${workflows.map((w) => w.name).join(', ')})`;
+        }
+        // Registered is not enough — verify pod actually came up. Image
+        // pulls, init containers, etc. take time; that's what the 5-min
+        // budget above is for.
+        if (hw.ready !== true) {
+          return `hello-world registered but not ready (ready=${String(hw.ready)}); still polling`;
         }
         return null;
       },

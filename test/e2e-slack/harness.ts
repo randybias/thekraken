@@ -321,7 +321,7 @@ async function getMcpCallForUser(): Promise<{
     '  t.initTokenStore(db);' +
     "  const oidc = await import('/app/dist/auth/oidc.js');" +
     `  const tok = await oidc.getValidTokenForUser(${JSON.stringify(slackUserId)});` +
-    "  if (tok) process.stdout.write(tok);" +
+    '  if (tok) process.stdout.write(tok);' +
     '});';
   const token = execSync(
     `kubectl exec -i -n ${namespace} deploy/thekraken -- node --input-type=module -`,
@@ -345,7 +345,7 @@ async function getMcpCallForUser(): Promise<{
         `const conn = await m.createMcpConnection(${JSON.stringify(mcpUrl)}, ${JSON.stringify(token)});` +
         `try { const r = await conn.client.callTool({ name: ${JSON.stringify(tool)}, arguments: ${JSON.stringify(params)} });` +
         'const t = r.content && r.content[0] && r.content[0].text;' +
-        "if (t) process.stdout.write(t); } finally { await conn.close().catch(() => undefined); } });";
+        'if (t) process.stdout.write(t); } finally { await conn.close().catch(() => undefined); } });';
       const out = execSync(
         `kubectl exec -i -n ${namespace} deploy/thekraken -- node --input-type=module -`,
         {

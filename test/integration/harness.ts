@@ -507,11 +507,25 @@ export async function createHarness(
       );
 
       // Register the process with the parent via reflection (access private field)
-      // Since TypeScript's private is compile-time only, we use type casting
+      // Since TypeScript's private is compile-time only, we use type casting.
+      // The production parent expects a TeamBridge with start()/stop()/isActive().
+      // Wrap the mock-pi ChildProcess in a bridge-shaped object so shutdownAll
+      // and checkIdle can call .stop() without knowing about the mock.
+      const bridgeShim = {
+        start: async () => undefined,
+        stop: async () => {
+          try {
+            proc.kill('SIGTERM');
+          } catch {
+            // process may already be dead
+          }
+        },
+        isActive: () => !proc.killed,
+      };
       const teams = (this as unknown as { teams: Map<string, unknown> }).teams;
       teams.set(enclaveName, {
         enclaveName,
-        proc,
+        bridge: bridgeShim,
         lastActivity: Date.now(),
         userTokens: new Map([[initiatingUserId, userToken]]),
         currentToken: userToken,

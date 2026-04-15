@@ -139,7 +139,7 @@ describe('e2e: token expiry scenarios', () => {
       createAppMention({
         user: 'U_VALID',
         channel: 'C_ENCLAVE_ALPHA',
-        text: '<@KRAKEN> check status',
+        text: '<@KRAKEN> build a tentacle',
       }),
     );
 

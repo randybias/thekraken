@@ -87,12 +87,23 @@ export interface ObservabilityConfig {
   logLevel: string;
 }
 
+export interface ChromaConfig {
+  /**
+   * Base URL for Chroma (the enclave UI). Enclave-specific URLs are
+   * constructed as `${baseUrl}/enclaves/<enclave-name>`. Used for
+   * "Open in Chroma" deep links in the Slack Home Tab and elsewhere.
+   * Empty string = no Chroma link buttons rendered.
+   */
+  baseUrl: string;
+}
+
 export interface KrakenConfig {
   slack: SlackConfig;
   oidc: OidcConfig;
   mcp: McpConfig;
   llm: LlmConfig;
   gitState: GitStateConfig;
+  chroma: ChromaConfig;
   /**
    * Directory where per-enclave team state is stored.
    * Each enclave gets a subdirectory: {teamsDir}/{enclaveName}/
@@ -298,6 +309,11 @@ export function loadConfig(): KrakenConfig {
       repoUrl: gitStateRepoUrl,
       branch: optional('GIT_STATE_BRANCH', 'main'),
       dir: optional('GIT_STATE_DIR', '/app/data/git-state'),
+    },
+    chroma: {
+      // Enclave UI base URL. No trailing slash. If unset, Home Tab
+      // renders enclave rows without "Open in Chroma" buttons.
+      baseUrl: optional('CHROMA_BASE_URL', '').replace(/\/$/, ''),
     },
     teamsDir: optional('KRAKEN_TEAMS_DIR', '/app/data/teams'),
     server: {
