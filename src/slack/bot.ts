@@ -26,6 +26,7 @@ import {
   type RouteDecision,
 } from '../dispatcher/router.js';
 import type { TeamLifecycleManager } from '../teams/lifecycle.js';
+import { buildHomeTab, buildUnauthenticatedHomeTab } from './home-tab.js';
 import { randomUUID } from 'node:crypto';
 import {
   getValidTokenForUser,
@@ -68,6 +69,12 @@ export interface SlackBotDeps {
     enclaveName: string | null;
     mode: 'enclave' | 'dm';
   }) => Promise<string>;
+  /**
+   * Returns a valid OIDC access token for the given Slack user ID, or null
+   * if the user has not authenticated. Wired in by the main entry point.
+   * Phase 2: populated from the token store. Phase 1: always returns null.
+   */
+  getUserToken?: (userId: string) => Promise<string | null>;
 }
 
 export interface SlackBot {
@@ -151,6 +158,53 @@ function registerEventHandlers(
   deps: SlackBotDeps,
   routerDeps: RouterDeps,
 ): void {
+  // ---------------------------------------------------------------------------
+  // app_home_opened — render the App Home tab for a user
+  // ---------------------------------------------------------------------------
+  app.event('app_home_opened', async ({ event, client }) => {
+    const userId = event.user;
+
+    return tracer.startActiveSpan('slack.app_home_opened', async (span) => {
+      span.setAttribute('slack.event_type', 'app_home_opened');
+      span.setAttribute('slack.user_id', userId);
+
+      try {
+        // Check if user has a valid OIDC token (Phase 2: real token store).
+        // Phase 1: getUserToken is not wired, so always show unauthenticated tab.
+        const token = deps.getUserToken
+          ? await deps.getUserToken(userId)
+          : null;
+
+        if (!token) {
+          await client.views.publish({
+            user_id: userId,
+            view: buildUnauthenticatedHomeTab(),
+          });
+          span.setStatus({ code: SpanStatusCode.OK });
+          return;
+        }
+
+        // Build with empty enclaves. Data fetching via MCP comes in Phase 3.
+        const homeTab = buildHomeTab([]);
+        await client.views.publish({
+          user_id: userId,
+          view: homeTab,
+        });
+
+        span.setStatus({ code: SpanStatusCode.OK });
+      } catch (err) {
+        span.setStatus({
+          code: SpanStatusCode.ERROR,
+          message: err instanceof Error ? err.message : String(err),
+        });
+        log.error({ err, userId }, 'error rendering home tab');
+        throw err;
+      } finally {
+        span.end();
+      }
+    });
+  });
+
   // ---------------------------------------------------------------------------
   // app_mention — user @mentions the bot in a channel
   // ---------------------------------------------------------------------------
