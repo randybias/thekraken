@@ -41,7 +41,7 @@ export function buildSubprocessEnv(userToken: string): Record<string, string> {
  * - Strips lines that match sensitive keywords (token, secret, password, key).
  * - Truncates the result to 500 characters.
  */
-function sanitizeStderr(raw: string): string {
+export function sanitizeStderr(raw: string): string {
   const filtered = raw
     .split('\n')
     .filter((line) => !SENSITIVE_LINE_RE.test(line))

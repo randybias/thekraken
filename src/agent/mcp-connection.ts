@@ -119,7 +119,7 @@ export async function createMcpConnection(
   });
 
   const client = new Client(
-    { name: 'thekraken', version: '2.0.0' },
+    { name: 'thekraken', version: '0.9.0' },
     { capabilities: {} },
   );
 

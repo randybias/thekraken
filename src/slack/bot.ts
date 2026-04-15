@@ -1,5 +1,5 @@
 /**
- * Slack bot for The Kraken v2 (post-pivot: dispatcher routing).
+ * Slack bot for The Kraken (post-pivot: dispatcher routing).
  *
  * Dual-mode transport controlled by SLACK_MODE env var:
  * - 'http' (production): Bolt ExpressReceiver on port 3000
@@ -111,7 +111,7 @@ export function createSlackBot(deps: SlackBotDeps): SlackBot {
       appToken: config.slack.appToken,
       socketMode: true,
     });
-    healthServer = createHealthServer(config.server.port);
+    healthServer = createHealthServer(config.server.port, deps.db);
   }
 
   const routerDeps: RouterDeps = {

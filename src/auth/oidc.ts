@@ -1,9 +1,9 @@
 /**
- * Per-user OIDC device authorization flow for thekraken v2.
+ * Per-user OIDC device authorization flow for thekraken.
  * Ported from thekraken-reference/src/oidc.ts with these changes:
  *   - Import storage functions from ./tokens.js (not ./db.js)
  *   - storeTokenForUser extracts keycloak_sub and email from JWT payload
- *     (required by the v2 token schema)
+ *     (required by the token schema)
  *   - getServiceToken() removed — D6: no service identities for enclave work
  *   - extractEmailFromToken() added for authz layer use
  *

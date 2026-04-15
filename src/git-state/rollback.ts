@@ -10,7 +10,7 @@
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { logger } from '../logger.js';
-import { buildSubprocessEnv } from './deploy.js';
+import { buildSubprocessEnv, sanitizeStderr } from './deploy.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -59,6 +59,7 @@ export async function rollbackTentacle(
     // This mutates the working tree in-place; the caller must ensure the
     // git-state repo is not otherwise in use during rollback.
     await execFileAsync('git', ['checkout', targetSha, '--', tentacleDir], {
+      env: buildSubprocessEnv(userToken),
       cwd: gitStateDir,
       timeout: 30_000,
     });
@@ -97,11 +98,12 @@ export async function rollbackTentacle(
       { enclave: enclaveName, tentacle: tentacleDir, targetSha, err },
       'rollback failed',
     );
+    const rawStderr =
+      nodeErr.stderr ?? (err instanceof Error ? err.message : String(err));
     return {
       success: false,
       output: nodeErr.stdout ?? '',
-      error:
-        nodeErr.stderr ?? (err instanceof Error ? err.message : String(err)),
+      error: sanitizeStderr(rawStderr),
       rolledBackToSha: targetSha,
     };
   }
