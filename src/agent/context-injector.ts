@@ -1,5 +1,5 @@
 /**
- * [CONTEXT] block injector for The Kraken v2.
+ * [CONTEXT] block injector for The Kraken.
  *
  * Prepends a structured [CONTEXT] block to every user message before
  * calling agent.prompt(). This is NOT a pi extension — it is inline code
@@ -26,8 +26,8 @@ export interface ContextParams {
   /** Enclave name in enclave mode; null in DM mode. */
   enclaveName: string | null;
   /**
-   * User email address. "unknown" in Phase 1 (OIDC not yet wired).
-   * Phase 2 resolves this from the per-user OIDC token.
+   * User email address. Resolved from the per-user OIDC token.
+   * "unknown" when OIDC is not yet wired.
    */
   userEmail: string;
   /** Slack user ID of the message sender (e.g. "U012ABC"). */

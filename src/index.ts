@@ -1,5 +1,5 @@
 /**
- * The Kraken v2 — Dispatcher entry point (post-pivot).
+ * The Kraken — Dispatcher entry point.
  *
  * The Kraken is a specialized pi-coding-agent running in a custom
  * "Slack mode." This entry point:
@@ -14,14 +14,11 @@
  *   8. Slack connect + startup banner
  *
  * Smart path: When the dispatcher router (D4) decides an event needs
- * LLM reasoning, it invokes onSmartPath() — which in Phase 1 is a
- * placeholder (logs + returns a "coming soon" message). Phase 2+
- * wires this to a real pi AgentSession via createAgentSession().
+ * LLM reasoning, it invokes onSmartPath() — which calls a pi AgentSession
+ * via createAgentSession() with dispatcher-specific tools.
  *
  * D6: Every enclave team subprocess carries the initiating user's
- * OIDC token. Phase 1 has no user tokens (OIDC is Phase 2), so
- * authenticated MCP calls are not possible yet. Phase 2 wires up
- * per-user device-flow tokens. There is NO service token concept.
+ * OIDC token. There is NO service token concept.
  */
 
 import { loadConfig } from './config.js';
@@ -70,10 +67,10 @@ async function main(): Promise<void> {
     bindings,
     outbound,
     teams,
+    db,
     onSmartPath: async (ctx) => {
-      // Phase 1 placeholder: smart path returns a static message.
-      // Phase 2+ wires this to a real pi AgentSession via
-      // createAgentSession() with dispatcher-specific tools.
+      // Smart path placeholder: returns a static message until
+      // the pi AgentSession is wired via createAgentSession().
       log.info(
         {
           reason: 'smart_path',
@@ -81,7 +78,7 @@ async function main(): Promise<void> {
           mode: ctx.mode,
           userId: ctx.userId,
         },
-        'smart path invoked (Phase 1 placeholder)',
+        'smart path invoked (stub)',
       );
       if (ctx.mode === 'dm') {
         return "I can see your message, but my full reasoning capabilities aren't wired up yet. This will be available soon.";
@@ -126,9 +123,9 @@ async function main(): Promise<void> {
       mcpUrl: config.mcp.url,
       enclaveCount,
       teamsDir: config.teamsDir,
-      version: '2.0.0',
+      version: '0.9.0',
     },
-    'The Kraken v2 started',
+    'The Kraken started',
   );
 
   // 8. Graceful shutdown

@@ -1,7 +1,9 @@
 /**
  * Slack channel lifecycle event handlers.
- * Phase 0: stub. Implemented in Phase 1.
+ *
+ * Drift sync is partially handled by the dispatcher router.
+ * Full channel lifecycle events pending implementation.
  */
 
-// TODO(phase3): implement channel lifecycle event handlers (partially handled by dispatcher router drift_sync)
+// Stub: channel lifecycle event handlers not yet implemented
 export type SlackEventsStub = Record<string, never>;

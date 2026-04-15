@@ -1,9 +1,9 @@
 apiVersion: v2
 name: thekraken
-description: The Kraken v2 — Pi-based enclave-centric Slack bot for Tentacular
+description: The Kraken — Pi-based enclave-centric Slack bot for Tentacular
 type: application
-version: 0.1.0
-appVersion: "2.0.0"
+version: 0.9.0
+appVersion: '0.9.0'
 home: https://github.com/randybias/thekraken
 sources:
   - https://github.com/randybias/thekraken

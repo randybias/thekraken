@@ -1,10 +1,9 @@
 {{/*
-v2 change: gitState is REQUIRED — no gitState.enabled toggle.
+gitState is REQUIRED — no gitState.enabled toggle.
 Helm required() validates before pod creation.
-Removed: groups/ subPath mount, store/ subPath mount, gitState.enabled conditional.
-Added: required() validation for gitState.repoUrl and gitState.credentialsSecret.
+gitState.repoUrl and gitState.credentialsSecret must be set.
 */}}
-{{- $_ := required "gitState.repoUrl is required (The Kraken v2 requires git-backed state)" .Values.gitState.repoUrl -}}
+{{- $_ := required "gitState.repoUrl is required (git-backed state is mandatory)" .Values.gitState.repoUrl -}}
 {{- $_ := required "gitState.credentialsSecret is required" .Values.gitState.credentialsSecret -}}
 apiVersion: apps/v1
 kind: Deployment

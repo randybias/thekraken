@@ -1,10 +1,10 @@
 /**
- * Enclave binding engine — channel-to-enclave lookup (read-only in Phase 1).
+ * Enclave binding engine — channel-to-enclave lookup.
  *
  * Maps Slack channel IDs to enclave names using the enclave_bindings SQLite
- * table populated by the admin provisioning flow (Phase 3).
+ * table populated by the admin provisioning flow.
  *
- * Phase 1: read-only. Enclave binding mutations are deferred to Phase 3.
+ * Mutations are handled by the provisioning and commands modules.
  */
 
 import type Database from 'better-sqlite3';

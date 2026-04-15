@@ -1,7 +1,7 @@
 /**
- * The Kraken v2 SQLite schema.
+ * The Kraken SQLite schema.
  *
- * Applied once on fresh install. No migration history needed for v2.0.
+ * Applied once on fresh install. Uses CREATE TABLE IF NOT EXISTS throughout.
  * The five tables represent operational state:
  *   - user_tokens: per-user OIDC tokens
  *   - enclave_bindings: Slack channel <-> enclave mapping (FK target)
@@ -11,8 +11,8 @@
  */
 
 export const SCHEMA_V1 = `
--- The Kraken v2 schema
--- Applied once on fresh install. No migration history needed for v2.0.
+-- The Kraken schema v1
+-- Applied once on fresh install.
 
 CREATE TABLE IF NOT EXISTS user_tokens (
   slack_user_id TEXT PRIMARY KEY,

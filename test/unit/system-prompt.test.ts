@@ -88,7 +88,7 @@ describe('buildSystemPrompt', () => {
       enclaveMemory: null,
       skills: null,
     });
-    expect(prompt).toContain('Placeholder');
+    expect(prompt).toContain('Tentacular Skills');
   });
 });
 

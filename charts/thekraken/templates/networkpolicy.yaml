@@ -61,7 +61,7 @@ spec:
           port: {{ .Values.mcp.port }}
 
     # Git SSH egress — needed when cloning/pulling via SSH
-    # v2 change: always included (no gitState.enabled conditional)
+    # always included (no gitState.enabled conditional)
     - ports:
         - protocol: TCP
           port: 22

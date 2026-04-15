@@ -1,14 +1,14 @@
 /**
- * SQLite migration runner for The Kraken v2.
+ * SQLite migration runner for The Kraken.
  *
- * v2.0 starts fresh — no migration history, single initial schema.
- * All connections must have PRAGMA foreign_keys = ON enforced here.
+ * Single initial schema (SCHEMA_V1). All connections must have
+ * PRAGMA foreign_keys = ON enforced here.
  */
 import Database from 'better-sqlite3';
 import { SCHEMA_V1 } from './schema.js';
 
 /**
- * Apply the v2 schema to a database connection.
+ * Apply the initial schema to a database connection.
  *
  * Sets PRAGMA journal_mode = WAL and PRAGMA foreign_keys = ON before
  * executing the schema DDL. Safe to call on both new and existing DBs

@@ -121,8 +121,8 @@ export function parseCommand(text: string): DeterministicAction | null {
   const noArg = stripped.match(/^(help|whoami|members|archive)\b/i);
   if (noArg) {
     // help/whoami/members go to smart path for contextual response
-    // archive is deterministic (Phase 4 — drift_sync is the closest proxy)
-    // For Phase 1 we return null for these and let them fall through to smart.
+    // archive is deterministic (drift_sync is the closest proxy)
+    // Returning null lets these fall through to the smart path.
     return null;
   }
 

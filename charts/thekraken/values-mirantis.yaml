@@ -1,8 +1,8 @@
 gitState:
-  repoUrl: "https://github.com/randybias/mirantis-tentacle-workflows.git"
-  branch: "main"
-  credentialsSecret: "thekraken-git-state"
+  repoUrl: 'https://github.com/randybias/mirantis-tentacle-workflows.git'
+  branch: 'main'
+  credentialsSecret: 'thekraken-git-state'
 
 llm:
-  defaultProvider: "anthropic"
-  defaultModel: "claude-sonnet-4-6"
+  defaultProvider: 'anthropic'
+  defaultModel: 'claude-sonnet-4-6'

@@ -53,7 +53,7 @@ export interface MailboxRecord {
   userSlackId: string;
   /**
    * D6: User's OIDC token. ONLY in mailbox. Never in outbound or signals.
-   * Phase 1: empty string (no OIDC yet). Phase 2: real per-user token.
+   * Empty string until the OIDC device flow is wired.
    * There is NO service token concept — only user tokens exist.
    */
   userToken: string;
