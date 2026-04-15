@@ -243,7 +243,7 @@ export function workflowStatusCard(
   for (let i = 0; i < workflows.length; i++) {
     if (i > 0) blocks.push(dividerBlock());
 
-    const wf = workflows[i];
+    const wf = workflows[i]!;
     const emoji = statusEmoji(wf.status);
     const readyText = wf.ready ? ':white_check_mark: Ready' : ':x: Not ready';
 

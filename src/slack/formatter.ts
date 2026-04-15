@@ -124,7 +124,7 @@ function parseMarkdown(markdown: string): Segment[] {
   }
 
   while (i < lines.length) {
-    const line = lines[i];
+    const line = lines[i] ?? '';
 
     // --- Code block (fenced) ---
     if (!inCode && /^```/.test(line)) {
@@ -162,8 +162,8 @@ function parseMarkdown(markdown: string): Segment[] {
     const headerMatch = line.match(/^(#{1,3})\s+(.+)/);
     if (headerMatch) {
       flushParagraph();
-      const level = Math.min(headerMatch[1].length, 3) as 1 | 2 | 3;
-      segments.push({ type: 'header', level, text: headerMatch[2].trim() });
+      const level = Math.min(headerMatch[1]!.length, 3) as 1 | 2 | 3;
+      segments.push({ type: 'header', level, text: headerMatch[2]!.trim() });
       i++;
       continue;
     }
@@ -181,8 +181,8 @@ function parseMarkdown(markdown: string): Segment[] {
       if (hasSeparator) {
         flushParagraph();
         const tableLines: string[] = [];
-        while (i < lines.length && lines[i].startsWith('|')) {
-          tableLines.push(lines[i]);
+        while (i < lines.length && (lines[i] ?? '').startsWith('|')) {
+          tableLines.push(lines[i]!);
           i++;
         }
         const tableSegment = parseTable(tableLines);
@@ -206,8 +206,11 @@ function parseMarkdown(markdown: string): Segment[] {
     if (/^(\s*[-*]\s|\s*\d+\.\s)/.test(line)) {
       flushParagraph();
       const listItems: string[] = [];
-      while (i < lines.length && /^(\s*[-*]\s|\s*\d+\.\s)/.test(lines[i])) {
-        listItems.push(lines[i]);
+      while (
+        i < lines.length &&
+        /^(\s*[-*]\s|\s*\d+\.\s)/.test(lines[i] ?? '')
+      ) {
+        listItems.push(lines[i]!);
         i++;
       }
       segments.push({ type: 'list', items: listItems });
@@ -247,7 +250,7 @@ function parseTable(tableLines: string[]): TableSegment | null {
       .filter((_, idx, arr) => idx > 0 && idx < arr.length - 1);
   }
 
-  const headers = parseRow(tableLines[0]);
+  const headers = parseRow(tableLines[0] ?? '');
   if (headers.length === 0) return null;
 
   // Second line must be a separator row (---|---); reject if not
@@ -438,7 +441,7 @@ function buildWideTableBlocks(
     // Remaining columns become label:value fields (max 10 per section)
     const fields: { type: 'mrkdwn'; text: string }[] = [];
     for (let i = 1; i < headers.length && i < row.length; i++) {
-      const label = translateToMrkdwn(headers[i]);
+      const label = translateToMrkdwn(headers[i] ?? '');
       const value = translateToMrkdwn(row[i] ?? '');
       fields.push({ type: 'mrkdwn', text: `*${label}:* ${value}` });
     }
