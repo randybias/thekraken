@@ -262,6 +262,33 @@ export async function runSmartPath(
 
       messages.push(...results);
     }
+
+    // If we exhausted MAX_TURNS without a terminal text response,
+    // salvage text from any assistant message in the history so the
+    // user at least sees the agent's partial thinking rather than
+    // the generic fallback.
+    if (!finalText) {
+      for (let i = messages.length - 1; i >= 0; i--) {
+        const m = messages[i];
+        if (m && m.role === 'assistant') {
+          const text = (
+            m as { content: Array<{ type: string; text?: string }> }
+          ).content
+            .filter((c) => c.type === 'text' && c.text)
+            .map((c) => c.text as string)
+            .join('')
+            .trim();
+          if (text) {
+            log.warn(
+              { turns: MAX_TURNS },
+              'smart-path: MAX_TURNS reached, returning last assistant text',
+            );
+            finalText = text;
+            break;
+          }
+        }
+      }
+    }
   } finally {
     if (mcp) await mcp.close().catch(() => undefined);
   }
