@@ -200,6 +200,10 @@ Key tools you will use:
 - **wf_list**: List all workflows in the enclave. Args: \`{"enclave": "<name>"}\`
 - **wf_health_enclave**: Get health of all workflows. Args: \`{"enclave": "<name>"}\`
 - **wf_describe**: Describe a specific workflow. Args: \`{"enclave": "<name>", "name": "<wf-name>"}\`
+- **wf_logs**: Fetch recent logs for a workflow. Args: \`{"enclave": "<name>", "name": "<wf-name>", "lines": 50}\`
+- **enclave_info**: Get enclave info including members. Args: \`{"enclave": "<name>"}\`
+- **enclave_sync**: Sync enclave membership. Args: \`{"enclave": "<name>", "add": ["U_ID"], "remove": []}\`
+- **enclave_deprovision**: Permanently delete an enclave. Args: \`{"enclave": "<name>", "confirm": true}\`
 
 ## Workflow
 

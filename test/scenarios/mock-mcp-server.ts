@@ -81,6 +81,66 @@ const MOCK_TOOL_SCHEMAS: Record<
       required: ['enclave', 'name'],
     },
   },
+  wf_logs: {
+    description: 'Fetch recent logs for a workflow.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        enclave: { type: 'string', description: 'Enclave (namespace) name' },
+        name: { type: 'string', description: 'Workflow name' },
+        lines: {
+          type: 'number',
+          description: 'Number of log lines to return',
+        },
+      },
+      required: ['enclave', 'name'],
+    },
+  },
+  enclave_info: {
+    description: 'Get information about the enclave including members.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        enclave: { type: 'string', description: 'Enclave (namespace) name' },
+      },
+      required: ['enclave'],
+    },
+  },
+  enclave_sync: {
+    description: 'Sync enclave membership (add/remove users).',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        enclave: { type: 'string', description: 'Enclave (namespace) name' },
+        add: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'Slack user IDs to add',
+        },
+        remove: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'Slack user IDs to remove',
+        },
+      },
+      required: ['enclave'],
+    },
+  },
+  enclave_deprovision: {
+    description:
+      'Permanently delete an enclave and all its workflows. DESTRUCTIVE.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        enclave: { type: 'string', description: 'Enclave (namespace) name' },
+        confirm: {
+          type: 'boolean',
+          description: 'Must be true to confirm deletion',
+        },
+      },
+      required: ['enclave', 'confirm'],
+    },
+  },
 };
 
 /**
