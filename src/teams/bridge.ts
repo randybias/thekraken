@@ -98,6 +98,8 @@ export class TeamBridge {
 
   /** Start the pi RPC subprocess and begin polling mailbox. */
   async start(): Promise<void> {
+    // cwd is set via spawn() below, not via a pi CLI flag (pi doesn't
+    // have --cwd; it picks up process.cwd()). See pi --help.
     const args = [
       '--mode',
       'rpc',
@@ -105,9 +107,8 @@ export class TeamBridge {
       this.opts.provider,
       '--model',
       this.opts.modelId,
-      '--cwd',
-      this.opts.gitStateDir,
       '--no-session',
+      '--no-extensions',
     ];
     if (this.opts.appendSystemPrompt) {
       args.push('--append-system-prompt', this.opts.appendSystemPrompt);
