@@ -289,11 +289,12 @@ function registerEventHandlers(
             { channelId, userId },
             'lazy reconstitute: looking up enclave binding via MCP',
           );
-          const reconstituted = await deps.bindings.lookupEnclaveWithReconstitute(
-            channelId,
-            userId,
-            mcpCallForReconstitute,
-          );
+          const reconstituted =
+            await deps.bindings.lookupEnclaveWithReconstitute(
+              channelId,
+              userId,
+              mcpCallForReconstitute,
+            );
           if (reconstituted === null) {
             log.info(
               { channelId },
