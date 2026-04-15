@@ -13,6 +13,7 @@
     "dev": "tsx src/index.ts",
     "test": "vitest run",
     "test:scenarios": "vitest run test/scenarios/",
+    "test:e2e-slack": "tsx test/e2e-slack/run-all.ts",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit",
     "lint": "eslint src/",

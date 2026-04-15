@@ -60,6 +60,16 @@ export interface SlackBotDeps {
    */
   mcpCall?: (tool: string, params: Record<string, unknown>) => Promise<unknown>;
   /**
+   * Factory that produces a per-user-token MCP call function.
+   * Used by lazy enclave binding reconstitution so MCP calls carry the
+   * authenticated user's OIDC token (D6 — no service token).
+   *
+   * If not provided, reconstitution falls back to deps.mcpCall.
+   */
+  getMcpCallForToken?: (
+    userToken: string,
+  ) => (tool: string, params: Record<string, unknown>) => Promise<unknown>;
+  /**
    * Called when the smart path is chosen. The dispatcher's AgentSession
    * handles the query and returns a response. Wired in by the main
    * entry point.
@@ -238,6 +248,31 @@ function registerEventHandlers(
           client,
         );
         if (userToken === null) return;
+
+        // Lazy binding reconstitution: if no binding exists in SQLite, attempt
+        // to discover it from MCP using the authenticated user's OIDC token.
+        // This recovers state after a PVC reset without requiring a service token.
+        if (deps.bindings.lookupEnclave(channelId) === null) {
+          const mcpCallForReconstitute =
+            deps.getMcpCallForToken?.(userToken) ?? deps.mcpCall;
+          if (mcpCallForReconstitute) {
+            const reconstituted =
+              await deps.bindings.lookupEnclaveWithReconstitute(
+                channelId,
+                userId,
+                mcpCallForReconstitute,
+              );
+            if (reconstituted === null) {
+              // Channel has no associated enclave — respond politely and stop.
+              await say({
+                text: "This channel isn't an enclave. I can only help in channels that are connected to a Tentacular enclave.",
+                thread_ts: threadTs,
+              });
+              span.setStatus({ code: SpanStatusCode.OK });
+              return;
+            }
+          }
+        }
 
         // Command router: deterministic commands handled before team dispatch.
         const parsed = parseCommand(text);

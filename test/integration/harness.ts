@@ -84,6 +84,14 @@ export interface HarnessOptions {
     expires_in: number;
     interval: number;
   };
+  /**
+   * When true, the harness enables lazy enclave binding reconstitution in the
+   * app_mention handler. Reconstitution uses the mockMcpCall function wired
+   * to the harness (same scripted responses as mcpResponses).
+   *
+   * Default: false — existing tests unaffected.
+   */
+  enableLazyReconstitution?: boolean;
 }
 
 export interface PostedMessage {
@@ -381,6 +389,7 @@ export async function createHarness(
       expires_in: 300,
       interval: 5,
     },
+    enableLazyReconstitution = false,
   } = opts;
 
   // --- Temp directory for team state files ---
@@ -701,6 +710,26 @@ export async function createHarness(
 
     const userToken = await checkAuth(userId, channelId, threadTs);
     if (userToken === null) return;
+
+    // Lazy binding reconstitution (mirrors bot.ts app_mention handler)
+    if (
+      enableLazyReconstitution &&
+      bindings.lookupEnclave(channelId) === null
+    ) {
+      const reconstituted = await bindings.lookupEnclaveWithReconstitute(
+        channelId,
+        userId,
+        mockMcpCall,
+      );
+      if (reconstituted === null) {
+        await boltClient.chat.postMessage({
+          channel: channelId,
+          thread_ts: threadTs,
+          text: "This channel isn't an enclave. I can only help in channels that are connected to a Tentacular enclave.",
+        });
+        return;
+      }
+    }
 
     // Command router
     const parsed = parseCommand(text);
