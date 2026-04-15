@@ -1,43 +1,39 @@
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: { { include "thekraken.fullname" . } }
-  namespace: { { .Release.Namespace } }
-  labels: { { - include "thekraken.labels" . | nindent 4 } }
+  name: {{ include "thekraken.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels: {{- include "thekraken.labels" . | nindent 4 }}
 data:
   TENTACULAR_MCP_URL:
-    { { required "mcp.url is required" .Values.mcp.url | quote } }
-  MCP_PORT: { { .Values.mcp.port | quote } }
+    {{ required "mcp.url is required" .Values.mcp.url | quote }}
+  MCP_PORT: {{ .Values.mcp.port | quote }}
   KRAKEN_DATA_DIR: '/app/data'
   OIDC_ISSUER:
-    { { required "oidc.issuer is required" .Values.oidc.issuer | quote } }
+    {{ required "oidc.issuer is required" .Values.oidc.issuer | quote }}
   OIDC_CLIENT_ID:
-    { { required "oidc.clientId is required" .Values.oidc.clientId | quote } }
+    {{ required "oidc.clientId is required" .Values.oidc.clientId | quote }}
   TNTC_REGISTRY: 'ghcr.io/randybias'
-  SLACK_MODE: { { .Values.slack.mode | quote } }
+  SLACK_MODE: {{ .Values.slack.mode | quote }}
   # Git-backed state — always enabled (no enabled toggle)
   GIT_STATE_REPO_URL:
-    {
-      {
-        required "gitState.repoUrl is required" .Values.gitState.repoUrl | quote,
-      },
-    }
-  GIT_STATE_BRANCH: { { .Values.gitState.branch | default "main" | quote } }
+    {{ required "gitState.repoUrl is required" .Values.gitState.repoUrl | quote }}
+  GIT_STATE_BRANCH: {{ .Values.gitState.branch | default "main" | quote }}
   GIT_STATE_DIR:
-    { { .Values.gitState.dir | default "/app/data/git-state" | quote } }
+    {{ .Values.gitState.dir | default "/app/data/git-state" | quote }}
   GIT_STATE_USER_NAME:
-    { { .Values.gitState.userName | default "The Kraken" | quote } }
+    {{ .Values.gitState.userName | default "The Kraken" | quote }}
   GIT_STATE_USER_EMAIL:
-    { { .Values.gitState.userEmail | default "kraken@tentacular.dev" | quote } }
+    {{ .Values.gitState.userEmail | default "kraken@tentacular.dev" | quote }}
   # LLM provider configuration
-  LLM_DEFAULT_PROVIDER: { { .Values.llm.defaultProvider | quote } }
-  LLM_DEFAULT_MODEL: { { .Values.llm.defaultModel | quote } }
-  LLM_ALLOWED_PROVIDERS: { { .Values.llm.allowedProviders | quote } }
-  LLM_ALLOWED_MODELS: { { .Values.llm.allowedModels | quote } }
-  LLM_DISALLOWED_MODELS: { { .Values.llm.disallowedModels | quote } }
+  LLM_DEFAULT_PROVIDER: {{ .Values.llm.defaultProvider | quote }}
+  LLM_DEFAULT_MODEL: {{ .Values.llm.defaultModel | quote }}
+  LLM_ALLOWED_PROVIDERS: {{ .Values.llm.allowedProviders | quote }}
+  LLM_ALLOWED_MODELS: {{ .Values.llm.allowedModels | quote }}
+  LLM_DISALLOWED_MODELS: {{ .Values.llm.disallowedModels | quote }}
   # Team lifecycle — per-enclave team state directory
-  KRAKEN_TEAMS_DIR: { { .Values.teamsDir | default "/app/data/teams" | quote } }
+  KRAKEN_TEAMS_DIR: {{ .Values.teamsDir | default "/app/data/teams" | quote }}
   # Observability — OTel disabled when otlpEndpoint is empty
   OTEL_EXPORTER_OTLP_ENDPOINT:
-    { { .Values.observability.otlpEndpoint | default "" | quote } }
-  LOG_LEVEL: { { .Values.observability.logLevel | default "info" | quote } }
+    {{ .Values.observability.otlpEndpoint | default "" | quote }}
+  LOG_LEVEL: {{ .Values.observability.logLevel | default "info" | quote }}

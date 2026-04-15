@@ -1,0 +1,51 @@
+# Eastus staging values overlay for the Kraken rewrite deployment.
+# Used for the v0.10.0-rc.1 swap from old Kraken → new Kraken.
+#
+#   helm upgrade --install thekraken ./charts/thekraken \
+#     --namespace tentacular-kraken \
+#     -f charts/thekraken/values-eastus.yaml \
+#     --set image.tag=v0.10.0-rc.1
+
+# 10Gi PVC, fresh (old PVC must be deleted before this install)
+persistence:
+  enabled: true
+  size: 10Gi
+  accessMode: ReadWriteOnce
+
+# Point at the existing thekraken secret in the namespace
+secrets:
+  existingSecret: thekraken
+
+# Cluster-side endpoints (match old Kraken config)
+mcp:
+  url: 'http://tentacular-mcp.tentacular-system.svc.cluster.local:8080/mcp'
+
+oidc:
+  issuer: 'https://auth.eastus-dev1.ospo-dev.miralabs.dev/realms/tentacular'
+  clientId: 'thekraken'
+
+# Same git-state repo as old Kraken
+gitState:
+  repoUrl: 'https://github.com/randybias/mirantis-tentacle-workflows.git'
+  branch: 'main'
+  credentialsSecret: 'git-state-credentials'
+
+# LLM defaults (NEW in rewrite — addresses the --provider/--model bug)
+llm:
+  defaultProvider: 'anthropic'
+  defaultModel: 'claude-sonnet-4-6'
+
+# Slack HTTP mode (socket mode uses SLACK_APP_TOKEN; keep same mode as old)
+slack:
+  mode: 'http'
+
+# Keep existing ingress hostname — swap target in place
+ingress:
+  enabled: true
+  className: 'traefik'
+  host: 'kraken.eastus-dev1.ospo-dev.miralabs.dev'
+  tls:
+    enabled: true
+
+# Registry for built tentacle images
+registry: 'ghcr.io/randybias'
