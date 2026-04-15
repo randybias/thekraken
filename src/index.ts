@@ -126,6 +126,7 @@ async function main(): Promise<void> {
           mcpUrl: config.mcp.url,
           anthropicApiKey: apiKey,
           modelId: config.llm.defaultModel,
+          priorTurns: ctx.priorTurns,
         });
         return (
           answer ??

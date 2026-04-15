@@ -60,6 +60,12 @@ export interface SmartPathInput {
   modelId: string;
   /** Slack bot user ID — used to strip the leading mention. */
   botUserId?: string;
+  /**
+   * Prior turns in the same Slack thread, oldest first.
+   * Used to give the LLM multi-turn conversational memory.
+   * Each entry is the cleaned text (no mention prefix) plus who said it.
+   */
+  priorTurns?: Array<{ role: 'user' | 'assistant'; text: string }>;
 }
 
 /**
@@ -95,13 +101,30 @@ export async function runSmartPath(
   }
 
   const model = getModel('anthropic' as never, input.modelId as never);
-  const messages: Message[] = [
-    {
-      role: 'user',
-      content: cleanedText,
-      timestamp: Date.now(),
-    },
-  ];
+  const messages: Message[] = [];
+  // Thread memory: replay prior turns so follow-ups have context.
+  for (const prior of input.priorTurns ?? []) {
+    if (prior.role === 'user') {
+      messages.push({
+        role: 'user',
+        content: prior.text,
+        timestamp: Date.now(),
+      });
+    } else {
+      // Store assistant turns as plain text so the LLM sees its prior replies.
+      // We don't re-inflate tool calls — the LLM sees a conversational history.
+      messages.push({
+        role: 'user',
+        content: `[Previous Kraken reply in this thread]: ${prior.text}`,
+        timestamp: Date.now(),
+      });
+    }
+  }
+  messages.push({
+    role: 'user',
+    content: cleanedText,
+    timestamp: Date.now(),
+  });
 
   const baseContext: Context = {
     systemPrompt,

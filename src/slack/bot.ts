@@ -84,6 +84,12 @@ export interface SlackBotDeps {
     mode: 'enclave' | 'dm';
     /** Authenticated user's OIDC access token (D6). */
     userToken: string;
+    /**
+     * Prior turns in this thread, oldest first. Omits the current message
+     * (which is passed separately via `text`). Empty array for brand-new
+     * threads.
+     */
+    priorTurns: Array<{ role: 'user' | 'assistant'; text: string }>;
   }) => Promise<string | null>;
   /**
    * Returns a valid OIDC access token for the given Slack user ID, or null
@@ -380,6 +386,7 @@ function registerEventHandlers(
           say,
           threadTs,
           userToken,
+          client,
         );
 
         span.setStatus({ code: SpanStatusCode.OK });
@@ -558,6 +565,7 @@ function registerEventHandlers(
           say,
           threadTs ?? (event as { ts: string }).ts,
           userToken,
+          client,
         );
 
         span.setStatus({ code: SpanStatusCode.OK });
@@ -624,6 +632,51 @@ async function checkAuthOrPrompt(
 }
 
 /**
+ * Fetch prior turns in a Slack thread so the dispatcher LLM has
+ * conversational memory. Omits the current user message (identified
+ * by `currentText`) and filters out non-text/system posts.
+ *
+ * Returns oldest-first. Best-effort — on failure returns [].
+ */
+async function fetchThreadTurns(
+  channelId: string,
+  threadTs: string,
+  currentText: string,
+  botUserId: string | undefined,
+  client: WebClient,
+): Promise<Array<{ role: 'user' | 'assistant'; text: string }>> {
+  try {
+    const result = (await client.conversations.replies({
+      channel: channelId,
+      ts: threadTs,
+      limit: 30,
+    })) as { ok?: boolean; messages?: Array<Record<string, unknown>> };
+    if (!result.ok || !result.messages) return [];
+
+    const turns: Array<{ role: 'user' | 'assistant'; text: string }> = [];
+    for (const m of result.messages) {
+      const text = (m['text'] as string | undefined) ?? '';
+      if (!text) continue;
+      // Skip the current (latest) user mention — it's passed separately.
+      if (text === currentText) continue;
+      // Skip ephemeral/system messages
+      if (m['subtype']) continue;
+
+      const user = m['user'] as string | undefined;
+      const isBot = botUserId && user === botUserId;
+      turns.push({
+        role: isBot ? 'assistant' : 'user',
+        text: text.replace(/^\[e2e-test\]\s*/, '').trim(),
+      });
+    }
+    return turns;
+  } catch (err) {
+    log.warn({ err, channelId, threadTs }, 'fetchThreadTurns failed');
+    return [];
+  }
+}
+
+/**
  * Execute a RouteDecision: deterministic actions go directly; smart
  * path delegates to the dispatcher's AgentSession via deps.onSmartPath().
  *
@@ -637,6 +690,7 @@ async function executeDecision(
   say: (msg: { text: string; thread_ts: string }) => Promise<unknown>,
   threadTs: string,
   userToken: string,
+  client: WebClient,
 ): Promise<void> {
   if (decision.path === 'deterministic') {
     const action = decision.action;
@@ -706,6 +760,36 @@ async function executeDecision(
     return;
   }
 
+  // Side-effect: ensure the enclave's team (pi subprocess + NDJSON IPC
+  // state) exists. The team is the long-term home for this enclave's
+  // multi-turn work; smart path is a shortcut for one-shot reasoning.
+  // Spawning here keeps team state warm even while the inline dispatcher
+  // LLM handles the current turn.
+  if (decision.context.enclaveName) {
+    try {
+      await deps.teams.spawnTeam(
+        decision.context.enclaveName,
+        inbound.userId,
+        userToken,
+      );
+    } catch (err) {
+      log.warn(
+        { err, enclaveName: decision.context.enclaveName },
+        'failed to spawn enclave team (non-fatal)',
+      );
+    }
+  }
+
+  // Fetch prior thread turns so the LLM has conversational memory
+  // across multiple @mentions in the same thread.
+  const priorTurns = await fetchThreadTurns(
+    inbound.channelId,
+    threadTs,
+    inbound.text,
+    deps.botUserId,
+    client,
+  );
+
   const response = await deps.onSmartPath({
     channelId: inbound.channelId,
     threadTs,
@@ -714,6 +798,7 @@ async function executeDecision(
     enclaveName: decision.context.enclaveName,
     mode: decision.context.mode,
     userToken,
+    priorTurns,
   });
 
   if (response) {
