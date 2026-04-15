@@ -172,9 +172,7 @@ describe('shutdown sequence', () => {
   });
 
   it('shutdown completes even if OTel flush throws', async () => {
-    vi.mocked(shutdownTelemetry).mockRejectedValueOnce(
-      new Error('otel error'),
-    );
+    vi.mocked(shutdownTelemetry).mockRejectedValueOnce(new Error('otel error'));
 
     // Should NOT throw — this mirrors the try/catch in index.ts
     await expect(

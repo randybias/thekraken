@@ -43,11 +43,7 @@ export interface SlackDriver {
    * Post a message as Randy in a channel.
    * Returns the message ts (timestamp/ID).
    */
-  postAsUser(
-    channel: string,
-    text: string,
-    threadTs?: string,
-  ): Promise<string>;
+  postAsUser(channel: string, text: string, threadTs?: string): Promise<string>;
 
   /**
    * Wait for a single reply from the Kraken bot in a thread.
@@ -144,10 +140,7 @@ export function createSlackDriver(opts: SlackDriverOptions): SlackDriver {
     }
 
     return result.messages
-      .filter(
-        (m) =>
-          m.user === krakenBotUserId || m.bot_id !== undefined,
-      )
+      .filter((m) => m.user === krakenBotUserId || m.bot_id !== undefined)
       .filter((m) => m.user === krakenBotUserId)
       .map((m) => m.text ?? '');
   }

@@ -175,27 +175,15 @@ async function assertNotSilent(
 // ---------------------------------------------------------------------------
 
 describe('Scenario 15: deprovision request — no silent failure (production bug)', () => {
-  it(
-    '"remove this channel as an enclave" gets a response (not silent)',
-    async (ctx) => {
-      await assertNotSilent(ctx, 'remove this channel as an enclave');
-    },
-    90000,
-  );
+  it('"remove this channel as an enclave" gets a response (not silent)', async (ctx) => {
+    await assertNotSilent(ctx, 'remove this channel as an enclave');
+  }, 90000);
 
-  it(
-    '"delete this enclave" gets a response (not silent)',
-    async (ctx) => {
-      await assertNotSilent(ctx, 'delete this enclave');
-    },
-    90000,
-  );
+  it('"delete this enclave" gets a response (not silent)', async (ctx) => {
+    await assertNotSilent(ctx, 'delete this enclave');
+  }, 90000);
 
-  it(
-    '"decommission this enclave" gets a response (not silent)',
-    async (ctx) => {
-      await assertNotSilent(ctx, 'decommission this enclave');
-    },
-    90000,
-  );
+  it('"decommission this enclave" gets a response (not silent)', async (ctx) => {
+    await assertNotSilent(ctx, 'decommission this enclave');
+  }, 90000);
 });

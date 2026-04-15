@@ -281,11 +281,17 @@ describe('git-state flow', () => {
     git('add enclaves/prod/batch-processor', workRepo);
     // Use --no-verify for the first commit so version 1 is established as the
     // baseline in HEAD without the hook bumping it.
-    git('commit -m "feat(tentacle): initial deploy batch-processor" --no-verify', workRepo);
+    git(
+      'commit -m "feat(tentacle): initial deploy batch-processor" --no-verify',
+      workRepo,
+    );
 
     // Second deploy: modify main.ts but leave workflow.yaml at version 1.
     // The hook should detect staged_version (1) <= head_version (1) and bump.
-    writeFileSync(mainTsPath, "// batch-processor updated\nexport const v = 2;\n");
+    writeFileSync(
+      mainTsPath,
+      '// batch-processor updated\nexport const v = 2;\n',
+    );
     git('add enclaves/prod/batch-processor/main.ts', workRepo);
     git('commit -m "feat(tentacle): update batch-processor"', workRepo);
 
@@ -310,7 +316,10 @@ describe('git-state flow', () => {
   it('push failure surfaces the error without corrupting local state', () => {
     writeTentacleFiles(workRepo, 'dev', 'health-check');
     git('add enclaves/dev/health-check', workRepo);
-    git('commit -m "feat(tentacle): deploy health-check" --no-verify', workRepo);
+    git(
+      'commit -m "feat(tentacle): deploy health-check" --no-verify',
+      workRepo,
+    );
 
     // Remember the local HEAD SHA before attempting the bad push.
     const localSha = headSha(workRepo);
@@ -459,10 +468,7 @@ describe('entrypoint git-state setup gaps', () => {
       cwd: noHookRepo,
     });
 
-    const content = readFileSync(
-      join(tentacleDir, 'workflow.yaml'),
-      'utf8',
-    );
+    const content = readFileSync(join(tentacleDir, 'workflow.yaml'), 'utf8');
     // Without the hook, version stays at 1 — demonstrating the hook is
     // critical and must be configured via entrypoint.sh.
     expect(content).toContain('version: 1');
@@ -486,7 +492,10 @@ describe('entrypoint git-state setup gaps', () => {
 
     writeTentacleFiles(otherClone, 'shared', 'remote-tentacle');
     git('add enclaves/shared/remote-tentacle', otherClone);
-    git('commit -m "feat(tentacle): remote-tentacle from other pod" --no-verify', otherClone);
+    git(
+      'commit -m "feat(tentacle): remote-tentacle from other pod" --no-verify',
+      otherClone,
+    );
     git('push origin main', otherClone);
 
     const remoteSha = headSha(otherClone);

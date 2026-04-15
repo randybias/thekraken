@@ -66,7 +66,9 @@ function renderTable(results: ScenarioResult[]): void {
     pad('Duration', COL_DURATION) +
     'Notes';
 
-  const divider = '-'.repeat(COL_ID + COL_NAME + COL_STATUS + COL_DURATION + COL_NOTES);
+  const divider = '-'.repeat(
+    COL_ID + COL_NAME + COL_STATUS + COL_DURATION + COL_NOTES,
+  );
 
   console.log('');
   console.log(header);

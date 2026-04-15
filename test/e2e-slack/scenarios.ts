@@ -52,9 +52,7 @@ export const AUTH_SCENARIOS: ScenarioDef[] = [
       // Should respond with user info or auth flow
       /randy|authenticated|not authenticated|device|login/i,
     ],
-    forbiddenPatterns: [
-      /error.*crash/i,
-    ],
+    forbiddenPatterns: [/error.*crash/i],
     timeoutMs: 60_000,
   },
 ];
@@ -107,10 +105,7 @@ export const SCOPING_SCENARIOS: ScenarioDef[] = [
       // Should show member list or enclave info
       /member|team|enclave|access/i,
     ],
-    forbiddenPatterns: [
-      /namespace/i,
-      /group member/i,
-    ],
+    forbiddenPatterns: [/namespace/i, /group member/i],
     timeoutMs: 60_000,
   },
 ];
@@ -125,29 +120,20 @@ export const WORKFLOW_SCENARIOS: ScenarioDef[] = [
     name: 'list my workflows',
     channel: CHANNELS.enclave,
     message: '@Kraken list my workflows',
-    expectedPatterns: [
-      /workflow|tentacle|running|no .*(workflows|tentacles)/i,
-    ],
-    forbiddenPatterns: [
-      /namespace/i,
-      /pod/i,
-      /kubectl/i,
-    ],
+    expectedPatterns: [/workflow|tentacle|running|no .*(workflows|tentacles)/i],
+    forbiddenPatterns: [/namespace/i, /pod/i, /kubectl/i],
     timeoutMs: 60_000,
   },
   {
     id: 'C2',
-    name: "health of otel-echo",
+    name: 'health of otel-echo',
     channel: CHANNELS.enclave,
-    message: '@Kraken what\'s the health of otel-echo?',
+    message: "@Kraken what's the health of otel-echo?",
     expectedPatterns: [
       // Should report status or say not found
       /otel-echo|not found|running|healthy|error|unhealthy|unknown/i,
     ],
-    forbiddenPatterns: [
-      /namespace/i,
-      /pod/i,
-    ],
+    forbiddenPatterns: [/namespace/i, /pod/i],
     timeoutMs: 60_000,
   },
   {
@@ -155,9 +141,7 @@ export const WORKFLOW_SCENARIOS: ScenarioDef[] = [
     name: 'recent logs for otel-echo',
     channel: CHANNELS.enclave,
     message: '@Kraken show me recent logs for otel-echo',
-    expectedPatterns: [
-      /log|otel-echo|not found|no logs/i,
-    ],
+    expectedPatterns: [/log|otel-echo|not found|no logs/i],
     forbiddenPatterns: [
       /kubectl/i,
       // Should not dump raw JSON
@@ -170,12 +154,8 @@ export const WORKFLOW_SCENARIOS: ScenarioDef[] = [
     name: 'run otel-echo',
     channel: CHANNELS.enclave,
     message: '@Kraken run otel-echo',
-    expectedPatterns: [
-      /started|triggered|running|not found|already running/i,
-    ],
-    forbiddenPatterns: [
-      /kubectl/i,
-    ],
+    expectedPatterns: [/started|triggered|running|not found|already running/i],
+    forbiddenPatterns: [/kubectl/i],
     timeoutMs: 90_000,
   },
 ];
@@ -202,13 +182,8 @@ export const COMMAND_SCENARIOS: ScenarioDef[] = [
     name: 'members command',
     channel: CHANNELS.enclave,
     message: '@Kraken members',
-    expectedPatterns: [
-      /member|team|enclave|access/i,
-    ],
-    forbiddenPatterns: [
-      /group member/i,
-      /namespace/i,
-    ],
+    expectedPatterns: [/member|team|enclave|access/i],
+    forbiddenPatterns: [/group member/i, /namespace/i],
     timeoutMs: 45_000,
   },
 ];
@@ -260,10 +235,7 @@ export const TENTACLE_SCENARIOS: ScenarioDef[] = [
       // Should acknowledge and start build, or explain provisioning needed
       /build|hello-world|scaffold|not.*enclave|provision/i,
     ],
-    forbiddenPatterns: [
-      /kubectl/i,
-      /namespace/i,
-    ],
+    forbiddenPatterns: [/kubectl/i, /namespace/i],
     timeoutMs: 120_000,
   },
   {
@@ -271,12 +243,8 @@ export const TENTACLE_SCENARIOS: ScenarioDef[] = [
     name: 'status hello-world',
     channel: CHANNELS.test,
     message: '@Kraken status hello-world',
-    expectedPatterns: [
-      /hello-world|not found|running|status|deployed/i,
-    ],
-    forbiddenPatterns: [
-      /kubectl/i,
-    ],
+    expectedPatterns: [/hello-world|not found|running|status|deployed/i],
+    forbiddenPatterns: [/kubectl/i],
     timeoutMs: 60_000,
   },
   {
@@ -284,12 +252,8 @@ export const TENTACLE_SCENARIOS: ScenarioDef[] = [
     name: 'run hello-world',
     channel: CHANNELS.test,
     message: '@Kraken run hello-world',
-    expectedPatterns: [
-      /hello-world|not found|started|triggered|running/i,
-    ],
-    forbiddenPatterns: [
-      /kubectl/i,
-    ],
+    expectedPatterns: [/hello-world|not found|started|triggered|running/i],
+    forbiddenPatterns: [/kubectl/i],
     timeoutMs: 90_000,
   },
   {
@@ -297,12 +261,8 @@ export const TENTACLE_SCENARIOS: ScenarioDef[] = [
     name: 'logs hello-world',
     channel: CHANNELS.test,
     message: '@Kraken logs hello-world',
-    expectedPatterns: [
-      /hello-world|not found|log|no logs/i,
-    ],
-    forbiddenPatterns: [
-      /kubectl/i,
-    ],
+    expectedPatterns: [/hello-world|not found|log|no logs/i],
+    forbiddenPatterns: [/kubectl/i],
     timeoutMs: 60_000,
   },
 ];

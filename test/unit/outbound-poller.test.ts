@@ -301,9 +301,7 @@ describe('OutboundPoller', () => {
     fixtures.push(f);
 
     // Write one empty-text record and one valid record
-    f.appendOutbound(
-      makeOutboundRecord({ text: '', id: 'empty-1' }),
-    );
+    f.appendOutbound(makeOutboundRecord({ text: '', id: 'empty-1' }));
     f.appendOutbound(
       makeOutboundRecord({ text: 'real message', id: 'real-1' }),
     );

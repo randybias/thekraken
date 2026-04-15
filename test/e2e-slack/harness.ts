@@ -18,7 +18,11 @@
  * and uses a mock driver for compile/sanity checks.
  */
 
-import { createSlackDriver, getSecret, type SlackDriver } from './slack-driver.js';
+import {
+  createSlackDriver,
+  getSecret,
+  type SlackDriver,
+} from './slack-driver.js';
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -115,7 +119,9 @@ export function createMockDriver(
       count: number,
       _timeoutMs: number,
     ): Promise<string[]> {
-      calls.push(`waitForKrakenReplies(${channel}, ${threadTs}, count=${count})`);
+      calls.push(
+        `waitForKrakenReplies(${channel}, ${threadTs}, count=${count})`,
+      );
       return Array.from({ length: count }, (_, i) => `[mock] Reply ${i + 1}`);
     },
 
@@ -307,10 +313,7 @@ export async function runScenario(
 
   try {
     // Post the initial message
-    const threadTs = await ctx.driver.postAsUser(
-      channelId,
-      scenario.message,
-    );
+    const threadTs = await ctx.driver.postAsUser(channelId, scenario.message);
 
     // If there are follow-up messages, send them in the thread
     for (const followUp of scenario.followUpMessages ?? []) {
@@ -343,14 +346,18 @@ export async function runScenario(
     const failures: string[] = [];
 
     for (const pattern of scenario.expectedPatterns ?? []) {
-      const regex = pattern instanceof RegExp ? pattern : new RegExp(pattern, 'i');
+      const regex =
+        pattern instanceof RegExp ? pattern : new RegExp(pattern, 'i');
       if (!regex.test(replyText)) {
-        failures.push(`Expected pattern "${String(pattern)}" not found in reply`);
+        failures.push(
+          `Expected pattern "${String(pattern)}" not found in reply`,
+        );
       }
     }
 
     for (const pattern of scenario.forbiddenPatterns ?? []) {
-      const regex = pattern instanceof RegExp ? pattern : new RegExp(pattern, 'i');
+      const regex =
+        pattern instanceof RegExp ? pattern : new RegExp(pattern, 'i');
       if (regex.test(replyText)) {
         failures.push(`Forbidden pattern "${String(pattern)}" found in reply`);
       }

@@ -98,11 +98,25 @@ describe('startup with existing database', () => {
       db.prepare(
         `INSERT INTO user_tokens (slack_user_id, access_token, refresh_token, expires_at, keycloak_sub, email)
          VALUES (?, ?, ?, ?, ?, ?)`,
-      ).run('U_ALICE', 'at-alice', 'rt-alice', '2026-12-31T00:00:00.000Z', 'sub-alice', 'alice@example.com');
+      ).run(
+        'U_ALICE',
+        'at-alice',
+        'rt-alice',
+        '2026-12-31T00:00:00.000Z',
+        'sub-alice',
+        'alice@example.com',
+      );
       db.prepare(
         `INSERT INTO user_tokens (slack_user_id, access_token, refresh_token, expires_at, keycloak_sub, email)
          VALUES (?, ?, ?, ?, ?, ?)`,
-      ).run('U_BOB', 'at-bob', 'rt-bob', '2026-12-31T00:00:00.000Z', 'sub-bob', 'bob@example.com');
+      ).run(
+        'U_BOB',
+        'at-bob',
+        'rt-bob',
+        '2026-12-31T00:00:00.000Z',
+        'sub-bob',
+        'bob@example.com',
+      );
       db.close();
     }
 
@@ -177,9 +191,7 @@ describe('startup with existing database', () => {
     {
       const db = createDatabase(dbPath);
       const rows = db
-        .prepare(
-          `SELECT id FROM outbound_messages ORDER BY id`,
-        )
+        .prepare(`SELECT id FROM outbound_messages ORDER BY id`)
         .all() as Array<{ id: string }>;
 
       expect(rows).toHaveLength(3);
@@ -197,7 +209,14 @@ describe('startup with existing database', () => {
       db.prepare(
         `INSERT INTO user_tokens (slack_user_id, access_token, refresh_token, expires_at, keycloak_sub, email)
          VALUES (?, ?, ?, ?, ?, ?)`,
-      ).run('U_PERSIST', 'at-persist', 'rt-persist', '2026-12-31T00:00:00.000Z', 'sub-persist', 'persist@example.com');
+      ).run(
+        'U_PERSIST',
+        'at-persist',
+        'rt-persist',
+        '2026-12-31T00:00:00.000Z',
+        'sub-persist',
+        'persist@example.com',
+      );
       db.close();
     }
 
@@ -237,7 +256,18 @@ describe('startup with existing database', () => {
         db.prepare(
           `INSERT INTO deployments (enclave, tentacle, version, git_sha, git_tag, deploy_type, summary, deployed_by_email, triggered_by_channel, triggered_by_ts)
            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        ).run('testenclave', 'my-tentacle', 1, 'abc123', 'v1', 'deploy', 'Init', 'alice@example.com', 'C_TEST', '1.0');
+        ).run(
+          'testenclave',
+          'my-tentacle',
+          1,
+          'abc123',
+          'v1',
+          'deploy',
+          'Init',
+          'alice@example.com',
+          'C_TEST',
+          '1.0',
+        );
       }).not.toThrow();
 
       // Invalid FK: should fail (FK enforcement ON)
@@ -245,7 +275,18 @@ describe('startup with existing database', () => {
         db.prepare(
           `INSERT INTO deployments (enclave, tentacle, version, git_sha, git_tag, deploy_type, summary, deployed_by_email, triggered_by_channel, triggered_by_ts)
            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        ).run('nonexistent-enclave', 'tentacle', 2, 'abc', 'v2', 'deploy', 'Bad', 'alice@example.com', 'C_TEST', '2.0');
+        ).run(
+          'nonexistent-enclave',
+          'tentacle',
+          2,
+          'abc',
+          'v2',
+          'deploy',
+          'Bad',
+          'alice@example.com',
+          'C_TEST',
+          '2.0',
+        );
       }).toThrow();
 
       db.close();
@@ -261,7 +302,14 @@ describe('startup with existing database', () => {
       db.prepare(
         `INSERT INTO user_tokens (slack_user_id, access_token, refresh_token, expires_at, keycloak_sub, email)
          VALUES (?, ?, ?, ?, ?, ?)`,
-      ).run('U_PRE', 'at-pre', 'rt-pre', '2026-12-31T00:00:00.000Z', 'sub-pre', 'pre@example.com');
+      ).run(
+        'U_PRE',
+        'at-pre',
+        'rt-pre',
+        '2026-12-31T00:00:00.000Z',
+        'sub-pre',
+        'pre@example.com',
+      );
       db.close();
     }
 
@@ -271,7 +319,14 @@ describe('startup with existing database', () => {
       db.prepare(
         `INSERT INTO user_tokens (slack_user_id, access_token, refresh_token, expires_at, keycloak_sub, email)
          VALUES (?, ?, ?, ?, ?, ?)`,
-      ).run('U_POST', 'at-post', 'rt-post', '2026-12-31T00:00:00.000Z', 'sub-post', 'post@example.com');
+      ).run(
+        'U_POST',
+        'at-post',
+        'rt-post',
+        '2026-12-31T00:00:00.000Z',
+        'sub-post',
+        'post@example.com',
+      );
 
       const rows = db
         .prepare(`SELECT slack_user_id FROM user_tokens ORDER BY slack_user_id`)
