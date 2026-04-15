@@ -71,14 +71,35 @@ function writeSignal(type: string, message: string, source = 'builder'): void {
   });
 }
 
-function readMailbox(): object[] {
+interface MailboxMessage {
+  channelId?: string;
+  threadTs?: string;
+  [key: string]: unknown;
+}
+
+function readMailbox(): MailboxMessage[] {
   if (!TEAM_DIR) return [];
   const path = join(TEAM_DIR, 'mailbox.ndjson');
   if (!existsSync(path)) return [];
   const lines = readFileSync(path, 'utf8')
     .split('\n')
     .filter((l) => l.trim());
-  return lines.map((l) => JSON.parse(l) as object);
+  return lines.map((l) => JSON.parse(l) as MailboxMessage);
+}
+
+/**
+ * Extract channelId and threadTs from the first mailbox message.
+ *
+ * A real pi agent reads these from the mailbox to know where to post.
+ * Without this, outbound records would have wrong channel/thread values.
+ */
+function getTargetFromMailbox(): { channelId: string; threadTs: string } {
+  const messages = readMailbox();
+  const first = messages[0];
+  return {
+    channelId: (first?.channelId as string | undefined) ?? 'C_TEST',
+    threadTs: (first?.threadTs as string | undefined) ?? '1111111111.000',
+  };
 }
 
 // Emit pi-style startup event on stdout
@@ -96,37 +117,55 @@ async function run(): Promise<void> {
   switch (SCENARIO) {
     case 'build-ok': {
       // Read mailbox, write a completion signal + outbound message
+      // Use channelId/threadTs from the first mailbox message so the
+      // outbound record is routed back to the correct Slack thread.
       const messages = readMailbox();
+      const { channelId, threadTs } = getTargetFromMailbox();
       writeSignal('task_started', 'Mock builder starting');
       writeSignal(
         'task_completed',
         `Mock builder done. Processed ${messages.length} mailbox messages.`,
       );
-      writeOutbound('slack_message', 'Build complete! (mock)');
+      writeOutbound(
+        'slack_message',
+        'Build complete! (mock)',
+        channelId,
+        threadTs,
+      );
       process.exit(0);
       break;
     }
 
     case 'deploy-ok': {
+      const { channelId, threadTs } = getTargetFromMailbox();
       writeSignal('task_started', 'Mock deployer starting', 'deployer');
       writeSignal('task_completed', 'Mock deploy done.', 'deployer');
-      writeOutbound('slack_message', 'Deploy complete! (mock)');
+      writeOutbound(
+        'slack_message',
+        'Deploy complete! (mock)',
+        channelId,
+        threadTs,
+      );
       process.exit(0);
       break;
     }
 
     case 'error': {
+      const { channelId, threadTs } = getTargetFromMailbox();
       writeSignal('error', 'Mock pi error scenario triggered');
-      writeOutbound('error', 'An error occurred (mock)');
+      writeOutbound('error', 'An error occurred (mock)', channelId, threadTs);
       process.exit(1);
       break;
     }
 
     case 'token-expired': {
       // D6: token expired -> clean fail, no fallback
+      const { channelId, threadTs } = getTargetFromMailbox();
       writeOutbound(
         'error',
         'Your session has expired. Please re-authenticate with /kraken auth.',
+        channelId,
+        threadTs,
       );
       process.exit(0);
       break;
@@ -138,7 +177,13 @@ async function run(): Promise<void> {
       await new Promise<void>((resolve) =>
         setTimeout(resolve, IDLE_TIMEOUT_MS),
       );
-      writeOutbound('slack_message', 'Mock pi idle exit (mock)');
+      const { channelId, threadTs } = getTargetFromMailbox();
+      writeOutbound(
+        'slack_message',
+        'Mock pi idle exit (mock)',
+        channelId,
+        threadTs,
+      );
       process.exit(0);
       break;
     }
