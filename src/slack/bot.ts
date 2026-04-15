@@ -14,8 +14,9 @@ import { App, ExpressReceiver } from '@slack/bolt';
 import type { WebClient } from '@slack/web-api';
 import type { Server } from 'node:http';
 import { trace, SpanStatusCode } from '@opentelemetry/api';
-import { healthHandler, createHealthServer } from '../health.js';
+import { makeHealthHandler, createHealthServer } from '../health.js';
 import { createChildLogger } from '../logger.js';
+import type Database from 'better-sqlite3';
 import type { KrakenConfig } from '../config.js';
 import type { EnclaveBindingEngine } from '../enclave/binding.js';
 import type { OutboundTracker } from './outbound.js';
@@ -45,6 +46,8 @@ export interface SlackBotDeps {
   bindings: EnclaveBindingEngine;
   outbound: OutboundTracker;
   teams: TeamLifecycleManager;
+  /** Open SQLite database, forwarded to the health handler. Optional. */
+  db?: Database.Database;
   /**
    * Slack bot user ID (e.g. "U012ABC"). Used by channel event handlers to
    * distinguish the bot's own join/leave events from user events.
@@ -96,7 +99,7 @@ export function createSlackBot(deps: SlackBotDeps): SlackBot {
       signingSecret: config.slack.signingSecret!,
       endpoints: '/slack/events',
     });
-    receiver.router.get('/healthz', healthHandler as never);
+    receiver.router.get('/healthz', makeHealthHandler(deps.db) as never);
 
     app = new App({
       token: config.slack.botToken,
