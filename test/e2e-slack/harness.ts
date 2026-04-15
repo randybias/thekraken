@@ -294,6 +294,71 @@ export async function bootHarness(): Promise<HarnessBootResult> {
 // ---------------------------------------------------------------------------
 
 /**
+ * Return an mcpCall() that connects to the in-cluster MCP server with
+ * Randy's current OIDC token (pulled from the Kraken pod's SQLite).
+ * Used by scenario mcpAssertion checks to verify cluster state.
+ *
+ * Requires `kubectl` on PATH + KUBECONFIG pointing at the cluster,
+ * and KRAKEN_E2E_SLACK_USER_ID (defaults to Randy's id on Mirantis).
+ */
+async function getMcpCallForUser(): Promise<{
+  mcpCall: (tool: string, params: Record<string, unknown>) => Promise<unknown>;
+}> {
+  const slackUserId = process.env['KRAKEN_E2E_SLACK_USER_ID'] ?? 'U075YCZECA1';
+  const namespace = process.env['KRAKEN_E2E_NAMESPACE'] ?? 'tentacular-kraken';
+  const mcpUrl =
+    process.env['KRAKEN_E2E_MCP_URL'] ??
+    'http://tentacular-mcp.tentacular-system.svc.cluster.local:8080/mcp';
+
+  // Fetch the user's access token from the pod's SQLite
+  const { execSync } = await import('node:child_process');
+  const script = `
+    const Database = require('better-sqlite3');
+    const db = new Database('/app/data/kraken.db', { readonly: true });
+    const row = db.prepare("SELECT access_token FROM user_tokens WHERE slack_user_id=?").get(${JSON.stringify(slackUserId)});
+    if (row) process.stdout.write(row.access_token);
+  `;
+  const token = execSync(
+    `kubectl exec -n ${namespace} deploy/thekraken -- node -e ${JSON.stringify(script)}`,
+    { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] },
+  ).trim();
+  if (!token) {
+    throw new Error('could not fetch user OIDC token from Kraken pod');
+  }
+
+  // Port-forward MCP locally so the assertion can reach it from the test host
+  // OR exec the call inside the pod. Exec-in-pod is simpler and avoids races.
+  return {
+    mcpCall: async (tool, params) => {
+      const callScript = `
+        (async () => {
+          const { createMcpConnection } = await import('/app/dist/agent/mcp-connection.js');
+          const conn = await createMcpConnection(${JSON.stringify(mcpUrl)}, ${JSON.stringify(token)});
+          try {
+            const r = await conn.client.callTool({ name: ${JSON.stringify(tool)}, arguments: ${JSON.stringify(params)} });
+            const text = r.content?.[0]?.text;
+            if (text) {
+              try { process.stdout.write(text); } catch { process.stdout.write(''); }
+            }
+          } finally {
+            await conn.close().catch(() => undefined);
+          }
+        })();
+      `;
+      const out = execSync(
+        `kubectl exec -n ${namespace} deploy/thekraken -- node --input-type=module -e ${JSON.stringify(callScript)}`,
+        { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] },
+      );
+      try {
+        return JSON.parse(out);
+      } catch {
+        return out;
+      }
+    },
+  };
+}
+
+/**
  * Run a single scenario definition against the harness context.
  * Returns a ScenarioResult with PASS/FAIL/SKIP/ERROR status.
  */
@@ -376,6 +441,35 @@ export async function runScenario(
         notes: failures.join('; '),
         replyText,
       };
+    }
+
+    // Optional post-reply MCP assertion — verifies real cluster state,
+    // not just the reply text. Polls until the check passes or times out.
+    if (scenario.mcpAssertion) {
+      const { mcpCall } = await getMcpCallForUser();
+      const pollMs = scenario.mcpAssertion.pollMs ?? 5_000;
+      const budgetMs = scenario.mcpAssertion.timeoutMs ?? 3 * 60 * 1000;
+      const deadline = Date.now() + budgetMs;
+      let lastErr: string | null = 'not evaluated';
+      while (Date.now() < deadline) {
+        try {
+          lastErr = await scenario.mcpAssertion.check(mcpCall);
+          if (lastErr === null) break;
+        } catch (err: unknown) {
+          lastErr = err instanceof Error ? err.message : String(err);
+        }
+        await new Promise<void>((r) => setTimeout(r, pollMs));
+      }
+      if (lastErr !== null) {
+        return {
+          id: scenario.id,
+          name: scenario.name,
+          status: 'FAIL',
+          durationMs: Date.now() - start,
+          notes: `MCP assertion failed: ${lastErr}`,
+          replyText,
+        };
+      }
     }
 
     return {

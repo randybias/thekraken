@@ -36,6 +36,25 @@ export interface ScenarioDef {
   expectedReplyCount?: number;
   /** Per-scenario timeout in ms. Default: 60000. */
   timeoutMs?: number;
+  /**
+   * Post-reply assertion against real MCP state. Runs AFTER the reply
+   * regex matches. Returns null on pass, or an error message on fail.
+   * Prevents regex-pass from hiding a non-deploy. Allows scenarios like
+   * F1 to verify wf_list actually contains the workflow.
+   */
+  mcpAssertion?: {
+    /** Poll interval in ms while waiting for the assertion to pass. */
+    pollMs?: number;
+    /** Total wait budget in ms before failing. */
+    timeoutMs?: number;
+    /** The assertion. Receives an mcpCall fn; returns null when passed. */
+    check: (
+      mcpCall: (
+        tool: string,
+        params: Record<string, unknown>,
+      ) => Promise<unknown>,
+    ) => Promise<string | null>;
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -335,20 +354,37 @@ export const PROVISIONING_SCENARIOS: ScenarioDef[] = [
 export const TENTACLE_SCENARIOS: ScenarioDef[] = [
   {
     id: 'F1',
-    name: 'build hello-world tentacle',
+    name: 'build hello-world tentacle — real deploy',
     channel: CHANNELS.test,
     message: '@Kraken build a hello-world tentacle for me',
     expectedPatterns: [
-      // Open-ended task. Accept any of:
-      //   acknowledgement/planning ("build", "scaffold", "provision")
-      //   active deploy work ("deploy", "redeploy", "applying")
-      //   real-world cluster diagnostics ("egress", "image", "tentacular-engine")
-      //   confirmation of progress ("up", "listening", "ready", "verify", "running", "health")
-      // All of these mean the Kraken engaged with the request genuinely.
-      /build|hello-world|scaffold|not.*enclave|provision|deploy|redeploy|apply|tentacular-engine|egress|image|up|listening|ready|verify|running|health/i,
+      /build|hello-world|scaffold|deploy|redeploy|apply|ready|verify|running|committed/i,
     ],
     forbiddenPatterns: [/kubectl/i],
-    timeoutMs: 120_000,
+    // Bridge-based team builds can take a few minutes (pi + tntc + image build).
+    timeoutMs: 15 * 60 * 1000,
+    // Real deployment assertion: verify hello-world actually lands in MCP's
+    // wf_list. Regex-pass alone is not enough — it let us claim success
+    // when the tentacle didn't exist. This forces the end-to-end check.
+    mcpAssertion: {
+      pollMs: 5_000,
+      timeoutMs: 3 * 60 * 1000,
+      check: async (mcpCall) => {
+        const res = (await mcpCall('wf_list', {
+          enclave: 'tentacular-e2e-test',
+        })) as { workflows?: Array<{ name: string }> } | string;
+        const parsed =
+          typeof res === 'string'
+            ? (JSON.parse(res) as { workflows?: Array<{ name: string }> })
+            : res;
+        const workflows = parsed.workflows ?? [];
+        const hw = workflows.find((w) => w.name === 'hello-world');
+        if (!hw) {
+          return `hello-world not in wf_list (${workflows.length} workflows: ${workflows.map((w) => w.name).join(', ')})`;
+        }
+        return null;
+      },
+    },
   },
   {
     id: 'F4',
