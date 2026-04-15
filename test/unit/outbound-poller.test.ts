@@ -296,6 +296,96 @@ describe('OutboundPoller', () => {
     vi.restoreAllMocks();
   });
 
+  it('skips outbound records with empty text and does not post to Slack (Bug 3)', async () => {
+    const f = createTeamFixture('empty-text-enc');
+    fixtures.push(f);
+
+    // Write one empty-text record and one valid record
+    f.appendOutbound(
+      makeOutboundRecord({ text: '', id: 'empty-1' }),
+    );
+    f.appendOutbound(
+      makeOutboundRecord({ text: 'real message', id: 'real-1' }),
+    );
+
+    poller = makePoller(f, ['empty-text-enc']);
+    await poller.stop();
+
+    // Only the valid record should have been posted
+    expect(postedMessages).toHaveLength(1);
+    expect(postedMessages[0]!.text).toBe('real message');
+  });
+
+  it('skips outbound records with whitespace-only text (Bug 3)', async () => {
+    const f = createTeamFixture('whitespace-enc');
+    fixtures.push(f);
+
+    f.appendOutbound(makeOutboundRecord({ text: '   \n  ' }));
+
+    poller = makePoller(f, ['whitespace-enc']);
+    await poller.stop();
+
+    expect(postedMessages).toHaveLength(0);
+  });
+
+  it('falls back to mailbox channelId/threadTs when outbound record lacks them (Bug 2)', async () => {
+    const f = createTeamFixture('fallback-enc');
+    fixtures.push(f);
+
+    // Write a mailbox record with valid channel/thread info
+    f.appendMailbox({
+      id: 'mb-1',
+      timestamp: new Date().toISOString(),
+      from: 'dispatcher',
+      type: 'user_message',
+      threadTs: '9876.543',
+      channelId: 'C_FALLBACK',
+      userSlackId: 'U_BOB',
+      userToken: 'tok-bob',
+      message: 'hello',
+    });
+
+    // Write an outbound record that is missing channelId and threadTs
+    f.appendOutbound({
+      id: 'out-no-channel',
+      timestamp: new Date().toISOString(),
+      type: 'slack_message',
+      channelId: '',
+      threadTs: '',
+      text: 'agent reply without channel',
+    });
+
+    poller = makePoller(f, ['fallback-enc']);
+    await poller.stop();
+
+    // Should have posted using the mailbox fallback values
+    expect(postedMessages).toHaveLength(1);
+    expect(postedMessages[0]!.channel).toBe('C_FALLBACK');
+    expect(postedMessages[0]!.thread_ts).toBe('9876.543');
+    expect(postedMessages[0]!.text).toBe('agent reply without channel');
+  });
+
+  it('skips outbound record when no channelId and no mailbox fallback available (Bug 2)', async () => {
+    const f = createTeamFixture('no-fallback-enc');
+    fixtures.push(f);
+
+    // No mailbox.ndjson written — fallback unavailable
+    f.appendOutbound({
+      id: 'out-orphan',
+      timestamp: new Date().toISOString(),
+      type: 'slack_message',
+      channelId: '',
+      threadTs: '',
+      text: 'orphan message',
+    });
+
+    poller = makePoller(f, ['no-fallback-enc']);
+    await poller.stop();
+
+    // Should have been skipped (no channel to post to)
+    expect(postedMessages).toHaveLength(0);
+  });
+
   it('start() and stop() lifecycle', async () => {
     const f = createTeamFixture('lifecycle-enc');
     fixtures.push(f);

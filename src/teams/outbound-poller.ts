@@ -18,6 +18,7 @@
  */
 
 import { createHash } from 'node:crypto';
+import { readFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { trace, SpanStatusCode } from '@opentelemetry/api';
 import { createChildLogger } from '../logger.js';
@@ -31,6 +32,47 @@ import { filterJargon, filterNarration } from '../extensions/jargon-filter.js';
 
 const log = createChildLogger({ module: 'outbound-poller' });
 const tracer = trace.getTracer('thekraken.outbound-poller');
+
+/**
+ * Read the last record from a mailbox.ndjson file that has both channelId
+ * and threadTs set. Used as a fallback when outbound records are missing
+ * those fields.
+ *
+ * Returns null if the file does not exist, is empty, or no matching record
+ * is found.
+ */
+function readLastMailboxTarget(
+  mailboxPath: string,
+): { channelId: string; threadTs: string } | null {
+  if (!existsSync(mailboxPath)) return null;
+  let raw: string;
+  try {
+    raw = readFileSync(mailboxPath, 'utf8');
+  } catch {
+    return null;
+  }
+  const lines = raw.split('\n').filter((l) => l.trim().length > 0);
+  // Walk backwards to find the most recent record with both fields
+  for (let i = lines.length - 1; i >= 0; i--) {
+    try {
+      const rec = JSON.parse(lines[i]!) as Record<string, unknown>;
+      if (
+        typeof rec['channelId'] === 'string' &&
+        rec['channelId'].length > 0 &&
+        typeof rec['threadTs'] === 'string' &&
+        rec['threadTs'].length > 0
+      ) {
+        return {
+          channelId: rec['channelId'] as string,
+          threadTs: rec['threadTs'] as string,
+        };
+      }
+    } catch {
+      // Skip malformed lines
+    }
+  }
+  return null;
+}
 
 /** Poll interval for checking outbound.ndjson files. */
 const POLL_INTERVAL_MS = 1000;
@@ -194,6 +236,61 @@ export class OutboundPoller {
       span.setAttribute('slack.channel_id', record.channelId);
 
       try {
+        // Bug 3: skip records with empty or missing text — posting an empty
+        // message to Slack is never useful and may indicate the agent wrote a
+        // partial record. Log a warning so it shows up in ops dashboards.
+        if (!record.text || record.text.trim().length === 0) {
+          log.warn(
+            { enclaveName, recordId: record.id, type: record.type },
+            'skipping outbound record with empty text',
+          );
+          span.setStatus({ code: SpanStatusCode.OK });
+          span.end();
+          return;
+        }
+
+        // Bug 2: fall back to mailbox channelId/threadTs when the outbound
+        // record is missing them. The dispatcher always writes these fields to
+        // mailbox.ndjson, so the last mailbox record is a reliable source of
+        // truth for the target Slack location.
+        let channelId = record.channelId;
+        let threadTs = record.threadTs;
+        if (!channelId || !threadTs) {
+          const mailboxPath = join(
+            this.deps.config.teamsDir,
+            enclaveName,
+            'mailbox.ndjson',
+          );
+          const fallback = readLastMailboxTarget(mailboxPath);
+          if (fallback) {
+            if (!channelId) {
+              log.warn(
+                { enclaveName, recordId: record.id },
+                'outbound record missing channelId, falling back to mailbox',
+              );
+              channelId = fallback.channelId;
+            }
+            if (!threadTs) {
+              log.warn(
+                { enclaveName, recordId: record.id },
+                'outbound record missing threadTs, falling back to mailbox',
+              );
+              threadTs = fallback.threadTs;
+            }
+          } else {
+            log.error(
+              { enclaveName, recordId: record.id },
+              'outbound record missing channelId/threadTs and no mailbox fallback available; skipping',
+            );
+            span.setStatus({
+              code: SpanStatusCode.ERROR,
+              message: 'missing channelId/threadTs with no mailbox fallback',
+            });
+            span.end();
+            return;
+          }
+        }
+
         // Per-record dedup via content hash (Codex fix #1).
         // This replaces the previous thread-level dedup which silently
         // dropped all messages after the first post in a thread.
@@ -222,8 +319,8 @@ export class OutboundPoller {
 
         // Post main message
         const result = await this.deps.slack.postMessage({
-          channel: record.channelId,
-          thread_ts: record.threadTs || undefined,
+          channel: channelId,
+          thread_ts: threadTs || undefined,
           text: formatted.text || text,
           blocks: formatted.blocks.length > 0 ? formatted.blocks : undefined,
         });
@@ -231,11 +328,11 @@ export class OutboundPoller {
         // Post any overflow batches (messages exceeding 50 blocks) as
         // follow-up messages in the same thread.
         if (formatted.overflow && formatted.overflow.length > 0) {
-          const threadTs = result.ts ?? record.threadTs;
+          const overflowThreadTs = result.ts ?? threadTs;
           for (const batch of formatted.overflow) {
             await this.deps.slack.postMessage({
-              channel: record.channelId,
-              thread_ts: threadTs || undefined,
+              channel: channelId,
+              thread_ts: overflowThreadTs || undefined,
               text: formatted.text || text,
               blocks: batch,
             });
@@ -243,19 +340,14 @@ export class OutboundPoller {
         }
 
         // Record in SQLite for dedup (uses content hash, not thread-level)
-        this.deps.tracker.store(
-          record.channelId,
-          record.threadTs,
-          result.ts ?? '',
-          text,
-        );
+        this.deps.tracker.store(channelId, threadTs, result.ts ?? '', text);
 
         log.info(
           {
             enclaveName,
             recordId: record.id,
             type: record.type,
-            channelId: record.channelId,
+            channelId,
           },
           'outbound record posted to Slack',
         );

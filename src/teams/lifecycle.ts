@@ -193,11 +193,24 @@ export class TeamLifecycleManager {
         : {}),
     };
 
-    const proc = spawn(piPath, ['--mode', 'json', '--cwd', gitStateDir], {
-      cwd: gitStateDir,
-      env: subprocessEnv,
-      stdio: ['pipe', 'pipe', 'pipe'],
-    });
+    const proc = spawn(
+      piPath,
+      [
+        '--mode',
+        'json',
+        '--provider',
+        this.config.llm.defaultProvider,
+        '--model',
+        this.config.llm.defaultModel,
+        '--cwd',
+        gitStateDir,
+      ],
+      {
+        cwd: gitStateDir,
+        env: subprocessEnv,
+        stdio: ['pipe', 'pipe', 'pipe'],
+      },
+    );
 
     const state: TeamState = {
       enclaveName,

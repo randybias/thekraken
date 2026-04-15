@@ -155,6 +155,21 @@ describe('TeamLifecycleManager', () => {
     expect(call.args).toContain('json');
   });
 
+  it('spawnTeam() passes --provider and --model from config (Bug 1)', async () => {
+    await manager.spawnTeam('test-enclave', 'U_ALICE', 'token-alice');
+
+    const call = spawnCalls[0]!;
+    // pi must be invoked with the configured provider so it does not
+    // silently fall back to a different LLM when multiple API keys are set.
+    const providerIdx = call.args.indexOf('--provider');
+    expect(providerIdx).toBeGreaterThanOrEqual(0);
+    expect(call.args[providerIdx + 1]).toBe('anthropic');
+
+    const modelIdx = call.args.indexOf('--model');
+    expect(modelIdx).toBeGreaterThanOrEqual(0);
+    expect(call.args[modelIdx + 1]).toBe('claude-sonnet-4-6');
+  });
+
   it('spawnTeam() sets TNTC_ACCESS_TOKEN env var (D6)', async () => {
     await manager.spawnTeam('test-enclave', 'U_ALICE', 'token-alice-oidc');
 
