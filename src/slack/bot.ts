@@ -27,7 +27,13 @@ import {
   type RouteDecision,
 } from '../dispatcher/router.js';
 import type { TeamLifecycleManager } from '../teams/lifecycle.js';
-import { buildHomeTab, buildUnauthenticatedHomeTab } from './home-tab.js';
+import {
+  buildHomeTab,
+  buildUnauthenticatedHomeTab,
+  type EnclaveData,
+} from './home-tab.js';
+import { formatAgentResponse } from './formatter.js';
+import { filterJargon } from '../jargon-filter.js';
 import { randomUUID } from 'node:crypto';
 import {
   extractEmailFromToken,
@@ -93,10 +99,19 @@ export interface SlackBotDeps {
   }) => Promise<string | null>;
   /**
    * Returns a valid OIDC access token for the given Slack user ID, or null
-   * if the user has not authenticated. Wired in by the main entry point.
-   * Phase 2: populated from the token store. Phase 1: always returns null.
+   * if the user has not authenticated. Used by the Home Tab handler to
+   * decide whether to render the auth prompt or the enclave list.
    */
   getUserToken?: (userId: string) => Promise<string | null>;
+  /**
+   * Fetch the set of enclaves the given user has access to, along with
+   * per-enclave tentacle counts and role. Used by the Home Tab handler.
+   * Returns [] if fetching fails.
+   */
+  getUserEnclaves?: (
+    userId: string,
+    userToken: string,
+  ) => Promise<EnclaveData[]>;
 }
 
 export interface SlackBot {
@@ -208,8 +223,6 @@ function registerEventHandlers(
       span.setAttribute('slack.user_id', userId);
 
       try {
-        // Check if user has a valid OIDC token (Phase 2: real token store).
-        // Phase 1: getUserToken is not wired, so always show unauthenticated tab.
         const token = deps.getUserToken
           ? await deps.getUserToken(userId)
           : null;
@@ -220,15 +233,29 @@ function registerEventHandlers(
             view: buildUnauthenticatedHomeTab(),
           });
           span.setStatus({ code: SpanStatusCode.OK });
+          log.info({ userId, state: 'unauth' }, 'home tab published');
           return;
         }
 
-        // Build with empty enclaves. Data fetching via MCP comes in Phase 3.
-        const homeTab = buildHomeTab([]);
+        // Fetch the user's enclaves via MCP. Best-effort: on failure we
+        // still render the tab with an empty list so the user isn't
+        // stuck on a blank screen.
+        const enclaves = deps.getUserEnclaves
+          ? await deps.getUserEnclaves(userId, token).catch((err: unknown) => {
+              log.warn({ err, userId }, 'home tab: failed to fetch enclaves');
+              return [] as EnclaveData[];
+            })
+          : [];
+
+        const homeTab = buildHomeTab(enclaves);
         await client.views.publish({
           user_id: userId,
           view: homeTab,
         });
+        log.info(
+          { userId, enclaveCount: enclaves.length, state: 'auth' },
+          'home tab published',
+        );
 
         span.setStatus({ code: SpanStatusCode.OK });
       } catch (err) {
@@ -342,11 +369,33 @@ function registerEventHandlers(
               enclaveName: binding.enclaveName,
               mcpCall: cmdMcpCall,
               sendMessage: async (msgText) => {
-                await client.chat.postMessage({
-                  channel: channelId,
-                  thread_ts: threadTs,
-                  text: msgText,
-                });
+                // Command-handler output also goes through jargon filter +
+                // Block Kit formatter for consistency with smart-path replies.
+                const filtered = filterJargon(msgText);
+                let postArgs: {
+                  channel: string;
+                  thread_ts: string;
+                  text: string;
+                  blocks?: unknown[];
+                };
+                try {
+                  const formatted = formatAgentResponse(filtered);
+                  postArgs = {
+                    channel: channelId,
+                    thread_ts: threadTs,
+                    text: formatted.text,
+                    blocks: formatted.blocks,
+                  };
+                } catch {
+                  postArgs = {
+                    channel: channelId,
+                    thread_ts: threadTs,
+                    text: filtered,
+                  };
+                }
+                await client.chat.postMessage(
+                  postArgs as Parameters<typeof client.chat.postMessage>[0],
+                );
               },
               resolveEmail: async (slackUserId) => {
                 // For the authenticated sender, extract email from the OIDC
@@ -687,7 +736,11 @@ async function executeDecision(
   decision: RouteDecision,
   inbound: InboundEvent,
   deps: SlackBotDeps,
-  say: (msg: { text: string; thread_ts: string }) => Promise<unknown>,
+  say: (msg: {
+    text: string;
+    thread_ts: string;
+    blocks?: unknown[];
+  }) => Promise<unknown>,
   threadTs: string,
   userToken: string,
   client: WebClient,
@@ -802,7 +855,25 @@ async function executeDecision(
   });
 
   if (response) {
-    const result = await say({ text: response, thread_ts: threadTs });
+    // Apply the jargon filter before formatting — converts infra-speak
+    // (namespace, pod, postgres, etc.) to user-friendly Tentacular vocab.
+    const filtered = filterJargon(response);
+    // Render as Slack Block Kit so headings, tables, code blocks, and
+    // lists come through with proper formatting. The formatter is pure
+    // — on failure fall back to raw text.
+    let postArgs: { text: string; thread_ts: string; blocks?: unknown[] };
+    try {
+      const formatted = formatAgentResponse(filtered);
+      postArgs = {
+        text: formatted.text,
+        thread_ts: threadTs,
+        blocks: formatted.blocks,
+      };
+    } catch (err) {
+      log.warn({ err }, 'formatter failed; falling back to raw text');
+      postArgs = { text: filtered, thread_ts: threadTs };
+    }
+    const result = await say(postArgs);
     deps.outbound.store(
       inbound.channelId,
       threadTs,

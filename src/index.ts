@@ -26,6 +26,7 @@ import { initTelemetry, shutdownTelemetry } from './telemetry.js';
 import { createChildLogger } from './logger.js';
 import { initDatabase } from './db/index.js';
 import {
+  extractEmailFromToken,
   getValidTokenForUser,
   initTokenStore,
   startTokenRefreshLoop,
@@ -140,6 +141,77 @@ async function main(): Promise<void> {
       } catch (err) {
         log.error({ err }, 'smart path: runtime error');
         return 'Something went wrong while I was reasoning about that. Please try again.';
+      }
+    },
+    // Home Tab: auth gate check — token store is the source of truth.
+    getUserToken: (userId: string) => getValidTokenForUser(userId),
+    // Home Tab: fetch the set of enclaves this user has access to.
+    // Calls enclave_list with the user's email, then wf_list per enclave
+    // for tentacle counts. Role is inferred from owner/members.
+    getUserEnclaves: async (_userId, userToken) => {
+      const email = extractEmailFromToken(userToken);
+      if (!email) return [];
+      const conn = await createMcpConnection(config.mcp.url, userToken);
+      try {
+        const listRes = await conn.client.callTool({
+          name: 'enclave_list',
+          arguments: { caller_email: email },
+        });
+        const listContent = listRes.content as
+          | Array<{ type: string; text?: string }>
+          | undefined;
+        const listJson = listContent?.[0]?.text
+          ? JSON.parse(listContent[0].text)
+          : {};
+        const rawEnclaves = (listJson.enclaves ?? listJson ?? []) as Array<{
+          name?: string;
+          owner?: string;
+          owner_email?: string;
+          members?: string[];
+        }>;
+
+        const results: Array<{
+          name: string;
+          tentacleCount: number;
+          healthyCount: number;
+          role: 'owner' | 'member';
+        }> = [];
+        for (const e of rawEnclaves) {
+          if (!e.name) continue;
+          const owner = (e.owner ?? e.owner_email ?? '').toLowerCase();
+          const members = (e.members ?? []).map((m) => m.toLowerCase());
+          const emailLc = email.toLowerCase();
+          if (owner !== emailLc && !members.includes(emailLc)) continue;
+          const role: 'owner' | 'member' =
+            owner === emailLc ? 'owner' : 'member';
+
+          // Per-enclave tentacle counts (best-effort)
+          let tentacleCount = 0;
+          let healthyCount = 0;
+          try {
+            const wfRes = await conn.client.callTool({
+              name: 'wf_list',
+              arguments: { enclave: e.name },
+            });
+            const wfContent = wfRes.content as
+              | Array<{ type: string; text?: string }>
+              | undefined;
+            const wfJson = wfContent?.[0]?.text
+              ? JSON.parse(wfContent[0].text)
+              : {};
+            const workflows = (wfJson.workflows ?? []) as Array<{
+              ready?: boolean;
+            }>;
+            tentacleCount = workflows.length;
+            healthyCount = workflows.filter((w) => w.ready === true).length;
+          } catch {
+            // non-fatal
+          }
+          results.push({ name: e.name, tentacleCount, healthyCount, role });
+        }
+        return results;
+      } finally {
+        await conn.close().catch(() => undefined);
       }
     },
   });
