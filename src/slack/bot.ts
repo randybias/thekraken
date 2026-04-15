@@ -265,7 +265,19 @@ function registerEventHandlers(
       {
         botUserId: deps.botUserId ?? '',
         mcpCall: deps.mcpCall ?? (async () => ({})),
-        getEnclaveInfo: async () => undefined,
+        getEnclaveInfo: async (name) => {
+          try {
+            const mcpFn = deps.mcpCall ?? (async () => ({}));
+            const r = (await mcpFn('enclave_info', { name })) as {
+              owner?: string;
+              members?: string[];
+            };
+            if (!r?.owner) return undefined;
+            return { owner: r.owner, members: r.members ?? [] };
+          } catch {
+            return undefined;
+          }
+        },
         invalidateCache: () => undefined,
         resolveEmail: async (slackUserId) => {
           const info = await client.users.info({ user: slackUserId });
@@ -288,7 +300,19 @@ function registerEventHandlers(
       {
         botUserId: deps.botUserId ?? '',
         mcpCall: deps.mcpCall ?? (async () => ({})),
-        getEnclaveInfo: async () => undefined,
+        getEnclaveInfo: async (name) => {
+          try {
+            const mcpFn = deps.mcpCall ?? (async () => ({}));
+            const r = (await mcpFn('enclave_info', { name })) as {
+              owner?: string;
+              members?: string[];
+            };
+            if (!r?.owner) return undefined;
+            return { owner: r.owner, members: r.members ?? [] };
+          } catch {
+            return undefined;
+          }
+        },
         invalidateCache: () => undefined,
         resolveEmail: async () => undefined,
       },
@@ -309,7 +333,19 @@ function registerEventHandlers(
       {
         botUserId: deps.botUserId ?? '',
         mcpCall: deps.mcpCall ?? (async () => ({})),
-        getEnclaveInfo: async () => undefined,
+        getEnclaveInfo: async (name) => {
+          try {
+            const mcpFn = deps.mcpCall ?? (async () => ({}));
+            const r = (await mcpFn('enclave_info', { name })) as {
+              owner?: string;
+              members?: string[];
+            };
+            if (!r?.owner) return undefined;
+            return { owner: r.owner, members: r.members ?? [] };
+          } catch {
+            return undefined;
+          }
+        },
         invalidateCache: () => undefined,
         resolveEmail: async () => undefined,
       },

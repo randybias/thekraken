@@ -146,6 +146,31 @@ describe('set mode handler', () => {
     });
   });
 
+  it('calls enclave_sync with rwxrwxr-x for "open-run" preset', async () => {
+    const ctx = makeOwnerCtx();
+    const parsed = parseCommand('@kraken set mode open-run')!;
+    await executeCommand(parsed, ctx);
+
+    expect(ctx.mcpCall).toHaveBeenCalledWith('enclave_sync', {
+      name: 'test-enclave',
+      new_mode: 'rwxrwxr-x',
+    });
+  });
+
+  it('calls enclave_sync with rwxrwxrwx for "shared" preset', async () => {
+    const ctx = makeOwnerCtx();
+    const parsed = parseCommand('@kraken set mode shared')!;
+    await executeCommand(parsed, ctx);
+
+    expect(ctx.mcpCall).toHaveBeenCalledWith('enclave_sync', {
+      name: 'test-enclave',
+      new_mode: 'rwxrwxrwx',
+    });
+    const msg = (ctx.sendMessage as ReturnType<typeof vi.fn>).mock
+      .calls[0]?.[0];
+    expect(msg).toContain('shared');
+  });
+
   it('passes through a raw rwx string', async () => {
     const ctx = makeOwnerCtx();
     // Use executeCommand directly with a fake parsed to avoid parser limits

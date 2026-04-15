@@ -99,12 +99,17 @@ export function parseCommand(
 // Stubs — handlers for commands not yet fully implemented
 // ---------------------------------------------------------------------------
 
-async function stubHandler(
-  commandName: string,
-  ctx: CommandContext,
-): Promise<void> {
+async function handleHelp(ctx: CommandContext): Promise<void> {
   await ctx.sendMessage(
-    `\`${commandName}\` is coming in Phase 3 Task 3/4. Stay tuned!`,
+    `*Available commands:*\n` +
+      `• \`@kraken add @user\` — Add a member to this enclave\n` +
+      `• \`@kraken remove @user\` — Remove a member from this enclave\n` +
+      `• \`@kraken members\` — List enclave members and their roles\n` +
+      `• \`@kraken whoami\` — Show your role in this enclave\n` +
+      `• \`@kraken set mode <preset>\` — Set access level (private, team, open-read, open-run, shared)\n` +
+      `• \`@kraken show prompts [workflow]\` — Show workflow prompts\n` +
+      `• \`@kraken show templates [workflow]\` — Show workflow templates\n` +
+      `• \`@kraken help\` — Show this message`,
   );
 }
 
@@ -169,7 +174,7 @@ export async function executeCommand(
         break;
 
       case 'help':
-        await stubHandler('help', ctx);
+        await handleHelp(ctx);
         break;
 
       default:

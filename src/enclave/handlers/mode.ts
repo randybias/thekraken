@@ -15,7 +15,7 @@ const MODE_PRESETS: Record<string, string> = {
   team: 'rwxrwx---',
   'open-read': 'rwxrwxr--',
   'open-run': 'rwxrwxr-x',
-  shared: 'rwxrwx---', // alias for team
+  shared: 'rwxrwxrwx',
 };
 
 const MODE_DESCRIPTIONS: Record<string, string> = {
@@ -24,7 +24,7 @@ const MODE_DESCRIPTIONS: Record<string, string> = {
   'open-read': 'open-read — visitors can view, members have full access',
   'open-run':
     'open-run — visitors can view and run tasks, members have full access',
-  shared: 'shared — members can read, write, and run tasks',
+  shared: 'shared — everyone can read, write, and run tasks',
 };
 
 function isValidRwxString(s: string): boolean {
@@ -64,7 +64,7 @@ export async function handleSetMode(
     return;
   }
 
-  if (!senderEmail || senderEmail !== owner) {
+  if (!senderEmail || senderEmail.toLowerCase() !== owner.toLowerCase()) {
     await ctx.sendMessage('Only the enclave owner can change access settings.');
     return;
   }

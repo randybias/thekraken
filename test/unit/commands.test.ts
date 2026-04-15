@@ -223,11 +223,11 @@ describe('executeCommand — remaining stub handlers', () => {
     ctx = makeCtx();
   });
 
-  it('sends a stub message for help command', async () => {
+  it('sends help message listing available commands', async () => {
     const parsed = parseCommand('@kraken help')!;
     await executeCommand(parsed, ctx);
     expect(ctx.sendMessage).toHaveBeenCalledWith(
-      expect.stringContaining('Phase 3'),
+      expect.stringContaining('Available commands'),
     );
   });
 

@@ -111,6 +111,15 @@ async function handleMemberLeft(
     return;
   }
 
+  // Never remove the owner via channel events
+  if (info.owner && email.toLowerCase() === info.owner.toLowerCase()) {
+    logger.debug(
+      { enclaveName, email },
+      'channel-events: owner left channel, not removing from enclave',
+    );
+    return;
+  }
+
   if (!info.members.some((m) => m.toLowerCase() === email.toLowerCase())) {
     logger.debug(
       { enclaveName, email },

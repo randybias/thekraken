@@ -325,7 +325,11 @@ export async function handleWhoami(ctx: CommandContext): Promise<void> {
     let role: string;
     if (senderEmail.toLowerCase() === result.owner.toLowerCase()) {
       role = 'the owner';
-    } else if ((result.members ?? []).includes(senderEmail)) {
+    } else if (
+      (result.members ?? []).some(
+        (m: string) => m.toLowerCase() === senderEmail.toLowerCase(),
+      )
+    ) {
       role = 'a member';
     } else {
       role = 'a visitor';
