@@ -272,13 +272,16 @@ export function buildDeployerPrompt(
 
 /**
  * Build the system prompt appended to pi's default coding prompt for
- * the long-lived per-enclave team subprocess. This team is what the
- * dispatcher delegates BUILD and DEPLOY tasks to — it has pi's full
- * coding toolkit (read, write, edit, bash) and access to the
- * git-state repo (cwd = `<git-state>/enclaves/<enclave>/`).
+ * the long-lived per-enclave team subprocess. The team is the enclave's
+ * control surface — it handles ALL traffic in the enclave channel:
+ * build/deploy tasks, conversational queries (status, logs, list,
+ * health), and commands. It has pi's full coding toolkit (read, write,
+ * edit, bash) and access to the git-state repo
+ * (cwd = `<git-state>/enclaves/<enclave>/`).
  *
- * Conversational queries (status, logs, list, health) are handled
- * INLINE by the dispatcher's own smart-path and never reach this team.
+ * This is the Phase A transitional prompt — the manager/builder/deployer
+ * split lands in Phase C. Until then, one subprocess handles both modes
+ * via the decision tree below.
  */
 export function buildTeamBuilderPrompt(options: RolePromptOptions): string {
   const { enclaveName, userSlackId, userEmail } = options;
@@ -292,6 +295,22 @@ export function buildTeamBuilderPrompt(options: RolePromptOptions): string {
     'agent. Your working directory is `<git-state>/enclaves/' +
       enclaveName +
       '/` — this is a git checkout of the mirantis-tentacle-workflows repo.',
+    '',
+    '## First, decide the kind of request',
+    '',
+    'Every inbound message falls into one of two buckets:',
+    '',
+    '1. **Read / conversational** — status checks, log requests, health',
+    '   questions, listing tentacles, general "what\'s going on?" chatter,',
+    '   help requests. These do NOT touch code or deploy state. Answer',
+    '   using `tntc` read commands: `tntc status`, `tntc wf list`,',
+    '   `tntc wf logs`, `tntc wf health`, `tntc wf describe`. Reply',
+    '   concisely in the same turn. Do NOT scaffold, edit, or deploy.',
+    '',
+    '2. **Build / deploy / modify** — requests that create, change, or',
+    '   remove tentacles. Follow the full build/deploy flow below.',
+    '',
+    'When in doubt, ASK the user which they want instead of guessing.',
     '',
     '## The build/deploy flow',
     'When a user asks to "build/create/scaffold/deploy a <name> tentacle":',

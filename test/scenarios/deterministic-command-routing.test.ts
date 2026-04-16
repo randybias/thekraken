@@ -69,7 +69,7 @@ describe('Scenario 11: deterministic command routing (@kraken add)', () => {
     }
   });
 
-  it('router routes regular conversation messages to LLM agent', () => {
+  it('router routes regular conversation messages in enclaves to the team (A4)', () => {
     const deps: RouterDeps = {
       bindings: {
         lookupEnclave: (channelId: string) =>
@@ -97,8 +97,14 @@ describe('Scenario 11: deterministic command routing (@kraken add)', () => {
 
     const decision = routeEvent(event, deps);
 
-    // Conversational queries (not build/deploy imperative) route to smart
-    // path. The team subprocess is reserved for build/deploy actions.
-    expect(decision.path).toBe('smart');
+    // A4: ALL enclave-bound non-command traffic routes to the team
+    // (the Enclave Manager is the proactive agent for its channel).
+    // The dispatcher's LLM path is reserved for DMs / provision intent.
+    expect(decision.path).toBe('deterministic');
+    if (decision.path === 'deterministic') {
+      expect(['spawn_and_forward', 'forward_to_active_team']).toContain(
+        decision.action.type,
+      );
+    }
   });
 });

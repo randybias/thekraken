@@ -157,10 +157,9 @@ describe('createSlackBot event handlers (post-pivot)', () => {
   });
 
   describe('app_mention handler', () => {
-    it('tells user the channel is not an enclave when lookup + reconstitute both fail', async () => {
+    it('silently ignores mentions in unbound channels without provision intent (A3)', async () => {
       await getSlackBot();
       mockBindings.lookupEnclave.mockReturnValue(null);
-      mockBindings.lookupEnclaveWithReconstitute.mockResolvedValue(null);
 
       const say = vi.fn();
       await registeredHandlers['app_mention']!({
@@ -175,14 +174,12 @@ describe('createSlackBot event handlers (post-pivot)', () => {
         client: mockClient,
       });
 
-      // New behavior: lazy reconstitute ran, failed, and the bot
-      // invoked onSmartPath in provisioning mode. The smart-path mock
-      // returns 'Smart response', which is posted via say.
+      // A3: non-enclave channels are passive. Text does not match
+      // PROVISION_PATTERN so the handler returns silently — no say,
+      // no smart path, no auth prompt.
       expect(mockTeams.sendToTeam).not.toHaveBeenCalled();
-      expect(say).toHaveBeenCalledTimes(1);
-      expect(mockSmartPath).toHaveBeenCalledWith(
-        expect.objectContaining({ mode: 'provision' }),
-      );
+      expect(say).not.toHaveBeenCalled();
+      expect(mockSmartPath).not.toHaveBeenCalled();
     });
 
     it('forwards mentions in enclave channels to team (deterministic: spawn_and_forward)', async () => {
