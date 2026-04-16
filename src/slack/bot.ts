@@ -394,21 +394,46 @@ function registerEventHandlers(
         const userToken = await checkAuthOrPrompt(userId, channelId, client);
         if (userToken === null) return;
 
+        // Re-read the binding after the (potentially blocking) auth gate.
+        // If the channel was rebound or deprovisioned during device-auth,
+        // the pre-auth lookup is stale. Treat disappearance as
+        // "no longer an enclave" and silently bail.
+        const freshBinding = deps.bindings.lookupEnclave(channelId);
+        if (!freshBinding) {
+          log.info(
+            { channelId, userId },
+            'binding disappeared during auth; ignoring',
+          );
+          span.setStatus({ code: SpanStatusCode.OK });
+          return;
+        }
+
         // Command router: deterministic commands handled before team dispatch.
         // (Phase C5 will migrate these into the Enclave Manager; Phase A
         // retains them here to minimize change.)
         const parsed = parseCommand(text);
         if (parsed) {
-          // D6: use the authenticated user's OIDC token for MCP calls.
-          const cmdMcpCall =
-            deps.getMcpCallForToken?.(userToken) ??
-            deps.mcpCall ??
-            (async () => ({}));
+          // D6: MCP calls MUST carry the authenticated user's OIDC token.
+          // No service-token fallback — fail closed if the factory is
+          // missing.
+          if (!deps.getMcpCallForToken) {
+            log.error(
+              { userId, channelId },
+              'command dispatch aborted: no user-bound MCP client factory (D6)',
+            );
+            await say({
+              text: 'Internal error: command handler is not configured for per-user auth. Please contact the operator.',
+              thread_ts: threadTs,
+            });
+            span.setStatus({ code: SpanStatusCode.OK });
+            return;
+          }
+          const cmdMcpCall = deps.getMcpCallForToken(userToken);
           await executeCommand(parsed, {
             channelId,
             threadTs,
             senderSlackId: userId,
-            enclaveName: binding.enclaveName,
+            enclaveName: freshBinding.enclaveName,
             mcpCall: cmdMcpCall,
             sendMessage: async (msgText) => {
               // Command-handler output also goes through jargon filter +

@@ -102,10 +102,9 @@ describe('Scenario 11: deterministic command routing (@kraken add)', () => {
     // The dispatcher's LLM path is reserved for DMs / provision intent.
     expect(decision.path).toBe('deterministic');
     if (decision.path === 'deterministic') {
-      expect([
-        'spawn_and_forward',
-        'forward_to_active_team',
-      ]).toContain(decision.action.type);
+      expect(['spawn_and_forward', 'forward_to_active_team']).toContain(
+        decision.action.type,
+      );
     }
   });
 });
