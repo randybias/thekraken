@@ -65,7 +65,21 @@ export class NdjsonReader {
   /** Accumulated partial line from the last read (no trailing \n yet). */
   private buffer = '';
 
-  constructor(private readonly path: string) {}
+  constructor(
+    private readonly path: string,
+    opts?: { startAtEnd?: boolean },
+  ) {
+    if (opts?.startAtEnd) {
+      // Skip everything already in the file. On pod restart, old
+      // mailbox records are stale — their threads are dead. Only
+      // records appended AFTER this reader was created will be seen.
+      try {
+        this.offset = statSync(path).size;
+      } catch {
+        // File doesn't exist yet — offset stays 0.
+      }
+    }
+  }
 
   /**
    * Return all complete JSON records appended since the last read.

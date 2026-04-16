@@ -89,7 +89,10 @@ export class TeamBridge {
   constructor(private readonly opts: TeamBridgeOptions) {
     this.mailboxPath = join(opts.teamDir, 'mailbox.ndjson');
     this.outboundPath = join(opts.teamDir, 'outbound.ndjson');
-    this.reader = new NdjsonReader(this.mailboxPath);
+    // Start at the end of any existing mailbox. On pod restart, old
+    // records are stale (their threads are dead, pi context is gone).
+    // We only want records appended AFTER this bridge starts.
+    this.reader = new NdjsonReader(this.mailboxPath, { startAtEnd: true });
 
     if (!existsSync(opts.gitStateDir)) {
       mkdirSync(opts.gitStateDir, { recursive: true });
