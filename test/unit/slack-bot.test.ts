@@ -175,13 +175,14 @@ describe('createSlackBot event handlers (post-pivot)', () => {
         client: mockClient,
       });
 
-      // New behavior: lazy reconstitute ran, failed, and we explicitly
-      // told the user. No team dispatch, no silent ignore.
+      // New behavior: lazy reconstitute ran, failed, and the bot
+      // invoked onSmartPath in provisioning mode. The smart-path mock
+      // returns 'Smart response', which is posted via say.
       expect(mockTeams.sendToTeam).not.toHaveBeenCalled();
-      // One message describing that it's not an enclave.
       expect(say).toHaveBeenCalledTimes(1);
-      const msg = (say.mock.calls[0]![0] as { text: string }).text;
-      expect(msg.toLowerCase()).toMatch(/enclave/);
+      expect(mockSmartPath).toHaveBeenCalledWith(
+        expect.objectContaining({ mode: 'provision' }),
+      );
     });
 
     it('forwards mentions in enclave channels to team (deterministic: spawn_and_forward)', async () => {

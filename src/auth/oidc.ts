@@ -239,6 +239,21 @@ export function extractEmailFromToken(token: string): string | undefined {
 }
 
 /**
+ * Extract the Keycloak subject ID (`sub`) from a JWT access token.
+ * Used for `enclave_provision({owner_sub})`.
+ */
+export function extractSubFromToken(token: string): string | undefined {
+  try {
+    const part = token.split('.')[1];
+    if (!part) return undefined;
+    const payload = JSON.parse(Buffer.from(part, 'base64url').toString());
+    return payload.sub as string | undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
  * Extract a JWT payload as a plain object.
  * Returns null if the token is malformed.
  */

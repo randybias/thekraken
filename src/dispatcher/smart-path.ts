@@ -28,7 +28,7 @@ import {
   createMcpConnection,
   type McpConnection,
 } from '../agent/mcp-connection.js';
-import { extractEmailFromToken } from '../auth/index.js';
+import { extractEmailFromToken, extractSubFromToken } from '../auth/index.js';
 
 const log = createChildLogger({ module: 'smart-path' });
 
@@ -60,6 +60,12 @@ export interface SmartPathInput {
   modelId: string;
   /** Slack bot user ID — used to strip the leading mention. */
   botUserId?: string;
+  /** Dispatch mode: 'enclave' (default), 'dm', or 'provision'. */
+  mode?: 'enclave' | 'dm' | 'provision';
+  /** Slack channel ID — passed through for provisioning mode. */
+  channelId?: string;
+  /** Slack channel name — passed through for provisioning mode. */
+  channelName?: string;
   /**
    * Prior turns in the same Slack thread, oldest first.
    * Used to give the LLM multi-turn conversational memory.
@@ -91,13 +97,22 @@ export async function runSmartPath(
   }
 
   const userEmail = extractEmailFromToken(input.userToken) ?? 'unknown';
-  const systemPrompt = input.enclaveName
-    ? buildManagerPrompt({
-        enclaveName: input.enclaveName,
-        userSlackId: input.userSlackId,
-        userEmail,
-      })
-    : buildDmSystemPrompt(userEmail);
+  const userSub = extractSubFromToken(input.userToken) ?? 'unknown';
+  const systemPrompt =
+    input.mode === 'provision'
+      ? buildProvisioningPrompt(
+          userEmail,
+          userSub,
+          input.channelId ?? '',
+          input.channelName ?? 'unknown-channel',
+        )
+      : input.enclaveName
+        ? buildManagerPrompt({
+            enclaveName: input.enclaveName,
+            userSlackId: input.userSlackId,
+            userEmail,
+          })
+        : buildDmSystemPrompt(userEmail);
 
   let mcp: McpConnection | null = null;
   try {
@@ -327,5 +342,46 @@ function buildDmSystemPrompt(userEmail: string): string {
     '- Respond directly in first person. Never narrate your own actions.',
     '- Be concise and technical. Users are engineers.',
     '- If the user asks about workflows/tentacles, remind them those live inside enclave channels.',
+  ].join('\n');
+}
+
+function buildProvisioningPrompt(
+  userEmail: string,
+  ownerSub: string,
+  channelId: string,
+  channelName: string,
+): string {
+  return [
+    '# Role: The Kraken (Provisioning Mode)',
+    '',
+    'You are The Kraken, helping a user set up a new Tentacular enclave for their Slack channel.',
+    `User email: ${userEmail}`,
+    `Keycloak subject (owner_sub): ${ownerSub}`,
+    `Slack channel ID: ${channelId}`,
+    `Slack channel name: #${channelName}`,
+    '',
+    '## Provisioning Flow',
+    'Walk the user through these steps conversationally:',
+    '',
+    `1. **Name**: Ask what the enclave should be called. Suggest \`${channelName}\` as the default.`,
+    '   - Enclave names: lowercase, alphanumeric + hyphens, max 63 chars.',
+    '   - If the user says "yes", "go ahead", or similar, use the channel name.',
+    '2. **Description**: Ask for a brief description of what this enclave is for.',
+    '3. **Provision**: Call the `enclave_provision` MCP tool with these exact parameters:',
+    `   - name: (from step 1, default \`${channelName}\`)`,
+    `   - owner_email: "${userEmail}"`,
+    `   - owner_sub: "${ownerSub}"`,
+    '   - platform: "slack"',
+    `   - channel_id: "${channelId}"`,
+    `   - channel_name: "${channelName}"`,
+    '4. **Confirm**: On success, tell the user the enclave is ready and they can',
+    '   start using it immediately (@Kraken in this channel).',
+    '   On failure, report the error clearly.',
+    '',
+    '## Rules',
+    '- Be conversational and concise. Users are engineers.',
+    '- Do NOT ask for owner_email, owner_sub, channel_id, or platform — you already have those.',
+    '- Only ask for name and description.',
+    '- NEVER mention kubectl, namespace, or pod.',
   ].join('\n');
 }

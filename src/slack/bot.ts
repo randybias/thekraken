@@ -88,7 +88,9 @@ export interface SlackBotDeps {
     userId: string;
     text: string;
     enclaveName: string | null;
-    mode: 'enclave' | 'dm';
+    mode: 'enclave' | 'dm' | 'provision';
+    /** Slack channel name (resolved via API). Present in provisioning mode. */
+    channelName?: string;
     /** Authenticated user's OIDC access token (D6). */
     userToken: string;
     /**
@@ -347,12 +349,53 @@ function registerEventHandlers(
           if (reconstituted === null) {
             log.info(
               { channelId },
-              'lazy reconstitute: channel is not an enclave',
+              'lazy reconstitute: channel is not an enclave — offering provisioning',
             );
-            await say({
-              text: "This channel isn't an enclave. I can only help in channels that are connected to a Tentacular enclave.",
-              thread_ts: threadTs,
-            });
+            // Instead of dead-ending, offer to provision. Resolve the
+            // channel name for the provisioning prompt, then delegate to
+            // the smart-path in provisioning mode.
+            if (deps.onSmartPath) {
+              let channelName = channelId;
+              try {
+                const info = await client.conversations.info({
+                  channel: channelId,
+                });
+                channelName =
+                  (info.channel as { name?: string })?.name ?? channelId;
+              } catch {
+                // non-fatal
+              }
+              const provisionReply = await deps.onSmartPath({
+                channelId,
+                threadTs,
+                userId,
+                text,
+                enclaveName: null,
+                mode: 'provision',
+                channelName,
+                userToken,
+                priorTurns: [],
+              });
+              if (provisionReply) {
+                await say({ text: provisionReply, thread_ts: threadTs });
+              }
+              // After provisioning, attempt to reconstitute the binding
+              // (enclave_provision may have just created it).
+              if (mcpCallForReconstitute) {
+                await deps.bindings
+                  .lookupEnclaveWithReconstitute(
+                    channelId,
+                    userId,
+                    mcpCallForReconstitute,
+                  )
+                  .catch(() => null);
+              }
+            } else {
+              await say({
+                text: "This channel isn't an enclave yet. DM me to set one up.",
+                thread_ts: threadTs,
+              });
+            }
             span.setStatus({ code: SpanStatusCode.OK });
             return;
           }

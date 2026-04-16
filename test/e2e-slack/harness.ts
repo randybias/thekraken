@@ -310,6 +310,14 @@ async function getMcpCallForUser(): Promise<{
     process.env['KRAKEN_E2E_MCP_URL'] ??
     'http://tentacular-mcp.tentacular-system.svc.cluster.local:8080/mcp';
 
+  // Validate namespace to prevent shell injection (execSync below
+  // interpolates it into a kubectl command string).
+  if (!/^[a-z0-9]([a-z0-9-]*[a-z0-9])?$/.test(namespace)) {
+    throw new Error(
+      `invalid KRAKEN_E2E_NAMESPACE: ${namespace} — must be a valid K8s namespace name`,
+    );
+  }
+
   // Fetch a FRESH OIDC token via getValidTokenForUser (which refreshes
   // if the stored access_token is expired). Pipe ESM script to node
   // via kubectl exec -i to avoid shell-escaping headaches.

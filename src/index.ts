@@ -128,6 +128,9 @@ async function main(): Promise<void> {
           mcpUrl: config.mcp.url,
           anthropicApiKey: apiKey,
           modelId: config.llm.defaultModel,
+          mode: ctx.mode,
+          channelId: ctx.channelId,
+          channelName: ctx.channelName,
           priorTurns: ctx.priorTurns,
           // Allow smart-path to re-source a fresh OIDC token between turns.
           // getValidTokenForUser auto-refreshes via the stored refresh_token,
@@ -195,10 +198,18 @@ async function main(): Promise<void> {
         const listContent = listRes.content as
           | Array<{ type: string; text?: string }>
           | undefined;
-        const listJson = listContent?.[0]?.text
-          ? JSON.parse(listContent[0].text)
-          : {};
-        const rawEnclaves = (listJson.enclaves ?? listJson ?? []) as Array<{
+        let listJson: Record<string, unknown> = {};
+        try {
+          listJson = listContent?.[0]?.text
+            ? (JSON.parse(listContent[0].text) as Record<string, unknown>)
+            : {};
+        } catch {
+          return [];
+        }
+        const maybeEnclaves = listJson['enclaves'] ?? listJson;
+        const rawEnclaves = (
+          Array.isArray(maybeEnclaves) ? maybeEnclaves : []
+        ) as Array<{
           name?: string;
           owner?: string;
           owner_email?: string;

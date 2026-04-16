@@ -10,6 +10,7 @@ export {
   startTokenRefreshLoop,
   stopTokenRefreshLoop,
   extractEmailFromToken,
+  extractSubFromToken,
 } from './oidc.js';
 
 export {
