@@ -107,7 +107,7 @@ export function parseCommand(text: string): DeterministicAction | null {
     .trim();
 
   // Match: add/remove/transfer @user
-  const userVerb = stripped.match(/^(add|remove|transfer)\s+<@([A-Z0-9]+)>/i);
+  const userVerb = stripped.match(/^(add|remove|transfer)\s+<@([A-Z0-9_]+)>/i);
   if (userVerb) {
     const verb = userVerb[1]!.toLowerCase();
     const targetUserId = userVerb[2]!;

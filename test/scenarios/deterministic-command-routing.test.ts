@@ -49,7 +49,8 @@ describe('Scenario 11: deterministic command routing (@kraken add)', () => {
       type: 'app_mention',
       channelId: 'C_ENC',
       userId: 'U_OWNER',
-      text: '<@BOTID> add @U_ALICE',
+      // Slack @mentions use <@USERID> format; plain @U_ALICE won't match.
+      text: '<@BOTID> add <@U_ALICE>',
     };
 
     const decision = routeEvent(event, deps);
@@ -96,8 +97,8 @@ describe('Scenario 11: deterministic command routing (@kraken add)', () => {
 
     const decision = routeEvent(event, deps);
 
-    // Regular conversation should route deterministically to spawn_and_forward
-    // (since no team is active)
-    expect(decision.path).toBe('deterministic');
+    // Conversational queries (not build/deploy imperative) route to smart
+    // path. The team subprocess is reserved for build/deploy actions.
+    expect(decision.path).toBe('smart');
   });
 });

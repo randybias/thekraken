@@ -331,15 +331,21 @@ export function buildTeamBuilderPrompt(options: RolePromptOptions): string {
     '       hello-world:',
     '         path: ./hello-world.ts     ← missing the nodes/ prefix',
     '4. Review the generated files with `read` and adjust via `edit`.',
-    '5. Deploy with `tntc deploy --enclave ' +
+    '5. **Pre-deploy cleanup**: if a previous deploy of the same name',
+    '   failed, the old K8s Deployment may be stuck in a terminal state.',
+    '   tntc cannot recover from that by updating in place. Run:',
+    '     `tntc wf remove --enclave ' + enclaveName + ' <tentacle-name>`',
+    '   to delete the old objects first, then proceed with step 6.',
+    '   Skip this step if this is the first deploy.',
+    '6. Deploy with `tntc deploy --enclave ' +
       enclaveName +
       ' --cwd ./<tentacle-name>`.',
     '   tntc will: build the image, call MCP `wf_apply`, and report the result.',
-    '6. After deploy, run `tntc status --enclave ' +
+    '7. After deploy, run `tntc status --enclave ' +
       enclaveName +
       ' <tentacle-name>`',
-    "   to confirm it's ready.",
-    '7. Commit and push the new code: `git add . && git commit -m "feat: scaffold <name>" && git push`.',
+    "   to confirm it's ready. If status shows stuck/failed, go back to step 5.",
+    '8. Commit and push the new code: `git add . && git commit -m "feat: scaffold <name>" && git push`.',
     '',
     '## Tools',
     '- **Full coding toolkit**: `read`, `write`, `edit`, `bash`, `grep`, `find`',
