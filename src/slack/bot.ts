@@ -758,53 +758,38 @@ async function checkAuthOrPrompt(
       expiresInSeconds: deviceAuth.expires_in,
     });
 
-    // Try DM first (device codes are sensitive). Fall back to ephemeral
-    // in-channel if the bot lacks im:write scope for conversations.open.
-    let sentViaDm = false;
-    try {
-      const dmResult = await client.conversations.open({ users: userId });
-      const dmChannelId = (
-        dmResult as { channel?: { id?: string } }
-      ).channel?.id;
-      if (dmChannelId) {
-        await client.chat.postMessage({
-          channel: dmChannelId,
-          text: card.text,
-          blocks: card.blocks,
-        } as Parameters<typeof client.chat.postMessage>[0]);
-        sentViaDm = true;
-        await client.chat.postMessage({
-          channel: channelId,
-          thread_ts: threadTs,
-          text: "I need you to authenticate first. I've sent you a DM with the link and code.",
-        });
-      }
-    } catch (dmErr) {
-      log.warn(
-        { err: dmErr, userId },
-        'DM auth card failed — falling back to ephemeral',
-      );
-    }
-    if (!sentViaDm) {
-      await client.chat.postEphemeral({
-        channel: channelId,
-        user: userId,
-        thread_ts: threadTs,
-        text: card.text,
-        blocks: card.blocks,
-      } as Parameters<typeof client.chat.postEphemeral>[0]);
-    }
-    log.info({ userId, channelId, viaDm: sentViaDm }, 'device auth prompt sent');
+    // Post the auth card as an ephemeral message (only visible to this
+    // user). This is the same approach the old Kraken used — requires
+    // only chat:write scope, no im:write needed.
+    await client.chat.postEphemeral({
+      channel: channelId,
+      user: userId,
+      thread_ts: threadTs,
+      text: card.text,
+      blocks: card.blocks,
+    } as Parameters<typeof client.chat.postEphemeral>[0]);
+    log.info({ userId, channelId }, 'device auth prompt sent (ephemeral)');
 
-    // Poll in background — fire and forget.
+    // Poll in background. When the user completes auth, store the token
+    // and post a confirmation so they know to repeat their request.
     pollForToken(
       deviceAuth.device_code,
       deviceAuth.interval,
       deviceAuth.expires_in,
     )
-      .then((tokens) => {
+      .then(async (tokens) => {
         storeTokenForUser(userId, tokens);
         log.info({ userId }, 'device auth completed — token stored');
+        // Notify the user they're authenticated.
+        try {
+          await client.chat.postMessage({
+            channel: channelId,
+            thread_ts: threadTs,
+            text: "You're authenticated! Go ahead and repeat your request.",
+          });
+        } catch {
+          // non-fatal — user will discover auth worked on next message
+        }
       })
       .catch((err: unknown) =>
         log.warn({ err, user: userId }, 'Device auth polling failed'),
