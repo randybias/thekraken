@@ -36,7 +36,15 @@ export function filterJargon(text: string): string {
     .replace(/\bSPIFFE\b/gi, 'security system')
     .replace(/\bCSI driver\b/gi, 'system driver')
     .replace(/`kubectl [^`]+`/g, '_(system command)_')
-    .replace(/`tntc [^`]+`/g, '_(system command)_');
+    .replace(/`tntc [^`]+`/g, '_(system command)_')
+    // Translate POSIX-style permission strings (e.g. "rwxrwx---") to
+    // human-readable access levels. These come from MCP's `mode` field.
+    .replace(/\brwxrwxrwx\b/g, 'full access (everyone)')
+    .replace(/\brwxrwx---\b/g, 'full access (owner + team)')
+    .replace(/\brwxr-x---\b/g, 'owner: full, team: read/run')
+    .replace(/\brwx------\b/g, 'owner-only access')
+    .replace(/\brwxrwxr-x\b/g, 'owner + team: full, others: read/run')
+    .replace(/\brwxrwxr--\b/g, 'owner + team: full, others: read-only');
 }
 
 /**
