@@ -33,6 +33,7 @@ import {
   type EnclaveData,
 } from './home-tab.js';
 import { formatAgentResponse } from './formatter.js';
+import { authCard } from './cards.js';
 import { filterJargon } from '../jargon-filter.js';
 import { randomUUID } from 'node:crypto';
 import {
@@ -705,21 +706,26 @@ async function checkAuthOrPrompt(
   try {
     const deviceAuth = await initiateDeviceAuth();
 
-    // Open a DM conversation with the user and post there.
+    // Build a Block Kit auth card (ported from the old Kraken).
+    const loginUrl =
+      deviceAuth.verification_uri_complete ?? deviceAuth.verification_uri;
+    const card = authCard({
+      loginUrl,
+      userCode: deviceAuth.user_code,
+      expiresInSeconds: deviceAuth.expires_in,
+    });
+
+    // Send the card via DM (device codes are sensitive credentials).
     const dmResult = await client.conversations.open({ users: userId });
     const dmChannelId = (dmResult as { channel?: { id?: string } }).channel?.id;
     if (dmChannelId) {
       await client.chat.postMessage({
         channel: dmChannelId,
-        text:
-          `*Authentication required.* Open the link below and enter the code to connect your account:\n` +
-          `*URL:* ${deviceAuth.verification_uri_complete ?? deviceAuth.verification_uri}\n` +
-          `*Code:* \`${deviceAuth.user_code}\`\n` +
-          `_(This code expires in ${Math.floor(deviceAuth.expires_in / 60)} minutes.)_`,
-      });
+        text: card.text,
+        blocks: card.blocks,
+      } as Parameters<typeof client.chat.postMessage>[0]);
     }
-    // Also post a non-sensitive nudge in the original thread so the
-    // user knows to check their DMs. No code or URL here.
+    // Non-sensitive nudge in the original thread.
     await client.chat.postMessage({
       channel: channelId,
       thread_ts: threadTs,
