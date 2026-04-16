@@ -1,0 +1,229 @@
+<mxGraphModel dx="1400" dy="900" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1600" pageHeight="1200" math="0" shadow="0">
+  <root>
+    <mxCell id="0"/>
+    <mxCell id="1" parent="0"/>
+
+    <!-- Title -->
+    <mxCell id="title" value="The Kraken - Message Handling Flow" style="text;fontSize=20;fontStyle=1;align=center;" vertex="1" parent="1">
+      <mxGeometry x="500" y="10" width="400" height="30" as="geometry"/>
+    </mxCell>
+
+    <!-- Entry: Slack Event -->
+    <mxCell id="entry" value="Slack Event Arrives" style="rounded=1;whiteSpace=wrap;fillColor=#d5e8d4;strokeColor=#82b366;fontStyle=1;fontSize=13;" vertex="1" parent="1">
+      <mxGeometry x="600" y="60" width="200" height="50" as="geometry"/>
+    </mxCell>
+
+    <!-- Decision: event type -->
+    <mxCell id="d_type" value="Event type?" style="rhombus;whiteSpace=wrap;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="1">
+      <mxGeometry x="620" y="150" width="160" height="80" as="geometry"/>
+    </mxCell>
+    <mxCell id="e_entry_type" style="edgeStyle=orthogonalEdgeStyle;rounded=1;" edge="1" source="entry" target="d_type" parent="1">
+      <mxGeometry relative="1" as="geometry"/>
+    </mxCell>
+
+    <!-- LEFT BRANCH: message event -->
+    <mxCell id="msg_filter" value="channel_type&#xa;== 'im'?" style="rhombus;whiteSpace=wrap;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="1">
+      <mxGeometry x="300" y="150" width="140" height="80" as="geometry"/>
+    </mxCell>
+    <mxCell id="e_type_msg" value="message" style="edgeStyle=orthogonalEdgeStyle;rounded=1;" edge="1" source="d_type" target="msg_filter" parent="1">
+      <mxGeometry relative="1" as="geometry"/>
+    </mxCell>
+
+    <mxCell id="msg_drop" value="DROP&#xa;(channel msg)" style="rounded=1;whiteSpace=wrap;fillColor=#f8cecc;strokeColor=#b85450;" vertex="1" parent="1">
+      <mxGeometry x="200" y="280" width="120" height="50" as="geometry"/>
+    </mxCell>
+    <mxCell id="e_msg_drop" value="No (channel)" style="edgeStyle=orthogonalEdgeStyle;rounded=1;" edge="1" source="msg_filter" target="msg_drop" parent="1">
+      <mxGeometry relative="1" as="geometry"/>
+    </mxCell>
+
+    <mxCell id="msg_dm" value="DM Handler&#xa;(smart-path)" style="rounded=1;whiteSpace=wrap;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="1">
+      <mxGeometry x="370" y="280" width="120" height="50" as="geometry"/>
+    </mxCell>
+    <mxCell id="e_msg_dm" value="Yes (DM)" style="edgeStyle=orthogonalEdgeStyle;rounded=1;" edge="1" source="msg_filter" target="msg_dm" parent="1">
+      <mxGeometry relative="1" as="geometry"/>
+    </mxCell>
+
+    <!-- RIGHT BRANCH: app_mention -->
+    <mxCell id="self_loop" value="userId ==&#xa;botUserId?" style="rhombus;whiteSpace=wrap;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="1">
+      <mxGeometry x="870" y="150" width="140" height="80" as="geometry"/>
+    </mxCell>
+    <mxCell id="e_type_mention" value="app_mention" style="edgeStyle=orthogonalEdgeStyle;rounded=1;" edge="1" source="d_type" target="self_loop" parent="1">
+      <mxGeometry relative="1" as="geometry"/>
+    </mxCell>
+
+    <mxCell id="self_drop" value="DROP&#xa;(self-loop)" style="rounded=1;whiteSpace=wrap;fillColor=#f8cecc;strokeColor=#b85450;" vertex="1" parent="1">
+      <mxGeometry x="1060" y="160" width="110" height="50" as="geometry"/>
+    </mxCell>
+    <mxCell id="e_self_drop" value="Yes" style="edgeStyle=orthogonalEdgeStyle;rounded=1;" edge="1" source="self_loop" target="self_drop" parent="1">
+      <mxGeometry relative="1" as="geometry"/>
+    </mxCell>
+
+    <!-- Auth Gate -->
+    <mxCell id="auth_gate" value="Auth Gate&#xa;checkAuthOrPrompt()" style="rounded=1;whiteSpace=wrap;fillColor=#e1d5e7;strokeColor=#9673a6;fontStyle=1;fontSize=12;" vertex="1" parent="1">
+      <mxGeometry x="850" y="290" width="180" height="50" as="geometry"/>
+    </mxCell>
+    <mxCell id="e_self_auth" value="No" style="edgeStyle=orthogonalEdgeStyle;rounded=1;" edge="1" source="self_loop" target="auth_gate" parent="1">
+      <mxGeometry relative="1" as="geometry"/>
+    </mxCell>
+
+    <!-- Auth decision -->
+    <mxCell id="d_auth" value="Valid OIDC&#xa;token?" style="rhombus;whiteSpace=wrap;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="1">
+      <mxGeometry x="870" y="390" width="140" height="80" as="geometry"/>
+    </mxCell>
+    <mxCell id="e_auth_check" style="edgeStyle=orthogonalEdgeStyle;rounded=1;" edge="1" source="auth_gate" target="d_auth" parent="1">
+      <mxGeometry relative="1" as="geometry"/>
+    </mxCell>
+
+    <!-- BROKEN: Ephemeral auth card -->
+    <mxCell id="auth_ephem" value="Post ephemeral&#xa;auth card&#xa;+ pollForToken()&#xa;&#xa;PROBLEM:&#xa;User often cannot&#xa;see ephemeral msgs" style="rounded=1;whiteSpace=wrap;fillColor=#f8cecc;strokeColor=#b85450;fontStyle=1;fontSize=11;dashed=1;dashPattern=8 4;strokeWidth=3;" vertex="1" parent="1">
+      <mxGeometry x="1100" y="370" width="200" height="120" as="geometry"/>
+    </mxCell>
+    <mxCell id="e_auth_no" value="No token&#xa;(or expired)" style="edgeStyle=orthogonalEdgeStyle;rounded=1;strokeColor=#b85450;fontColor=#b85450;fontStyle=1;" edge="1" source="d_auth" target="auth_ephem" parent="1">
+      <mxGeometry relative="1" as="geometry"/>
+    </mxCell>
+
+    <!-- After auth: return null, user must retry -->
+    <mxCell id="auth_retry" value="return null&#xa;(request dropped)&#xa;&#xa;User must send&#xa;a NEW message&#xa;after auth completes" style="rounded=1;whiteSpace=wrap;fillColor=#f8cecc;strokeColor=#b85450;fontSize=10;" vertex="1" parent="1">
+      <mxGeometry x="1100" y="530" width="200" height="90" as="geometry"/>
+    </mxCell>
+    <mxCell id="e_ephem_retry" style="edgeStyle=orthogonalEdgeStyle;rounded=1;strokeColor=#b85450;dashed=1;" edge="1" source="auth_ephem" target="auth_retry" parent="1">
+      <mxGeometry relative="1" as="geometry"/>
+    </mxCell>
+
+    <!-- Has token: proceed -->
+    <mxCell id="lazy_recon" value="Lazy Reconstitute&#xa;(lookup enclave&#xa;binding from MCP)" style="rounded=1;whiteSpace=wrap;fillColor=#e1d5e7;strokeColor=#9673a6;" vertex="1" parent="1">
+      <mxGeometry x="620" y="520" width="180" height="60" as="geometry"/>
+    </mxCell>
+    <mxCell id="e_auth_yes" value="Token valid" style="edgeStyle=orthogonalEdgeStyle;rounded=1;" edge="1" source="d_auth" target="lazy_recon" parent="1">
+      <mxGeometry relative="1" as="geometry">
+        <Array as="points">
+          <mxPoint x="940" y="500"/>
+          <mxPoint x="710" y="500"/>
+        </Array>
+      </mxGeometry>
+    </mxCell>
+
+    <!-- Reconstitute decision -->
+    <mxCell id="d_bound" value="Enclave&#xa;binding&#xa;found?" style="rhombus;whiteSpace=wrap;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="1">
+      <mxGeometry x="640" y="630" width="140" height="80" as="geometry"/>
+    </mxCell>
+    <mxCell id="e_recon_check" style="edgeStyle=orthogonalEdgeStyle;rounded=1;" edge="1" source="lazy_recon" target="d_bound" parent="1">
+      <mxGeometry relative="1" as="geometry"/>
+    </mxCell>
+
+    <!-- Not an enclave: provisioning -->
+    <mxCell id="provision" value="Provisioning Mode&#xa;(smart-path with&#xa;enclave_provision)" style="rounded=1;whiteSpace=wrap;fillColor=#d5e8d4;strokeColor=#82b366;" vertex="1" parent="1">
+      <mxGeometry x="380" y="640" width="180" height="60" as="geometry"/>
+    </mxCell>
+    <mxCell id="e_not_enclave" value="No binding" style="edgeStyle=orthogonalEdgeStyle;rounded=1;" edge="1" source="d_bound" target="provision" parent="1">
+      <mxGeometry relative="1" as="geometry"/>
+    </mxCell>
+
+    <!-- Bound: command parse -->
+    <mxCell id="cmd_parse" value="parseCommand()&#xa;(whoami, members,&#xa;add, remove, set mode,&#xa;help, show)" style="rounded=1;whiteSpace=wrap;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="1">
+      <mxGeometry x="620" y="770" width="180" height="70" as="geometry"/>
+    </mxCell>
+    <mxCell id="e_bound_cmd" value="Binding exists" style="edgeStyle=orthogonalEdgeStyle;rounded=1;" edge="1" source="d_bound" target="cmd_parse" parent="1">
+      <mxGeometry relative="1" as="geometry"/>
+    </mxCell>
+
+    <!-- Command matched -->
+    <mxCell id="cmd_exec" value="executeCommand()&#xa;(deterministic,&#xa;no LLM)" style="rounded=1;whiteSpace=wrap;fillColor=#d5e8d4;strokeColor=#82b366;" vertex="1" parent="1">
+      <mxGeometry x="380" y="790" width="160" height="50" as="geometry"/>
+    </mxCell>
+    <mxCell id="e_cmd_match" value="Command matched" style="edgeStyle=orthogonalEdgeStyle;rounded=1;" edge="1" source="cmd_parse" target="cmd_exec" parent="1">
+      <mxGeometry relative="1" as="geometry"/>
+    </mxCell>
+
+    <!-- No command: routeEvent -->
+    <mxCell id="route" value="routeEvent()&#xa;(D4 hybrid dispatcher)" style="rounded=1;whiteSpace=wrap;fillColor=#dae8fc;strokeColor=#6c8ebf;fontStyle=1;" vertex="1" parent="1">
+      <mxGeometry x="620" y="900" width="180" height="50" as="geometry"/>
+    </mxCell>
+    <mxCell id="e_no_cmd" value="No command match" style="edgeStyle=orthogonalEdgeStyle;rounded=1;" edge="1" source="cmd_parse" target="route" parent="1">
+      <mxGeometry relative="1" as="geometry"/>
+    </mxCell>
+
+    <!-- Build/deploy classifier -->
+    <mxCell id="d_build" value="Build/deploy&#xa;request?" style="rhombus;whiteSpace=wrap;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="1">
+      <mxGeometry x="640" y="1000" width="140" height="80" as="geometry"/>
+    </mxCell>
+    <mxCell id="e_route_build" style="edgeStyle=orthogonalEdgeStyle;rounded=1;" edge="1" source="route" target="d_build" parent="1">
+      <mxGeometry relative="1" as="geometry"/>
+    </mxCell>
+
+    <!-- Team subprocess -->
+    <mxCell id="team" value="Pi Team Subprocess&#xa;(RPC bridge)&#xa;mailbox.ndjson&#xa;-&gt; pi -&gt; outbound.ndjson&#xa;-&gt; OutboundPoller -&gt; Slack" style="rounded=1;whiteSpace=wrap;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=11;" vertex="1" parent="1">
+      <mxGeometry x="380" y="1000" width="200" height="80" as="geometry"/>
+    </mxCell>
+    <mxCell id="e_build_yes" value="Yes" style="edgeStyle=orthogonalEdgeStyle;rounded=1;" edge="1" source="d_build" target="team" parent="1">
+      <mxGeometry relative="1" as="geometry"/>
+    </mxCell>
+
+    <!-- Smart path -->
+    <mxCell id="smart" value="Inline Smart Path&#xa;(pi-ai complete() loop&#xa;+ MCP tools&#xa;+ thread memory)" style="rounded=1;whiteSpace=wrap;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=11;" vertex="1" parent="1">
+      <mxGeometry x="850" y="1000" width="200" height="80" as="geometry"/>
+    </mxCell>
+    <mxCell id="e_build_no" value="No (conversational)" style="edgeStyle=orthogonalEdgeStyle;rounded=1;" edge="1" source="d_build" target="smart" parent="1">
+      <mxGeometry relative="1" as="geometry"/>
+    </mxCell>
+
+    <!-- Output: Reply to Slack -->
+    <mxCell id="reply" value="Reply posted to Slack&#xa;(Block Kit + jargon filter)" style="rounded=1;whiteSpace=wrap;fillColor=#d5e8d4;strokeColor=#82b366;fontStyle=1;fontSize=12;" vertex="1" parent="1">
+      <mxGeometry x="560" y="1140" width="280" height="50" as="geometry"/>
+    </mxCell>
+    <mxCell id="e_team_reply" style="edgeStyle=orthogonalEdgeStyle;rounded=1;" edge="1" source="team" target="reply" parent="1">
+      <mxGeometry relative="1" as="geometry">
+        <Array as="points">
+          <mxPoint x="480" y="1120"/>
+          <mxPoint x="700" y="1120"/>
+        </Array>
+      </mxGeometry>
+    </mxCell>
+    <mxCell id="e_smart_reply" style="edgeStyle=orthogonalEdgeStyle;rounded=1;" edge="1" source="smart" target="reply" parent="1">
+      <mxGeometry relative="1" as="geometry">
+        <Array as="points">
+          <mxPoint x="950" y="1120"/>
+          <mxPoint x="700" y="1120"/>
+        </Array>
+      </mxGeometry>
+    </mxCell>
+    <mxCell id="e_cmd_reply" style="edgeStyle=orthogonalEdgeStyle;rounded=1;" edge="1" source="cmd_exec" target="reply" parent="1">
+      <mxGeometry relative="1" as="geometry">
+        <Array as="points">
+          <mxPoint x="460" y="1120"/>
+          <mxPoint x="700" y="1120"/>
+        </Array>
+      </mxGeometry>
+    </mxCell>
+    <mxCell id="e_prov_reply" style="edgeStyle=orthogonalEdgeStyle;rounded=1;" edge="1" source="provision" target="reply" parent="1">
+      <mxGeometry relative="1" as="geometry">
+        <Array as="points">
+          <mxPoint x="470" y="720"/>
+          <mxPoint x="200" y="720"/>
+          <mxPoint x="200" y="1165"/>
+          <mxPoint x="560" y="1165"/>
+        </Array>
+      </mxGeometry>
+    </mxCell>
+
+    <!-- Annotation: the problem area -->
+    <mxCell id="problem_box" value="" style="rounded=1;whiteSpace=wrap;fillColor=none;strokeColor=#b85450;strokeWidth=3;dashed=1;dashPattern=12 6;" vertex="1" parent="1">
+      <mxGeometry x="1080" y="350" width="240" height="290" as="geometry"/>
+    </mxCell>
+    <mxCell id="problem_label" value="BROKEN AREA:&#xa;Ephemeral msgs are invisible&#xa;in threads. User never sees&#xa;the auth card. Request is&#xa;dropped. Bot appears dead." style="text;fontSize=11;fontStyle=1;fontColor=#b85450;align=left;" vertex="1" parent="1">
+      <mxGeometry x="1090" y="290" width="230" height="60" as="geometry"/>
+    </mxCell>
+
+    <!-- DM handler also needs auth -->
+    <mxCell id="e_dm_auth" style="edgeStyle=orthogonalEdgeStyle;rounded=1;dashed=1;" edge="1" source="msg_dm" target="auth_gate" parent="1">
+      <mxGeometry relative="1" as="geometry">
+        <Array as="points">
+          <mxPoint x="430" y="370"/>
+          <mxPoint x="430" y="315"/>
+          <mxPoint x="850" y="315"/>
+        </Array>
+      </mxGeometry>
+    </mxCell>
+
+  </root>
+</mxGraphModel>

@@ -759,8 +759,7 @@ async function checkAuthOrPrompt(
     });
 
     // Post the auth card as an ephemeral message (only visible to this
-    // user). This is the same approach the old Kraken used — requires
-    // only chat:write scope, no im:write needed.
+    // user). This is the same approach the old Kraken used.
     await client.chat.postEphemeral({
       channel: channelId,
       user: userId,
@@ -770,30 +769,27 @@ async function checkAuthOrPrompt(
     } as Parameters<typeof client.chat.postEphemeral>[0]);
     log.info({ userId, channelId }, 'device auth prompt sent (ephemeral)');
 
-    // Poll in background. When the user completes auth, store the token
-    // and post a confirmation so they know to repeat their request.
-    pollForToken(
-      deviceAuth.device_code,
-      deviceAuth.interval,
-      deviceAuth.expires_in,
-    )
-      .then(async (tokens) => {
-        storeTokenForUser(userId, tokens);
-        log.info({ userId }, 'device auth completed — token stored');
-        // Notify the user they're authenticated.
-        try {
-          await client.chat.postMessage({
-            channel: channelId,
-            thread_ts: threadTs,
-            text: "You're authenticated! Go ahead and repeat your request.",
-          });
-        } catch {
-          // non-fatal — user will discover auth worked on next message
-        }
-      })
-      .catch((err: unknown) =>
-        log.warn({ err, user: userId }, 'Device auth polling failed'),
+    // BLOCKING poll: wait for the user to complete auth in their browser.
+    // This matches the old Kraken behavior — the handler blocks until
+    // auth completes (up to expires_in seconds), then returns the token
+    // so the caller can continue processing the ORIGINAL request.
+    // Bolt acks the event immediately, so blocking the handler doesn't
+    // cause Slack retries.
+    try {
+      const tokens = await pollForToken(
+        deviceAuth.device_code,
+        deviceAuth.interval,
+        deviceAuth.expires_in,
       );
+      storeTokenForUser(userId, tokens);
+      log.info({ userId }, 'device auth completed — token stored');
+      return tokens.access_token;
+    } catch (pollErr) {
+      log.warn(
+        { err: pollErr, userId },
+        'Device auth polling failed or expired',
+      );
+    }
   } catch (err) {
     log.error({ err, userId }, 'Failed to initiate device auth');
   }

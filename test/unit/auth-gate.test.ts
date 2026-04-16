@@ -160,7 +160,7 @@ describe('auth gate (Task 6)', () => {
   });
 
   describe('unauthenticated user (app_mention)', () => {
-    it('posts an ephemeral auth prompt when user has no token', async () => {
+    it('posts an ephemeral auth prompt and blocks until auth completes', async () => {
       mockGetValidTokenForUser.mockResolvedValue(null);
       mockInitiateDeviceAuth.mockResolvedValue({
         device_code: 'dev-code-123',
@@ -171,8 +171,14 @@ describe('auth gate (Task 6)', () => {
         expires_in: 300,
         interval: 5,
       });
-      // pollForToken never resolves during this test (fire-and-forget)
-      mockPollForToken.mockReturnValue(new Promise(() => {}));
+      // Blocking poll: resolves when user completes auth in browser.
+      // Simulate immediate success so the test doesn't hang.
+      mockPollForToken.mockResolvedValue({
+        access_token: 'new-at-from-poll',
+        refresh_token: 'new-rt',
+        expires_in: 3600,
+        token_type: 'Bearer',
+      });
 
       await getSlackBot();
       const say = vi.fn();
@@ -188,21 +194,16 @@ describe('auth gate (Task 6)', () => {
         client: mockClient,
       });
 
-      // Device auth prompt is now sent as a DM (not ephemeral in channel).
-      // conversations.open is called to get the DM channel, then postMessage
-      // sends the code there.
-      expect(mockClient.conversations.open).toHaveBeenCalledWith({
-        users: 'U_ALICE',
-      });
-      expect(mockClient.chat.postMessage).toHaveBeenCalledWith(
+      // Auth card posted as ephemeral (old Kraken pattern).
+      expect(mockPostEphemeral).toHaveBeenCalledWith(
         expect.objectContaining({
-          channel: 'D_DM_CHANNEL',
-          text: expect.stringContaining('ABCD-1234'),
+          channel: 'C_ENC',
+          user: 'U_ALICE',
         }),
       );
     });
 
-    it('does NOT route to teams when user is unauthenticated', async () => {
+    it('does NOT route when polling fails (auth expired/rejected)', async () => {
       mockGetValidTokenForUser.mockResolvedValue(null);
       mockInitiateDeviceAuth.mockResolvedValue({
         device_code: 'dev-code',
@@ -211,7 +212,8 @@ describe('auth gate (Task 6)', () => {
         expires_in: 300,
         interval: 5,
       });
-      mockPollForToken.mockReturnValue(new Promise(() => {}));
+      // Simulate the user never completing auth (poll rejects).
+      mockPollForToken.mockRejectedValue(new Error('expired'));
 
       await getSlackBot();
       const say = vi.fn();
@@ -229,10 +231,9 @@ describe('auth gate (Task 6)', () => {
 
       expect(mockTeams.spawnTeam).not.toHaveBeenCalled();
       expect(mockTeams.sendToTeam).not.toHaveBeenCalled();
-      expect(say).not.toHaveBeenCalled();
     });
 
-    it('starts background polling after posting the auth prompt', async () => {
+    it('blocking poll stores token and continues original request on success', async () => {
       mockGetValidTokenForUser.mockResolvedValue(null);
       mockInitiateDeviceAuth.mockResolvedValue({
         device_code: 'dev-code-poll',
@@ -241,16 +242,13 @@ describe('auth gate (Task 6)', () => {
         expires_in: 300,
         interval: 5,
       });
-      const pollResolved = vi.fn();
-      mockPollForToken.mockImplementation(() =>
-        Promise.resolve({
-          access_token: 'new-at',
-          refresh_token: 'new-rt',
-          expires_in: 3600,
-          token_type: 'Bearer',
-        }),
-      );
-      mockStoreTokenForUser.mockImplementation(pollResolved);
+      // Simulate user completing auth immediately.
+      mockPollForToken.mockResolvedValue({
+        access_token: 'new-at',
+        refresh_token: 'new-rt',
+        expires_in: 3600,
+        token_type: 'Bearer',
+      });
 
       await getSlackBot();
       await registeredHandlers['app_mention']!({
@@ -258,21 +256,20 @@ describe('auth gate (Task 6)', () => {
           type: 'app_mention',
           channel: 'C_ENC',
           user: 'U_BOB',
-          text: '<@BOT> hello',
+          text: '<@BOT> build a tentacle',
           ts: '1002.0',
         },
         say: vi.fn(),
         client: mockClient,
       });
 
-      // Allow the fire-and-forget promise to flush
-      await new Promise((r) => setTimeout(r, 0));
-
-      expect(mockPollForToken).toHaveBeenCalledWith('dev-code-poll', 5, 300);
+      // Token was stored from the blocking poll.
       expect(mockStoreTokenForUser).toHaveBeenCalledWith(
         'U_BOB',
         expect.objectContaining({ access_token: 'new-at' }),
       );
+      // And the original request was processed (team spawned).
+      expect(mockTeams.spawnTeam).toHaveBeenCalled();
     });
   });
 
