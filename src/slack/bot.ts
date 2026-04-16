@@ -758,23 +758,43 @@ async function checkAuthOrPrompt(
       expiresInSeconds: deviceAuth.expires_in,
     });
 
-    // Send the card via DM (device codes are sensitive credentials).
-    const dmResult = await client.conversations.open({ users: userId });
-    const dmChannelId = (dmResult as { channel?: { id?: string } }).channel?.id;
-    if (dmChannelId) {
-      await client.chat.postMessage({
-        channel: dmChannelId,
+    // Try DM first (device codes are sensitive). Fall back to ephemeral
+    // in-channel if the bot lacks im:write scope for conversations.open.
+    let sentViaDm = false;
+    try {
+      const dmResult = await client.conversations.open({ users: userId });
+      const dmChannelId = (
+        dmResult as { channel?: { id?: string } }
+      ).channel?.id;
+      if (dmChannelId) {
+        await client.chat.postMessage({
+          channel: dmChannelId,
+          text: card.text,
+          blocks: card.blocks,
+        } as Parameters<typeof client.chat.postMessage>[0]);
+        sentViaDm = true;
+        await client.chat.postMessage({
+          channel: channelId,
+          thread_ts: threadTs,
+          text: "I need you to authenticate first. I've sent you a DM with the link and code.",
+        });
+      }
+    } catch (dmErr) {
+      log.warn(
+        { err: dmErr, userId },
+        'DM auth card failed — falling back to ephemeral',
+      );
+    }
+    if (!sentViaDm) {
+      await client.chat.postEphemeral({
+        channel: channelId,
+        user: userId,
+        thread_ts: threadTs,
         text: card.text,
         blocks: card.blocks,
-      } as Parameters<typeof client.chat.postMessage>[0]);
+      } as Parameters<typeof client.chat.postEphemeral>[0]);
     }
-    // Non-sensitive nudge in the original thread.
-    await client.chat.postMessage({
-      channel: channelId,
-      thread_ts: threadTs,
-      text: "I need you to authenticate first. I've sent you a DM with the link and code.",
-    });
-    log.info({ userId, channelId }, 'device auth prompt sent via DM');
+    log.info({ userId, channelId, viaDm: sentViaDm }, 'device auth prompt sent');
 
     // Poll in background — fire and forget.
     pollForToken(
