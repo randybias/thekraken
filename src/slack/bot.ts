@@ -619,6 +619,13 @@ function registerEventHandlers(
     // Self-loop guard: never process our own bot's posts.
     if (userId && deps.botUserId && userId === deps.botUserId) return;
 
+    // CRITICAL: Only process DMs. Channel messages are handled by
+    // app_mention (if the bot is @-mentioned). Without this guard,
+    // the bot intercepts EVERY message in every channel it belongs
+    // to — including random conversations from other users — and
+    // fires auth prompts into unrelated threads.
+    if (channelType !== 'im') return;
+
     // Avoid double-firing with app_mention: Slack dispatches both `message`
     // and `app_mention` for a mention in a channel. Let app_mention own
     // those; this handler only covers DMs and non-mention thread replies.
