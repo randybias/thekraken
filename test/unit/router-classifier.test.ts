@@ -91,9 +91,12 @@ describe('router: enclave-bound mentions', () => {
   });
 
   // ------------------------------------------------------------------------
-  // READ / CONVERSATIONAL → smart path
+  // READ / CONVERSATIONAL → also routes to team (A4: ALL enclave-bound
+  // non-command traffic goes deterministic to the enclave manager team).
+  // The distinction between build/deploy and conversational phrasing is
+  // now the enclave manager's responsibility, not the router's.
   // ------------------------------------------------------------------------
-  const smartPhrases = [
+  const allEnclavePhrases = [
     '<@BOT> what workflows are running?',
     '<@BOT> show me recent logs for otel-echo',
     "<@BOT> what's the health of my tentacles?",
@@ -102,19 +105,24 @@ describe('router: enclave-bound mentions', () => {
     '<@BOT> list tentacles',
     '<@BOT> are you there?',
   ];
-  for (const text of smartPhrases) {
-    it(`routes "${text.slice(10, 35)}..." to smart path`, () => {
+  for (const text of allEnclavePhrases) {
+    it(`routes "${text.slice(10, 35)}..." to team (enclave-bound, not smart)`, () => {
       const d = routeEvent(event(text), deps);
-      expect(d.path).toBe('smart');
+      expect(d.path).toBe('deterministic');
+      if (d.path === 'deterministic') {
+        expect(['spawn_and_forward', 'forward_to_active_team']).toContain(
+          d.action.type,
+        );
+      }
     });
   }
 
   // ------------------------------------------------------------------------
-  // Note: Deterministic commands (whoami, members, add, remove, set-mode,
-  // help) are handled by parseCommand in bot.ts BEFORE routeEvent runs.
-  // routeEvent's own parseCommand deliberately returns null for these so
-  // any mention that reaches the router is non-command text — classified
-  // into team vs smart-path by phrasing. That split is tested above.
+  // Note: ALL non-command @mentions in enclave-bound channels route
+  // deterministically to the enclave manager team (A4 / spec D4 + §2.5).
+  // Smart path is reserved for DMs and provision intent in unbound channels.
+  // Deterministic commands (add, remove, transfer) are handled by
+  // parseCommand before routeEvent runs and still go to enclave_sync_*.
   // ------------------------------------------------------------------------
 
   // ------------------------------------------------------------------------

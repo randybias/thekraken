@@ -49,6 +49,12 @@ import { handleChannelEvent } from '../enclave/drift.js';
 const log = createChildLogger({ module: 'slack-bot' });
 const tracer = trace.getTracer('thekraken.slack');
 
+// A3: explicit intent pattern. In non-enclave channels the bot is passive —
+// it responds only when the user clearly asks to initialize / provision the
+// channel as an enclave. Everything else is silently ignored.
+const PROVISION_PATTERN =
+  /\b(initialize|init|provision)\s+(this\s+)?(channel|enclave)\b/i;
+
 export interface SlackBotDeps {
   config: KrakenConfig;
   bindings: EnclaveBindingEngine;
@@ -309,168 +315,143 @@ function registerEventHandlers(
           'mention received',
         );
 
-        // Auth gate: verify user has a valid OIDC token before routing.
-        const userToken = await checkAuthOrPrompt(
-          userId,
-          channelId,
-          threadTs,
-          client,
-        );
-        if (userToken === null) return;
+        // A2: binding check BEFORE auth gate. Pure SQLite lookup — no MCP
+        // call, no auth required. This lets non-enclave channels stay
+        // silent without ever triggering the device-auth prompt.
+        const binding = deps.bindings.lookupEnclave(channelId);
 
-        // Lazy binding reconstitution: if no binding exists in SQLite, attempt
-        // to discover it from MCP using the authenticated user's OIDC token.
-        // This recovers state after a PVC reset without requiring a service token.
-        if (deps.bindings.lookupEnclave(channelId) === null) {
-          const mcpCallForReconstitute =
-            deps.getMcpCallForToken?.(userToken) ?? deps.mcpCall;
-          if (!mcpCallForReconstitute) {
-            log.error(
-              { channelId },
-              'lazy reconstitute unavailable — deps.getMcpCallForToken and deps.mcpCall both undefined',
-            );
-            await say({
-              text: 'Internal error: MCP client not wired. Please contact support.',
-              thread_ts: threadTs,
-            });
-            span.setStatus({ code: SpanStatusCode.OK });
-            return;
-          }
-          log.info(
-            { channelId, userId },
-            'lazy reconstitute: looking up enclave binding via MCP',
-          );
-          const reconstituted =
-            await deps.bindings.lookupEnclaveWithReconstitute(
-              channelId,
-              userId,
-              mcpCallForReconstitute,
-            );
-          if (reconstituted === null) {
+        // A3: non-enclave silence. If the channel is not bound as an
+        // enclave, respond ONLY to explicit provision intent. Everything
+        // else is ignored — the bot is passive in regular channels.
+        if (!binding) {
+          if (!PROVISION_PATTERN.test(text)) {
             log.info(
-              { channelId },
-              'lazy reconstitute: channel is not an enclave — offering provisioning',
+              { channelId, userId },
+              'mention in unbound channel — no provision intent, ignoring',
             );
-            // Instead of dead-ending, offer to provision. Resolve the
-            // channel name for the provisioning prompt, then delegate to
-            // the smart-path in provisioning mode.
-            if (deps.onSmartPath) {
-              let channelName = channelId;
-              try {
-                const info = await client.conversations.info({
-                  channel: channelId,
-                });
-                channelName =
-                  (info.channel as { name?: string })?.name ?? channelId;
-              } catch {
-                // non-fatal
-              }
-              const provisionReply = await deps.onSmartPath({
-                channelId,
-                threadTs,
-                userId,
-                text,
-                enclaveName: null,
-                mode: 'provision',
-                channelName,
-                userToken,
-                priorTurns: [],
-              });
-              if (provisionReply) {
-                await say({ text: provisionReply, thread_ts: threadTs });
-              }
-              // After provisioning, attempt to reconstitute the binding
-              // (enclave_provision may have just created it).
-              if (mcpCallForReconstitute) {
-                await deps.bindings
-                  .lookupEnclaveWithReconstitute(
-                    channelId,
-                    userId,
-                    mcpCallForReconstitute,
-                  )
-                  .catch(() => null);
-              }
-            } else {
-              await say({
-                text: "This channel isn't an enclave yet. DM me to set one up.",
-                thread_ts: threadTs,
-              });
-            }
             span.setStatus({ code: SpanStatusCode.OK });
             return;
           }
-          log.info(
-            {
-              channelId,
-              enclaveName: reconstituted.enclaveName,
-            },
-            'lazy reconstitute: binding recovered',
-          );
-        }
 
-        // Command router: deterministic commands handled before team dispatch.
-        const parsed = parseCommand(text);
-        if (parsed) {
-          const binding = deps.bindings.lookupEnclave(channelId);
-          if (binding) {
-            // D6: use the authenticated user's OIDC token for MCP calls.
-            const cmdMcpCall =
-              deps.getMcpCallForToken?.(userToken) ??
-              deps.mcpCall ??
-              (async () => ({}));
-            await executeCommand(parsed, {
+          // Provision intent detected — now require auth and delegate to
+          // the smart-path in provision mode.
+          const provisionToken = await checkAuthOrPrompt(
+            userId,
+            channelId,
+            client,
+          );
+          if (provisionToken === null) return;
+
+          if (deps.onSmartPath) {
+            let channelName = channelId;
+            try {
+              const info = await client.conversations.info({
+                channel: channelId,
+              });
+              channelName =
+                (info.channel as { name?: string })?.name ?? channelId;
+            } catch {
+              // non-fatal
+            }
+            const provisionReply = await deps.onSmartPath({
               channelId,
               threadTs,
-              senderSlackId: userId,
-              enclaveName: binding.enclaveName,
-              mcpCall: cmdMcpCall,
-              sendMessage: async (msgText) => {
-                // Command-handler output also goes through jargon filter +
-                // Block Kit formatter for consistency with smart-path replies.
-                const filtered = filterJargon(msgText);
-                let postArgs: {
-                  channel: string;
-                  thread_ts: string;
-                  text: string;
-                  blocks?: unknown[];
-                };
-                try {
-                  const formatted = formatAgentResponse(filtered);
-                  postArgs = {
-                    channel: channelId,
-                    thread_ts: threadTs,
-                    text: formatted.text,
-                    blocks: formatted.blocks,
-                  };
-                } catch {
-                  postArgs = {
-                    channel: channelId,
-                    thread_ts: threadTs,
-                    text: filtered,
-                  };
-                }
-                await client.chat.postMessage(
-                  postArgs as Parameters<typeof client.chat.postMessage>[0],
-                );
-              },
-              resolveEmail: async (slackUserId) => {
-                // For the authenticated sender, extract email from the OIDC
-                // JWT (bot token doesn't have users:read.email scope). For
-                // other Slack users, fall back to the Slack API.
-                if (slackUserId === userId) {
-                  const fromJwt = extractEmailFromToken(userToken);
-                  if (fromJwt) return fromJwt;
-                }
-                const info = await client.users.info({ user: slackUserId });
-                return (
-                  info.user as { profile?: { email?: string } } | undefined
-                )?.profile?.email;
-              },
+              userId,
+              text,
+              enclaveName: null,
+              mode: 'provision',
+              channelName,
+              userToken: provisionToken,
+              priorTurns: [],
             });
-            span.setStatus({ code: SpanStatusCode.OK });
-            return;
+            if (provisionReply) {
+              await say({ text: provisionReply, thread_ts: threadTs });
+            }
+            // After provisioning, attempt to populate the binding
+            // (enclave_provision may have just created it).
+            const mcpCallForReconstitute =
+              deps.getMcpCallForToken?.(provisionToken) ?? deps.mcpCall;
+            if (mcpCallForReconstitute) {
+              await deps.bindings
+                .lookupEnclaveWithReconstitute(
+                  channelId,
+                  userId,
+                  mcpCallForReconstitute,
+                )
+                .catch(() => null);
+            }
+          } else {
+            await say({
+              text: "This channel isn't an enclave yet. DM me to set one up.",
+              thread_ts: threadTs,
+            });
           }
-          // Command in unbound channel — silently ignore
+          span.setStatus({ code: SpanStatusCode.OK });
+          return;
+        }
+
+        // Binding exists — enclave channel. Auth gate, then route.
+        const userToken = await checkAuthOrPrompt(userId, channelId, client);
+        if (userToken === null) return;
+
+        // Command router: deterministic commands handled before team dispatch.
+        // (Phase C5 will migrate these into the Enclave Manager; Phase A
+        // retains them here to minimize change.)
+        const parsed = parseCommand(text);
+        if (parsed) {
+          // D6: use the authenticated user's OIDC token for MCP calls.
+          const cmdMcpCall =
+            deps.getMcpCallForToken?.(userToken) ??
+            deps.mcpCall ??
+            (async () => ({}));
+          await executeCommand(parsed, {
+            channelId,
+            threadTs,
+            senderSlackId: userId,
+            enclaveName: binding.enclaveName,
+            mcpCall: cmdMcpCall,
+            sendMessage: async (msgText) => {
+              // Command-handler output also goes through jargon filter +
+              // Block Kit formatter for consistency with smart-path replies.
+              const filtered = filterJargon(msgText);
+              let postArgs: {
+                channel: string;
+                thread_ts: string;
+                text: string;
+                blocks?: unknown[];
+              };
+              try {
+                const formatted = formatAgentResponse(filtered);
+                postArgs = {
+                  channel: channelId,
+                  thread_ts: threadTs,
+                  text: formatted.text,
+                  blocks: formatted.blocks,
+                };
+              } catch {
+                postArgs = {
+                  channel: channelId,
+                  thread_ts: threadTs,
+                  text: filtered,
+                };
+              }
+              await client.chat.postMessage(
+                postArgs as Parameters<typeof client.chat.postMessage>[0],
+              );
+            },
+            resolveEmail: async (slackUserId) => {
+              // For the authenticated sender, extract email from the OIDC
+              // JWT (bot token doesn't have users:read.email scope). For
+              // other Slack users, fall back to the Slack API.
+              if (slackUserId === userId) {
+                const fromJwt = extractEmailFromToken(userToken);
+                if (fromJwt) return fromJwt;
+              }
+              const info = await client.users.info({ user: slackUserId });
+              return (info.user as { profile?: { email?: string } } | undefined)
+                ?.profile?.email;
+            },
+          });
           span.setStatus({ code: SpanStatusCode.OK });
           return;
         }
@@ -682,12 +663,7 @@ function registerEventHandlers(
 
       try {
         // Auth gate (Task 6): verify user has a valid OIDC token before routing.
-        const userToken = await checkAuthOrPrompt(
-          userId,
-          channelId,
-          threadTs ?? (event as { ts: string }).ts,
-          client,
-        );
+        const userToken = await checkAuthOrPrompt(userId, channelId, client);
         if (userToken === null) return;
 
         const inbound: InboundEvent = {
@@ -734,18 +710,11 @@ function registerEventHandlers(
 async function checkAuthOrPrompt(
   userId: string,
   channelId: string,
-  threadTs: string,
   client: WebClient,
 ): Promise<string | null> {
   const token = await getValidTokenForUser(userId);
   if (token !== null) return token;
 
-  // User is not authenticated — start device flow and prompt them.
-  // Send the device code via DM to the user — NOT in the channel.
-  // The device code is a sensitive credential: anyone who sees it can
-  // redeem it and impersonate the user. Channel messages are visible
-  // to all members; ephemeral messages vanish on refresh. DM is the
-  // only safe + reliable delivery path.
   try {
     const deviceAuth = await initiateDeviceAuth();
 
@@ -759,11 +728,12 @@ async function checkAuthOrPrompt(
     });
 
     // Post the auth card as an ephemeral message (only visible to this
-    // user). This is the same approach the old Kraken used.
+    // user). Old Kraken pattern: no thread_ts — Slack does not render
+    // ephemeral messages reliably inside threads. Posting to the main
+    // channel view guarantees the target user sees the card.
     await client.chat.postEphemeral({
       channel: channelId,
       user: userId,
-      thread_ts: threadTs,
       text: card.text,
       blocks: card.blocks,
     } as Parameters<typeof client.chat.postEphemeral>[0]);
