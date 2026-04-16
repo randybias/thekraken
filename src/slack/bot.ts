@@ -697,26 +697,35 @@ async function checkAuthOrPrompt(
   if (token !== null) return token;
 
   // User is not authenticated — start device flow and prompt them.
-  // Uses a regular postMessage (NOT ephemeral) because ephemeral
-  // messages are invisible in threads and vanish on page refresh.
-  // For a critical action like "please authenticate", the user MUST
-  // see the prompt even if they navigate away and come back.
+  // Send the device code via DM to the user — NOT in the channel.
+  // The device code is a sensitive credential: anyone who sees it can
+  // redeem it and impersonate the user. Channel messages are visible
+  // to all members; ephemeral messages vanish on refresh. DM is the
+  // only safe + reliable delivery path.
   try {
     const deviceAuth = await initiateDeviceAuth();
 
+    // Open a DM conversation with the user and post there.
+    const dmResult = await client.conversations.open({ users: userId });
+    const dmChannelId = (dmResult as { channel?: { id?: string } }).channel?.id;
+    if (dmChannelId) {
+      await client.chat.postMessage({
+        channel: dmChannelId,
+        text:
+          `*Authentication required.* Open the link below and enter the code to connect your account:\n` +
+          `*URL:* ${deviceAuth.verification_uri_complete ?? deviceAuth.verification_uri}\n` +
+          `*Code:* \`${deviceAuth.user_code}\`\n` +
+          `_(This code expires in ${Math.floor(deviceAuth.expires_in / 60)} minutes.)_`,
+      });
+    }
+    // Also post a non-sensitive nudge in the original thread so the
+    // user knows to check their DMs. No code or URL here.
     await client.chat.postMessage({
       channel: channelId,
       thread_ts: threadTs,
-      text:
-        `*Authentication required.* Open the link below and enter the code to connect your account:\n` +
-        `*URL:* ${deviceAuth.verification_uri_complete ?? deviceAuth.verification_uri}\n` +
-        `*Code:* \`${deviceAuth.user_code}\`\n` +
-        `_(This code expires in ${Math.floor(deviceAuth.expires_in / 60)} minutes.)_`,
+      text: "I need you to authenticate first. I've sent you a DM with the link and code.",
     });
-    log.info(
-      { userId, channelId, userCode: deviceAuth.user_code },
-      'device auth prompt posted',
-    );
+    log.info({ userId, channelId }, 'device auth prompt sent via DM');
 
     // Poll in background — fire and forget.
     pollForToken(

@@ -152,9 +152,17 @@ export function parseCommand(text: string): DeterministicAction | null {
  */
 function isBuildOrDeployRequest(text: string): boolean {
   const lower = (text ?? '').toLowerCase();
-  // Strip leading bot mention before testing so regex can anchor on the
-  // action verb.
+  // Strip leading bot mention before testing.
   const cleaned = lower.replace(/^<@[a-z0-9_]+>\s*/i, '').trim();
+  // Exclude questions ABOUT build/deploy (those belong on the smart path).
+  // "how do I build a workflow?" → smart path (informational)
+  // "build a workflow" → team (imperative action)
+  if (
+    /^(how|what|why|when|where|can|does|should|is|are|do)\b/.test(cleaned) ||
+    /\?$/.test(cleaned.trim())
+  ) {
+    return false;
+  }
   return /\b(build|create|scaffold|generate|make(?:\s+me)?(?:\s+an?)?|write(?:\s+me)?(?:\s+an?)?|deploy|redeploy)\b/i.test(
     cleaned,
   );

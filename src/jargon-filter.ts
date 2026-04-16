@@ -13,38 +13,40 @@
  * output.
  */
 export function filterJargon(text: string): string {
-  return text
-    .replace(/\bnamespace\b/gi, 'enclave')
-    .replace(/\bnamespaces\b/gi, 'enclaves')
-    .replace(/\bDAG\b/g, 'workflow')
-    .replace(/\bthe pod\b/gi, 'the service')
-    .replace(/\bpod is\b/gi, 'service is')
-    .replace(/\bpod\b/gi, 'service')
-    .replace(/\bcontainer image\b/gi, 'system image')
-    .replace(/\bcontainer\b/gi, 'service')
-    .replace(/\bcron expression\b/gi, 'schedule')
-    .replace(/\bgVisor\b/gi, 'secure sandbox')
-    .replace(/\brustfs\b/gi, 'file storage')
-    .replace(/\bpostgres(ql)?\b/gi, 'database')
-    .replace(/\bNATS\b/g, 'messaging service')
-    .replace(/\b\d+\/\d+ replicas? ready\b/gi, '')
-    .replace(/\breplicas?\b/gi, 'instances')
-    .replace(/\bquota preset\b/gi, 'resource tier')
-    .replace(/\bwebhook\b/gi, 'system process')
-    .replace(/\bConfigMap\b/gi, 'configuration')
-    .replace(/\bconfigmap\b/gi, 'configuration')
-    .replace(/\bSPIFFE\b/gi, 'security system')
-    .replace(/\bCSI driver\b/gi, 'system driver')
-    .replace(/`kubectl [^`]+`/g, '_(system command)_')
-    .replace(/`tntc [^`]+`/g, '_(system command)_')
-    // Translate POSIX-style permission strings (e.g. "rwxrwx---") to
-    // human-readable access levels. These come from MCP's `mode` field.
-    .replace(/\brwxrwxrwx\b/g, 'full access (everyone)')
-    .replace(/\brwxrwx---\b/g, 'full access (owner + team)')
-    .replace(/\brwxr-x---\b/g, 'owner: full, team: read/run')
-    .replace(/\brwx------\b/g, 'owner-only access')
-    .replace(/\brwxrwxr-x\b/g, 'owner + team: full, others: read/run')
-    .replace(/\brwxrwxr--\b/g, 'owner + team: full, others: read-only');
+  return (
+    text
+      .replace(/\bnamespace\b/gi, 'enclave')
+      .replace(/\bnamespaces\b/gi, 'enclaves')
+      .replace(/\bDAG\b/g, 'workflow')
+      .replace(/\bthe pod\b/gi, 'the service')
+      .replace(/\bpod is\b/gi, 'service is')
+      .replace(/\bpod\b/gi, 'service')
+      .replace(/\bcontainer image\b/gi, 'system image')
+      .replace(/\bcontainer\b/gi, 'service')
+      .replace(/\bcron expression\b/gi, 'schedule')
+      .replace(/\bgVisor\b/gi, 'secure sandbox')
+      .replace(/\brustfs\b/gi, 'file storage')
+      .replace(/\bpostgres(ql)?\b/gi, 'database')
+      .replace(/\bNATS\b/g, 'messaging service')
+      .replace(/\b\d+\/\d+ replicas? ready\b/gi, '')
+      .replace(/\breplicas?\b/gi, 'instances')
+      .replace(/\bquota preset\b/gi, 'resource tier')
+      .replace(/\bwebhook\b/gi, 'system process')
+      .replace(/\bConfigMap\b/gi, 'configuration')
+      .replace(/\bconfigmap\b/gi, 'configuration')
+      .replace(/\bSPIFFE\b/gi, 'security system')
+      .replace(/\bCSI driver\b/gi, 'system driver')
+      .replace(/`kubectl [^`]+`/g, '_(system command)_')
+      .replace(/`tntc [^`]+`/g, '_(system command)_')
+      // Translate POSIX-style permission strings (e.g. "rwxrwx---") to
+      // human-readable access levels. These come from MCP's `mode` field.
+      .replace(/\brwxrwxrwx\b/g, 'full access (everyone)')
+      .replace(/\brwxrwx---\b/g, 'full access (owner + team)')
+      .replace(/\brwxr-x---\b/g, 'owner: full, team: read/run')
+      .replace(/\brwx------\b/g, 'owner-only access')
+      .replace(/\brwxrwxr-x\b/g, 'owner + team: full, others: read/run')
+      .replace(/\brwxrwxr--\b/g, 'owner + team: full, others: read-only')
+  );
 }
 
 /**

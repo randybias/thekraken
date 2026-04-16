@@ -38,6 +38,9 @@ const mockClient = {
     postMessage: vi.fn().mockResolvedValue({ ts: 'out-ts' }),
     postEphemeral: mockPostEphemeral,
   },
+  conversations: {
+    open: vi.fn().mockResolvedValue({ channel: { id: 'D_DM_CHANNEL' } }),
+  },
 };
 
 type EventHandler = (args: {
@@ -185,11 +188,15 @@ describe('auth gate (Task 6)', () => {
         client: mockClient,
       });
 
-      expect(mockPostEphemeral).toHaveBeenCalledOnce();
-      expect(mockPostEphemeral).toHaveBeenCalledWith(
+      // Device auth prompt is now sent as a DM (not ephemeral in channel).
+      // conversations.open is called to get the DM channel, then postMessage
+      // sends the code there.
+      expect(mockClient.conversations.open).toHaveBeenCalledWith({
+        users: 'U_ALICE',
+      });
+      expect(mockClient.chat.postMessage).toHaveBeenCalledWith(
         expect.objectContaining({
-          channel: 'C_ENC',
-          user: 'U_ALICE',
+          channel: 'D_DM_CHANNEL',
           text: expect.stringContaining('ABCD-1234'),
         }),
       );
@@ -397,13 +404,11 @@ describe('auth gate (Task 6)', () => {
         client: mockClient,
       });
 
-      expect(mockPostEphemeral).toHaveBeenCalledOnce();
-      expect(mockPostEphemeral).toHaveBeenCalledWith(
-        expect.objectContaining({
-          user: 'U_NEW',
-          text: expect.stringContaining('MSG-CODE'),
-        }),
-      );
+      // Message handler now only processes DMs (channel_type === 'im').
+      // Channel messages are ignored entirely — no auth prompt, no routing.
+      // This prevents the bot from intercepting unrelated channel conversations.
+      expect(mockPostEphemeral).not.toHaveBeenCalled();
+      expect(mockClient.conversations.open).not.toHaveBeenCalled();
       expect(mockTeams.sendToTeam).not.toHaveBeenCalled();
     });
   });

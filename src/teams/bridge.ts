@@ -83,6 +83,8 @@ export class TeamBridge {
   /** Resolved when pi emits an `agent_end` event. */
   private idleResolver: (() => void) | null = null;
   private idleTimer: NodeJS.Timeout | null = null;
+  /** Latched `agent_end` — consumed by the next `waitForIdle()` call. */
+  private agentEndLatched = false;
   private readonly mailboxPath: string;
   private readonly outboundPath: string;
 
@@ -245,14 +247,23 @@ export class TeamBridge {
     }
 
     // Agent event? We care about agent_end for idle detection.
-    if (msg['type'] === 'agent_end' && this.idleResolver) {
-      const resolve = this.idleResolver;
-      this.idleResolver = null;
-      if (this.idleTimer) {
-        clearTimeout(this.idleTimer);
-        this.idleTimer = null;
+    // Latch the event even if no waiter is registered yet — processOne
+    // sends 'prompt' and then calls waitForIdle(); if the agent finishes
+    // between those two calls, the latch ensures the wait resolves
+    // immediately instead of timing out after 10 minutes.
+    if (msg['type'] === 'agent_end') {
+      if (this.idleResolver) {
+        const resolve = this.idleResolver;
+        this.idleResolver = null;
+        if (this.idleTimer) {
+          clearTimeout(this.idleTimer);
+          this.idleTimer = null;
+        }
+        resolve();
+      } else {
+        // No waiter yet — latch so the next waitForIdle() returns immediately.
+        this.agentEndLatched = true;
       }
-      resolve();
     }
   }
 
@@ -290,6 +301,12 @@ export class TeamBridge {
 
   /** Wait for the next agent_end event (or timeout). */
   private waitForIdle(timeoutMs: number): Promise<void> {
+    // Consume latched agent_end — if the event arrived between the
+    // prompt response and this call, resolve immediately.
+    if (this.agentEndLatched) {
+      this.agentEndLatched = false;
+      return Promise.resolve();
+    }
     return new Promise<void>((resolve, reject) => {
       this.idleResolver = resolve;
       this.idleTimer = setTimeout(() => {
