@@ -690,13 +690,15 @@ async function checkAuthOrPrompt(
   if (token !== null) return token;
 
   // User is not authenticated — start device flow and prompt them.
+  // Uses a regular postMessage (NOT ephemeral) because ephemeral
+  // messages are invisible in threads and vanish on page refresh.
+  // For a critical action like "please authenticate", the user MUST
+  // see the prompt even if they navigate away and come back.
   try {
     const deviceAuth = await initiateDeviceAuth();
 
-    // Post ephemeral auth prompt — only visible to this user.
-    await client.chat.postEphemeral({
+    await client.chat.postMessage({
       channel: channelId,
-      user: userId,
       thread_ts: threadTs,
       text:
         `*Authentication required.* Open the link below and enter the code to connect your account:\n` +
@@ -704,6 +706,10 @@ async function checkAuthOrPrompt(
         `*Code:* \`${deviceAuth.user_code}\`\n` +
         `_(This code expires in ${Math.floor(deviceAuth.expires_in / 60)} minutes.)_`,
     });
+    log.info(
+      { userId, channelId, userCode: deviceAuth.user_code },
+      'device auth prompt posted',
+    );
 
     // Poll in background — fire and forget.
     pollForToken(
@@ -711,7 +717,10 @@ async function checkAuthOrPrompt(
       deviceAuth.interval,
       deviceAuth.expires_in,
     )
-      .then((tokens) => storeTokenForUser(userId, tokens))
+      .then((tokens) => {
+        storeTokenForUser(userId, tokens);
+        log.info({ userId }, 'device auth completed — token stored');
+      })
       .catch((err: unknown) =>
         log.warn({ err, user: userId }, 'Device auth polling failed'),
       );
