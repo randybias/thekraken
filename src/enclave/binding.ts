@@ -11,6 +11,7 @@
 import type Database from 'better-sqlite3';
 import { createChildLogger } from '../logger.js';
 import type { EnclaveBinding } from '../types.js';
+import { getUserTokenByEmail } from '../auth/tokens.js';
 
 export type { EnclaveBinding };
 
@@ -167,16 +168,25 @@ export class EnclaveBindingEngine {
    *      the one whose channel_id matches. Insert a binding row and return.
    *   3. MCP returns nothing for this channel → return null (unbound channel).
    *
+   * Owner attribution: the enclave_info result carries the authoritative
+   * owner email (info.owner). We resolve it to a Slack user ID via the
+   * user_tokens table (which stores email alongside the Slack ID). If the
+   * owner has not yet authenticated with this Kraken instance, the email
+   * cannot be resolved to a Slack ID; in that case we fall back to the
+   * triggering user's Slack ID and log a warning so operators know the
+   * attribution may be approximate.
+   *
    * MCP errors are caught and logged; the function returns null so the caller
    * can handle an unbound channel gracefully without crashing.
    *
-   * @param channelId   - Slack channel ID being looked up.
-   * @param ownerSlackId - Slack user ID of the authenticated user triggering reconstitution.
-   * @param mcpCall     - Authenticated MCP call function (uses the user's OIDC token).
+   * @param channelId       - Slack channel ID being looked up.
+   * @param triggeringUserId - Slack user ID of the authenticated user triggering reconstitution.
+   *                          Used only as a fallback if the MCP owner email cannot be resolved.
+   * @param mcpCall         - Authenticated MCP call function (uses the user's OIDC token).
    */
   async lookupEnclaveWithReconstitute(
     channelId: string,
-    ownerSlackId: string,
+    triggeringUserId: string,
     mcpCall: McpCall,
   ): Promise<EnclaveBinding | null> {
     // Fast path: binding already in the local cache.
@@ -220,12 +230,55 @@ export class EnclaveBindingEngine {
         }
 
         if (info?.channel_id === channelId) {
+          // Resolve the authoritative owner from MCP metadata.
+          // enclave_info.owner is the owner's email address. We look it up
+          // in the local token store to get the Slack user ID, which is the
+          // key used by drift-sync to retrieve the owner's OIDC token.
+          const ownerEmail = info.owner;
+          let resolvedOwnerSlackId: string;
+          if (ownerEmail) {
+            const ownerToken = getUserTokenByEmail(ownerEmail);
+            if (ownerToken) {
+              resolvedOwnerSlackId = ownerToken.slack_user_id;
+              log.debug(
+                {
+                  channelId,
+                  enclaveName: info.name,
+                  ownerEmail,
+                  resolvedOwnerSlackId,
+                },
+                'reconstitution: resolved owner email to Slack user ID',
+              );
+            } else {
+              // Owner has not authenticated with this Kraken instance yet.
+              // Fall back to the triggering user — attribution is approximate
+              // until the actual owner authenticates.
+              resolvedOwnerSlackId = triggeringUserId;
+              log.warn(
+                {
+                  channelId,
+                  enclaveName: info.name,
+                  ownerEmail,
+                  triggeringUserId,
+                },
+                'reconstitution: owner email not in token store — falling back to triggering user; attribution will be corrected when owner authenticates',
+              );
+            }
+          } else {
+            // No owner email in MCP metadata; use triggering user as fallback.
+            resolvedOwnerSlackId = triggeringUserId;
+            log.warn(
+              { channelId, enclaveName: info.name },
+              'reconstitution: enclave_info returned no owner email — falling back to triggering user',
+            );
+          }
+
           // Found the matching enclave — insert a binding row.
-          this.insertBinding(channelId, info.name, ownerSlackId);
+          this.insertBinding(channelId, info.name, resolvedOwnerSlackId);
           return {
             channelId,
             enclaveName: info.name,
-            ownerSlackId,
+            ownerSlackId: resolvedOwnerSlackId,
             status: 'active',
             createdAt: new Date().toISOString(),
           };

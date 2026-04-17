@@ -38,6 +38,22 @@ export function getUserToken(slackUserId: string): StoredToken | undefined {
     .get(slackUserId) as StoredToken | undefined;
 }
 
+/**
+ * Look up a stored token by the user's email address.
+ * Used to resolve an enclave owner's email (from MCP metadata) to their
+ * Slack user ID so that owner attribution in enclave bindings is correct.
+ * Returns undefined if no matching token row exists.
+ */
+export function getUserTokenByEmail(email: string): StoredToken | undefined {
+  return db
+    .prepare(
+      `SELECT slack_user_id, access_token, refresh_token,
+            expires_at, keycloak_sub, email, updated_at
+     FROM user_tokens WHERE email = ?`,
+    )
+    .get(email) as StoredToken | undefined;
+}
+
 export function setUserToken(slackUserId: string, token: TokenInput): void {
   db.prepare(
     `INSERT INTO user_tokens (slack_user_id, access_token, refresh_token, expires_at, keycloak_sub, email, updated_at)
