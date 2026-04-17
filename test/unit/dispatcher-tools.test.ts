@@ -257,7 +257,8 @@ describe('buildDispatcherTools', () => {
 
     it('includes recent signals when available', async () => {
       await teams.spawnTeam('test-enclave', 'U_ALICE', 'token-alice');
-      fixture.appendSignal({ type: 'task_completed', message: 'done' });
+      // Dev team inbound signals (task_completed) go to signals-in.ndjson
+      fixture.appendSignalIn({ type: 'task_completed', message: 'done' });
 
       const tools = buildDispatcherTools(makeDeps());
       const tool = tools.find((t) => t.name === 'check_team_status')!;

@@ -93,7 +93,7 @@ function resolvePiBinary(): string {
  * Ensure the team directory structure exists.
  *
  * Layout: {teamsDir}/{enclaveName}/
- *           mailbox.ndjson, outbound.ndjson, signals.ndjson
+ *           mailbox.ndjson, outbound.ndjson, signals-out.ndjson, signals-in.ndjson
  *           memory/MEMORY.md  (persisted across team restarts)
  */
 function ensureTeamDir(teamDir: string): void {

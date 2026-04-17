@@ -5,18 +5,24 @@
  * between the bridge, the enclave manager, and dev team subprocesses.
  *
  * Signal directions:
- *   Manager → Bridge (written by manager, read by bridge):
+ *   Manager → Bridge (written by manager to signals-out.ndjson, read by bridge):
  *     - commission_dev_team  — ask the bridge to spawn a dev team
  *     - terminate_dev_team   — ask the bridge to stop a running dev team
  *
- *   Dev Team → Manager (written by dev team, relayed by bridge to manager):
+ *   Dev Team → Manager (written by dev team to signals-in.ndjson, read by manager):
  *     - task_started         — dev team has picked up the task
  *     - progress_update      — incremental progress from the dev team
  *     - task_completed       — task finished successfully
  *     - task_failed          — task failed with error
  *
+ * File layout in the team dir:
+ *   signals-out.ndjson  — manager writes, bridge reads (outbound direction)
+ *   signals-in.ndjson   — bridge/dev-team writes, manager reads (inbound direction)
+ *
  * All signals are serialized as single-line JSON (NDJSON) via encodeSignal /
  * decodeSignal. Use the typed make* constructors to build records.
+ * Use decodeOutboundSignal / decodeInboundSignal to enforce direction at decode
+ * time (defense-in-depth: rejects records written to the wrong file).
  */
 
 /** Valid signal types (discriminant). */
@@ -36,6 +42,33 @@ const VALID_SIGNAL_TYPES = new Set<string>([
   'task_completed',
   'task_failed',
 ]);
+
+/**
+ * Signal direction classification.
+ *   'outbound' — manager writes to signals-out.ndjson; bridge reads.
+ *   'inbound'  — bridge/dev-team writes to signals-in.ndjson; manager reads.
+ */
+export type SignalDirection = 'outbound' | 'inbound';
+
+/** Signal types that flow manager → bridge (signals-out.ndjson). */
+const OUTBOUND_SIGNAL_TYPES = new Set<string>([
+  'commission_dev_team',
+  'terminate_dev_team',
+]);
+
+/** Signal types that flow bridge/dev-team → manager (signals-in.ndjson). */
+const INBOUND_SIGNAL_TYPES = new Set<string>([
+  'task_started',
+  'progress_update',
+  'task_completed',
+  'task_failed',
+]);
+
+/** File name for manager→bridge signals (manager writes, bridge reads). */
+export const SIGNALS_OUT_FILE = 'signals-out.ndjson';
+
+/** File name for bridge/dev-team→manager signals (dev team writes, manager reads). */
+export const SIGNALS_IN_FILE = 'signals-in.ndjson';
 
 /** Base fields present in every signal record. */
 interface SignalBase {
@@ -95,6 +128,16 @@ export interface TaskFailedSignal extends SignalBase {
 export type SignalRecord =
   | CommissionDevTeamSignal
   | TerminateDevTeamSignal
+  | TaskStartedSignal
+  | ProgressUpdateSignal
+  | TaskCompletedSignal
+  | TaskFailedSignal;
+
+/** Union of outbound (manager→bridge) signal types. */
+export type OutboundSignal = CommissionDevTeamSignal | TerminateDevTeamSignal;
+
+/** Union of inbound (dev-team→manager) signal types. */
+export type InboundSignal =
   | TaskStartedSignal
   | ProgressUpdateSignal
   | TaskCompletedSignal
@@ -181,4 +224,32 @@ export function decodeSignal(line: string): SignalRecord | null {
   if (typeof obj['type'] !== 'string') return null;
   if (!VALID_SIGNAL_TYPES.has(obj['type'])) return null;
   return raw as SignalRecord;
+}
+
+/**
+ * Decode a line from signals-out.ndjson (manager→bridge direction).
+ *
+ * Returns null if decoding fails OR if the signal type belongs to the
+ * inbound direction. This is a defense-in-depth check: inbound signals
+ * written to the wrong file are silently rejected.
+ */
+export function decodeOutboundSignal(line: string): OutboundSignal | null {
+  const signal = decodeSignal(line);
+  if (!signal) return null;
+  if (!OUTBOUND_SIGNAL_TYPES.has(signal.type)) return null;
+  return signal as OutboundSignal;
+}
+
+/**
+ * Decode a line from signals-in.ndjson (dev-team→manager direction).
+ *
+ * Returns null if decoding fails OR if the signal type belongs to the
+ * outbound direction. This is a defense-in-depth check: outbound signals
+ * written to the wrong file are silently rejected.
+ */
+export function decodeInboundSignal(line: string): InboundSignal | null {
+  const signal = decodeSignal(line);
+  if (!signal) return null;
+  if (!INBOUND_SIGNAL_TYPES.has(signal.type)) return null;
+  return signal as InboundSignal;
 }

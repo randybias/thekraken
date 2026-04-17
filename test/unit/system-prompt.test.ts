@@ -192,9 +192,10 @@ describe('buildManagerPrompt — decision tree (C1)', () => {
     expect(prompt).not.toMatch(/confirm with.*user.*before.*team/i);
   });
 
-  it('lists signals.ndjson in communication protocol', () => {
+  it('lists signals-out.ndjson and signals-in.ndjson in communication protocol', () => {
     const prompt = buildManagerPrompt(BASE_ROLE_OPTS);
-    expect(prompt).toContain('signals.ndjson');
+    expect(prompt).toContain('signals-out.ndjson');
+    expect(prompt).toContain('signals-in.ndjson');
   });
 
   it('explicitly prohibits manager from using edit/write tools', () => {
