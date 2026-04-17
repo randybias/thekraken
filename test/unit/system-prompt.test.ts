@@ -209,6 +209,56 @@ describe('buildManagerPrompt — decision tree (C1)', () => {
   });
 });
 
+// B4: Check-before-use discipline — token expiry check in all role prompts
+describe('B4 token expiry check-before-use', () => {
+  it('manager prompt includes expires_at check instruction', () => {
+    const prompt = buildManagerPrompt(BASE_ROLE_OPTS);
+    expect(prompt).toContain('expires_at');
+    expect(prompt).toContain('900');
+  });
+
+  it('builder prompt includes expires_at check instruction', () => {
+    const prompt = buildBuilderPrompt({
+      ...BASE_ROLE_OPTS,
+      taskDescription: 'Build a workflow',
+    });
+    expect(prompt).toContain('expires_at');
+    expect(prompt).toContain('900');
+  });
+
+  it('deployer prompt includes expires_at check instruction', () => {
+    const prompt = buildDeployerPrompt({
+      ...BASE_ROLE_OPTS,
+      taskDescription: 'Deploy v5',
+    });
+    expect(prompt).toContain('expires_at');
+    expect(prompt).toContain('900');
+  });
+
+  it('all three role prompts instruct to never hold token in memory across calls', () => {
+    const manager = buildManagerPrompt(BASE_ROLE_OPTS);
+    const builder = buildBuilderPrompt({
+      ...BASE_ROLE_OPTS,
+      taskDescription: 'task',
+    });
+    const deployer = buildDeployerPrompt({
+      ...BASE_ROLE_OPTS,
+      taskDescription: 'task',
+    });
+
+    for (const prompt of [manager, builder, deployer]) {
+      expect(prompt).toContain(
+        'Never hold a token in memory across tool calls',
+      );
+    }
+  });
+
+  it('expiry check references re-reading the file (bridge refresh guarantee)', () => {
+    const prompt = buildManagerPrompt(BASE_ROLE_OPTS);
+    expect(prompt).toMatch(/re-read the file/i);
+  });
+});
+
 describe('buildBuilderPrompt', () => {
   it('includes Role: Builder header', () => {
     const prompt = buildBuilderPrompt({
