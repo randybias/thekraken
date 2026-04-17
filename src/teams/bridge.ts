@@ -26,6 +26,8 @@ import { randomUUID } from 'node:crypto';
 import { createChildLogger } from '../logger.js';
 import { appendNdjson, NdjsonReader } from './ndjson.js';
 import { writeTokenFile } from './token-bootstrap.js';
+import { HeartbeatController, isSignificantSignal } from './heartbeat.js';
+import { decodeSignal } from './signals.js';
 import type { MailboxRecord } from './lifecycle.js';
 import type { OutboundRecord } from './outbound-poller.js';
 
@@ -89,6 +91,10 @@ interface PendingRequest {
 export class TeamBridge {
   private proc: ChildProcess | null = null;
   private reader: NdjsonReader;
+  /** C4: NdjsonReader for signals.ndjson (dev team → manager progress). */
+  private signalsReader: NdjsonReader;
+  /** C4: HeartbeatController emits friendly outbound messages on significant events. */
+  private heartbeat: HeartbeatController;
   private pollTimer: NodeJS.Timeout | null = null;
   private queue: MailboxRecord[] = [];
   private processing = false;
@@ -102,14 +108,22 @@ export class TeamBridge {
   private agentEndLatched = false;
   private readonly mailboxPath: string;
   private readonly outboundPath: string;
+  private readonly signalsPath: string;
 
   constructor(private readonly opts: TeamBridgeOptions) {
     this.mailboxPath = join(opts.teamDir, 'mailbox.ndjson');
     this.outboundPath = join(opts.teamDir, 'outbound.ndjson');
+    this.signalsPath = join(opts.teamDir, 'signals.ndjson');
     // Start at the end of any existing mailbox. On pod restart, old
     // records are stale (their threads are dead, pi context is gone).
     // We only want records appended AFTER this bridge starts.
     this.reader = new NdjsonReader(this.mailboxPath, { startAtEnd: true });
+    // C4: signals reader — also start at end (only new dev team signals matter).
+    this.signalsReader = new NdjsonReader(this.signalsPath, { startAtEnd: true });
+    // C4: Heartbeat controller emits to outbound.ndjson on the manager's behalf.
+    this.heartbeat = new HeartbeatController({
+      onHeartbeat: (text) => this.writeHeartbeat(text),
+    });
 
     if (!existsSync(opts.gitStateDir)) {
       mkdirSync(opts.gitStateDir, { recursive: true });
@@ -342,6 +356,70 @@ export class TeamBridge {
     }
     if (this.queue.length > 0 && !this.processing) {
       void this.drain();
+    }
+    // C4: also poll signals.ndjson for dev team progress heartbeats
+    this.pollSignals();
+  }
+
+  /**
+   * C4: Poll signals.ndjson for dev team progress signals.
+   *
+   * On significant events (task_started, progress_update, task_completed,
+   * task_failed), the HeartbeatController decides whether enough time has
+   * passed to emit a heartbeat. The heartbeat is written to outbound.ndjson
+   * by the bridge, acting on the manager's behalf.
+   */
+  private pollSignals(): void {
+    if (this.stopped) return;
+    const lines = this.signalsReader.readNew();
+    for (const raw of lines) {
+      const encoded = JSON.stringify(raw);
+      const signal = decodeSignal(encoded);
+      if (!signal) continue;
+      if (!isSignificantSignal(signal)) continue;
+
+      // Extract tentacle name from signal if available
+      const tentacleName =
+        'tentacleName' in signal &&
+        typeof signal['tentacleName'] === 'string'
+          ? signal['tentacleName']
+          : undefined;
+
+      this.heartbeat.onSignal(signal, tentacleName);
+    }
+  }
+
+  /**
+   * C4: Write a heartbeat message to outbound.ndjson.
+   *
+   * Called by HeartbeatController.onHeartbeat() when a significant event
+   * has occurred and the 30s floor has elapsed.
+   *
+   * The heartbeat record has no threadTs — the outbound poller should
+   * post it to the channel's most recent thread (or the channel directly).
+   * For now, we use a sentinel empty string so the poller can identify
+   * heartbeat records and handle them appropriately.
+   */
+  private writeHeartbeat(text: string): void {
+    const outbound: OutboundRecord = {
+      id: randomUUID(),
+      timestamp: new Date().toISOString(),
+      type: 'heartbeat',
+      channelId: '', // resolved by the outbound poller from bridge context
+      threadTs: '',
+      text,
+    };
+    try {
+      appendNdjson(this.outboundPath, outbound);
+      log.debug(
+        { enclaveName: this.opts.enclaveName, textLen: text.length },
+        'team-bridge: wrote heartbeat outbound record',
+      );
+    } catch (err) {
+      log.warn(
+        { enclaveName: this.opts.enclaveName, err },
+        'team-bridge: failed to write heartbeat outbound record',
+      );
     }
   }
 
