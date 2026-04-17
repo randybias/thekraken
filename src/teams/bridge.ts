@@ -12,6 +12,13 @@
  *   4. Append an OutboundRecord to outbound.ndjson so the poller posts
  *      it to Slack.
  *
+ * Signal protocol (Must-fix #1):
+ *   signals-out.ndjson — manager writes commission_dev_team / terminate_dev_team;
+ *                         bridge reads and dispatches dev team subprocesses.
+ *   signals-in.ndjson  — bridge writes task_started / progress_update /
+ *                         task_completed / task_failed on behalf of dev teams;
+ *                         manager reads these for heartbeat and status.
+ *
  * Messages are processed sequentially per-enclave; new mailbox records
  * queue while pi is working on the previous turn.
  *
@@ -21,13 +28,24 @@
 
 import { spawn, type ChildProcess } from 'node:child_process';
 import { join } from 'node:path';
-import { existsSync, mkdirSync } from 'node:fs';
+import { existsSync, mkdirSync, chmodSync, readFileSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
-import { createChildLogger } from '../logger.js';
+import { createChildLogger, type Logger } from '../logger.js';
 import { appendNdjson, NdjsonReader } from './ndjson.js';
 import { writeTokenFile } from './token-bootstrap.js';
 import { HeartbeatController, isSignificantSignal } from './heartbeat.js';
-import { decodeSignal } from './signals.js';
+import {
+  decodeOutboundSignal,
+  decodeInboundSignal,
+  makeTaskFailed,
+  SIGNALS_OUT_FILE,
+  SIGNALS_IN_FILE,
+  type CommissionDevTeamSignal,
+} from './signals.js';
+import {
+  buildBuilderPrompt,
+  buildDeployerPrompt,
+} from '../agent/system-prompt.js';
 import type { MailboxRecord } from './lifecycle.js';
 import type { OutboundRecord } from './outbound-poller.js';
 
@@ -41,6 +59,17 @@ const MAILBOX_POLL_MS = 1_000;
 
 /** Max time to wait for a single RPC command response. */
 const RPC_RESPONSE_TIMEOUT_MS = 30_000;
+
+/**
+ * Minimal handle for a running dev team child process.
+ * Bridge keeps one entry per active taskId.
+ */
+interface DevTeamHandle {
+  taskId: string;
+  proc: ChildProcess;
+  /** True if we have already emitted a terminal signal (task_completed or task_failed). */
+  terminated: boolean;
+}
 
 export interface TeamBridgeOptions {
   enclaveName: string;
@@ -70,15 +99,30 @@ export interface TeamBridgeOptions {
    * before each mailbox turn. If provided, the token is written to
    * token.json in the team dir before the prompt is sent to pi.
    *
-   * The token from the mailbox record is used as the fallback when this
-   * callback is not provided or returns null.
-   *
    * The callback should use getValidTokenForUser() from src/auth/oidc.ts.
    *
    * @param slackUserId - The Slack user ID from the mailbox record.
    * @returns A fresh access token or null if the user must re-auth.
    */
   getTokenForUser?: (slackUserId: string) => Promise<string | null>;
+  /**
+   * Factory for spawning dev team subprocesses. Defaults to the real
+   * spawn() call. Tests inject a mock here to avoid real subprocess spawns.
+   */
+  spawnDevTeam?: (opts: DevTeamSpawnOptions) => ChildProcess;
+}
+
+/** Parameters for spawning a dev team subprocess. */
+export interface DevTeamSpawnOptions {
+  taskId: string;
+  role: 'builder' | 'deployer';
+  goal: string;
+  tentacleName?: string;
+  taskDir: string;
+  systemPrompt: string;
+  env: Record<string, string>;
+  piCliPath: string;
+  gitStateDir: string;
 }
 
 /** A pending RPC request waiting on its response. */
@@ -91,8 +135,10 @@ interface PendingRequest {
 export class TeamBridge {
   private proc: ChildProcess | null = null;
   private reader: NdjsonReader;
-  /** C4: NdjsonReader for signals.ndjson (dev team → manager progress). */
-  private signalsReader: NdjsonReader;
+  /** C1: NdjsonReader for signals-out.ndjson (manager→bridge commands). */
+  private signalsOutReader: NdjsonReader;
+  /** C4: NdjsonReader for signals-in.ndjson (dev team → manager progress). */
+  private signalsInReader: NdjsonReader;
   /** C4: HeartbeatController emits friendly outbound messages on significant events. */
   private heartbeat: HeartbeatController;
   private pollTimer: NodeJS.Timeout | null = null;
@@ -108,18 +154,34 @@ export class TeamBridge {
   private agentEndLatched = false;
   private readonly mailboxPath: string;
   private readonly outboundPath: string;
-  private readonly signalsPath: string;
+  private readonly signalsOutPath: string;
+  private readonly signalsInPath: string;
+
+  /**
+   * In-memory map of active dev team handles keyed by taskId.
+   * Used to route terminate_dev_team signals and detect premature exits.
+   */
+  private devTeams = new Map<string, DevTeamHandle>();
+
+  /** Current mailbox record being processed (needed to scope dev-team token). */
+  private currentRecord: MailboxRecord | null = null;
 
   constructor(private readonly opts: TeamBridgeOptions) {
     this.mailboxPath = join(opts.teamDir, 'mailbox.ndjson');
     this.outboundPath = join(opts.teamDir, 'outbound.ndjson');
-    this.signalsPath = join(opts.teamDir, 'signals.ndjson');
+    this.signalsOutPath = join(opts.teamDir, SIGNALS_OUT_FILE);
+    this.signalsInPath = join(opts.teamDir, SIGNALS_IN_FILE);
+
     // Start at the end of any existing mailbox. On pod restart, old
     // records are stale (their threads are dead, pi context is gone).
     // We only want records appended AFTER this bridge starts.
     this.reader = new NdjsonReader(this.mailboxPath, { startAtEnd: true });
-    // C4: signals reader — also start at end (only new dev team signals matter).
-    this.signalsReader = new NdjsonReader(this.signalsPath, {
+    // signals-out: manager→bridge; start at end (only new commission/terminate matter).
+    this.signalsOutReader = new NdjsonReader(this.signalsOutPath, {
+      startAtEnd: true,
+    });
+    // signals-in: dev-team→manager; start at end (only new progress matters).
+    this.signalsInReader = new NdjsonReader(this.signalsInPath, {
       startAtEnd: true,
     });
     // C4: Heartbeat controller emits to outbound.ndjson on the manager's behalf.
@@ -234,6 +296,16 @@ export class TeamBridge {
     if (this.pollTimer) {
       clearInterval(this.pollTimer);
       this.pollTimer = null;
+    }
+    // Terminate all active dev teams
+    for (const [taskId, handle] of this.devTeams) {
+      if (!handle.proc.killed) {
+        log.info(
+          { enclaveName: this.opts.enclaveName, taskId },
+          'team-bridge: terminating dev team on stop',
+        );
+        handle.proc.kill('SIGTERM');
+      }
     }
     if (this.proc) {
       this.proc.kill('SIGTERM');
@@ -359,25 +431,70 @@ export class TeamBridge {
     if (this.queue.length > 0 && !this.processing) {
       void this.drain();
     }
-    // C4: also poll signals.ndjson for dev team progress heartbeats
-    this.pollSignals();
+    // Poll signals-out.ndjson for commission/terminate commands from the manager.
+    this.pollSignalsOut();
+    // Poll signals-in.ndjson for dev team progress heartbeats.
+    this.pollSignalsIn();
   }
 
   /**
-   * C4: Poll signals.ndjson for dev team progress signals.
+   * Poll signals-out.ndjson for commission_dev_team / terminate_dev_team
+   * signals written by the manager. Dispatches dev team spawns or kills.
+   */
+  private pollSignalsOut(): void {
+    if (this.stopped) return;
+    const lines = this.signalsOutReader.readNew();
+    for (const raw of lines) {
+      const encoded = JSON.stringify(raw);
+      const signal = decodeOutboundSignal(encoded);
+      if (!signal) {
+        log.debug(
+          { enclaveName: this.opts.enclaveName, raw },
+          'team-bridge: ignoring non-outbound record in signals-out',
+        );
+        continue;
+      }
+      if (signal.type === 'commission_dev_team') {
+        this.dispatchDevTeam(signal).catch((err: unknown) => {
+          log.error(
+            { enclaveName: this.opts.enclaveName, taskId: signal.taskId, err },
+            'team-bridge: dispatchDevTeam failed',
+          );
+        });
+      } else if (signal.type === 'terminate_dev_team') {
+        const handle = this.devTeams.get(signal.taskId);
+        if (handle && !handle.proc.killed) {
+          log.info(
+            { enclaveName: this.opts.enclaveName, taskId: signal.taskId },
+            'team-bridge: terminating dev team (terminate_dev_team signal)',
+          );
+          handle.proc.kill('SIGTERM');
+        }
+      }
+    }
+  }
+
+  /**
+   * C4: Poll signals-in.ndjson for dev team progress signals.
    *
    * On significant events (task_started, progress_update, task_completed,
    * task_failed), the HeartbeatController decides whether enough time has
    * passed to emit a heartbeat. The heartbeat is written to outbound.ndjson
    * by the bridge, acting on the manager's behalf.
    */
-  private pollSignals(): void {
+  private pollSignalsIn(): void {
     if (this.stopped) return;
-    const lines = this.signalsReader.readNew();
+    const lines = this.signalsInReader.readNew();
     for (const raw of lines) {
       const encoded = JSON.stringify(raw);
-      const signal = decodeSignal(encoded);
-      if (!signal) continue;
+      const signal = decodeInboundSignal(encoded);
+      if (!signal) {
+        log.debug(
+          { enclaveName: this.opts.enclaveName, raw },
+          'team-bridge: ignoring non-inbound record in signals-in',
+        );
+        continue;
+      }
       if (!isSignificantSignal(signal)) continue;
 
       // Extract tentacle name from signal if available
@@ -388,6 +505,279 @@ export class TeamBridge {
 
       this.heartbeat.onSignal(signal, tentacleName);
     }
+  }
+
+  /**
+   * Spawn a dev team subprocess for the given commission_dev_team signal.
+   *
+   * Token discipline: writes a fresh token.json scoped to the task dir
+   * before spawning. KRAKEN_TOKEN_FILE in the subprocess env points to it.
+   *
+   * The subprocess writes inbound signals (task_started, progress_update,
+   * task_completed, task_failed) to signals-in.ndjson. On premature exit
+   * (no terminal signal was emitted), synthesizes a task_failed record.
+   */
+  private async dispatchDevTeam(
+    signal: CommissionDevTeamSignal,
+  ): Promise<void> {
+    const { taskId, goal, role, tentacleName } = signal;
+
+    // Deduplicate: if a team for this taskId is already running, ignore.
+    if (this.devTeams.has(taskId)) {
+      log.warn(
+        { enclaveName: this.opts.enclaveName, taskId },
+        'team-bridge: duplicate commission for taskId; ignoring',
+      );
+      return;
+    }
+
+    // Create a task-scoped working directory.
+    const taskDir = join(this.opts.teamDir, 'tasks', taskId);
+    mkdirSync(taskDir, { recursive: true });
+
+    // Write a fresh token.json for the dev team, using the same token
+    // as the current manager turn (currentRecord tracks the active record).
+    const tokenPath = join(taskDir, 'token.json');
+    let tokenWritten = false;
+    if (this.currentRecord) {
+      const record = this.currentRecord;
+      let token = record.userToken;
+      if (this.opts.getTokenForUser) {
+        const fresh = await this.opts
+          .getTokenForUser(record.userSlackId)
+          .catch((err: unknown) => {
+            log.warn(
+              { enclaveName: this.opts.enclaveName, taskId, err },
+              'team-bridge: getTokenForUser failed for dev team; using mailbox token',
+            );
+            return null;
+          });
+        if (fresh) token = fresh;
+      }
+      if (token) {
+        const expiresIn = extractExpiresIn(token, log, this.opts.enclaveName);
+        writeTokenFile(taskDir, token, expiresIn);
+        chmodSync(tokenPath, 0o600);
+        tokenWritten = true;
+      }
+    }
+
+    if (!tokenWritten) {
+      // No token available — synthesize task_failed immediately.
+      log.error(
+        { enclaveName: this.opts.enclaveName, taskId },
+        'team-bridge: no token available for dev team; cannot spawn',
+      );
+      const failedSignal = makeTaskFailed({
+        taskId,
+        error:
+          'No authentication token available. The user must re-authenticate before work can continue.',
+      });
+      appendNdjson(this.signalsInPath, failedSignal);
+      // Also write a user-facing outbound error so the manager can relay it.
+      this.writeOutboundReauthPrompt();
+      return;
+    }
+
+    // Build the subprocess env: inherit manager env + task-scoped token file.
+    const devTeamEnv: Record<string, string> = {
+      ...this.opts.env,
+      KRAKEN_TOKEN_FILE: tokenPath,
+      KRAKEN_TASK_ID: taskId,
+      KRAKEN_TASK_DIR: taskDir,
+      ...(tentacleName ? { KRAKEN_TENTACLE_NAME: tentacleName } : {}),
+    };
+
+    // Build the system prompt for the dev team role.
+    const userSlackId = this.currentRecord?.userSlackId ?? 'unknown';
+    const userEmail =
+      this.opts.env['KRAKEN_USER_EMAIL'] ?? 'unknown@example.com';
+    const systemPrompt =
+      role === 'builder'
+        ? buildBuilderPrompt({
+            enclaveName: this.opts.enclaveName,
+            userSlackId,
+            userEmail,
+            taskDescription: goal,
+          })
+        : buildDeployerPrompt({
+            enclaveName: this.opts.enclaveName,
+            userSlackId,
+            userEmail,
+            taskDescription: goal,
+          });
+
+    const gitStateEnclaveDir = join(
+      this.opts.gitStateDir,
+      '..',
+      '..',
+      'enclaves',
+      this.opts.enclaveName,
+    );
+
+    const spawnOpts: DevTeamSpawnOptions = {
+      taskId,
+      role,
+      goal,
+      tentacleName,
+      taskDir,
+      systemPrompt,
+      env: devTeamEnv,
+      piCliPath: this.opts.piCliPath,
+      gitStateDir: existsSync(gitStateEnclaveDir)
+        ? gitStateEnclaveDir
+        : taskDir,
+    };
+
+    log.info(
+      { enclaveName: this.opts.enclaveName, taskId, role },
+      'team-bridge: spawning dev team subprocess',
+    );
+
+    // Emit task_started to signals-in before the subprocess starts.
+    appendNdjson(this.signalsInPath, {
+      type: 'task_started',
+      taskId,
+      timestamp: new Date().toISOString(),
+    });
+
+    const devProc = this.spawnDevTeamProcess(spawnOpts);
+    const handle: DevTeamHandle = { taskId, proc: devProc, terminated: false };
+    this.devTeams.set(taskId, handle);
+
+    devProc.on('exit', (code, exitSignal) => {
+      log.info(
+        {
+          enclaveName: this.opts.enclaveName,
+          taskId,
+          code,
+          signal: exitSignal,
+        },
+        'team-bridge: dev team subprocess exited',
+      );
+      this.devTeams.delete(taskId);
+      // If no terminal signal was ever written, synthesize task_failed.
+      if (!handle.terminated) {
+        const reason =
+          exitSignal === 'SIGTERM'
+            ? 'terminated by request'
+            : `premature_exit (code=${String(code)})`;
+        const failedSignal = makeTaskFailed({ taskId, error: reason });
+        try {
+          appendNdjson(this.signalsInPath, failedSignal);
+        } catch (err) {
+          log.warn(
+            { enclaveName: this.opts.enclaveName, taskId, err },
+            'team-bridge: could not write synthetic task_failed',
+          );
+        }
+      }
+    });
+
+    // Monitor dev team stdout for terminal signal writes so we can mark handle.terminated.
+    devProc.stdout?.on('data', (chunk: Buffer) => {
+      const text = chunk.toString('utf8');
+      // Check if the subprocess emitted a terminal signal line.
+      // Dev team writes JSON signals to signals-in.ndjson (not stdout), so we
+      // watch stdout only for debugging. The terminated flag is set when we
+      // observe the file-level signal; we do that via the signals-in reader.
+      // For now, just log stderr for observability.
+      log.debug(
+        {
+          enclaveName: this.opts.enclaveName,
+          taskId,
+          stdout: text.slice(0, 200),
+        },
+        'dev team stdout',
+      );
+    });
+
+    devProc.stderr?.on('data', (chunk: Buffer) => {
+      log.debug(
+        {
+          enclaveName: this.opts.enclaveName,
+          taskId,
+          stderr: chunk.toString('utf8').slice(0, 400),
+        },
+        'dev team stderr',
+      );
+    });
+
+    // Watch signals-in for terminal signals from this task so we can mark handle.terminated.
+    this.watchForTaskTermination(taskId, handle);
+  }
+
+  /**
+   * Poll signals-in.ndjson for task_completed / task_failed for the given taskId.
+   * When found, marks handle.terminated = true so the exit handler won't synthesize
+   * a duplicate task_failed.
+   *
+   * Uses a one-shot interval that clears itself when the task terminates or the
+   * bridge stops.
+   */
+  private watchForTaskTermination(taskId: string, handle: DevTeamHandle): void {
+    const watcher = setInterval(() => {
+      if (this.stopped || handle.terminated) {
+        clearInterval(watcher);
+        return;
+      }
+      // Read new inbound signals and look for terminal ones for this task.
+      // Note: this reader is shared with pollSignalsIn, which is fine — both
+      // advance the cursor independently would cause double-reads. Instead we
+      // do a fresh file scan here (readRecords without cursor) to detect termination.
+      try {
+        if (!existsSync(this.signalsInPath)) return;
+        const content = readFileSync(this.signalsInPath, 'utf8');
+        for (const line of content.split('\n')) {
+          const trimmed = line.trim();
+          if (!trimmed) continue;
+          try {
+            const rec = JSON.parse(trimmed) as Record<string, unknown>;
+            if (
+              rec['taskId'] === taskId &&
+              (rec['type'] === 'task_completed' ||
+                rec['type'] === 'task_failed')
+            ) {
+              handle.terminated = true;
+              clearInterval(watcher);
+              return;
+            }
+          } catch {
+            // skip
+          }
+        }
+      } catch {
+        // best-effort
+      }
+    }, 500);
+    watcher.unref?.();
+  }
+
+  /**
+   * Spawn a dev team subprocess using the injected factory or real spawn().
+   */
+  private spawnDevTeamProcess(opts: DevTeamSpawnOptions): ChildProcess {
+    if (this.opts.spawnDevTeam) {
+      return this.opts.spawnDevTeam(opts);
+    }
+    // Real spawn: pi in one-shot prompt mode.
+    const args = [
+      '--mode',
+      'rpc',
+      '--provider',
+      this.opts.provider,
+      '--model',
+      this.opts.modelId,
+      '--no-session',
+      '--no-extensions',
+      '--append-system-prompt',
+      opts.systemPrompt,
+    ];
+    return spawn(this.opts.piCliPath, args, {
+      cwd: opts.gitStateDir,
+      env: opts.env,
+      stdio: ['pipe', 'pipe', 'pipe'],
+    });
   }
 
   /**
@@ -456,60 +846,64 @@ export class TeamBridge {
     );
 
     // C5: Write a fresh token.json before handing the prompt to the manager.
-    // If a getTokenForUser callback is wired, use it to get a potentially
-    // refreshed token. Fall back to the token in the mailbox record.
+    // refreshTokenFile throws if no token is available (Should-fix #5).
     await this.refreshTokenFile(record);
 
-    // Send the user turn to pi
-    await this.sendCommand('prompt', { message: record.message });
-    // Wait for the agent to finish (agent_end event)
-    await this.waitForIdle(IDLE_TIMEOUT_MS);
-    // Pull the final assistant text
-    const data = (await this.sendCommand('get_last_assistant_text', {})) as {
-      text: string | null;
-    } | null;
-    const text = data?.text?.trim();
+    // Track the current record so dev team dispatch can access the user token.
+    this.currentRecord = record;
 
-    if (!text) {
-      log.warn(
-        { enclaveName: this.opts.enclaveName, recordId: record.id },
-        'team-bridge: agent produced no assistant text; skipping outbound',
+    try {
+      // Send the user turn to pi
+      await this.sendCommand('prompt', { message: record.message });
+      // Wait for the agent to finish (agent_end event)
+      await this.waitForIdle(IDLE_TIMEOUT_MS);
+      // Pull the final assistant text
+      const data = (await this.sendCommand('get_last_assistant_text', {})) as {
+        text: string | null;
+      } | null;
+      const text = data?.text?.trim();
+
+      if (!text) {
+        log.warn(
+          { enclaveName: this.opts.enclaveName, recordId: record.id },
+          'team-bridge: agent produced no assistant text; skipping outbound',
+        );
+        return;
+      }
+
+      const outbound: OutboundRecord = {
+        id: randomUUID(),
+        timestamp: new Date().toISOString(),
+        type: 'slack_message',
+        channelId: record.channelId,
+        threadTs: record.threadTs,
+        text,
+      };
+      appendNdjson(this.outboundPath, outbound);
+      log.info(
+        {
+          enclaveName: this.opts.enclaveName,
+          recordId: record.id,
+          outLen: text.length,
+        },
+        'team-bridge: wrote outbound record',
       );
-      return;
+    } finally {
+      this.currentRecord = null;
     }
-
-    const outbound: OutboundRecord = {
-      id: randomUUID(),
-      timestamp: new Date().toISOString(),
-      type: 'slack_message',
-      channelId: record.channelId,
-      threadTs: record.threadTs,
-      text,
-    };
-    appendNdjson(this.outboundPath, outbound);
-    log.info(
-      {
-        enclaveName: this.opts.enclaveName,
-        recordId: record.id,
-        outLen: text.length,
-      },
-      'team-bridge: wrote outbound record',
-    );
   }
 
   /**
    * C5: Write a fresh token.json to the team dir before each mailbox turn.
    *
    * Tries getTokenForUser callback first (which auto-refreshes if needed).
-   * Falls back to the token in the mailbox record if the callback is not
-   * wired or returns null.
+   * Falls back to the token in the mailbox record.
    *
-   * Extracts expires_in from the JWT 'exp' claim when possible; uses a
-   * conservative 3600s default when the claim is unavailable.
+   * Should-fix #5: if neither source produces a token, writes an outbound
+   * re-auth prompt to the user AND throws to abort the current mailbox turn.
    */
   private async refreshTokenFile(record: MailboxRecord): Promise<void> {
     let token = record.userToken;
-    let expiresIn = 3600; // conservative default
 
     // Prefer a freshly refreshed token from the callback
     if (this.opts.getTokenForUser) {
@@ -527,38 +921,55 @@ export class TeamBridge {
       }
     }
 
-    // Extract expiry from JWT 'exp' claim if available
-    if (token) {
-      try {
-        const part = token.split('.')[1];
-        if (part) {
-          const payload = JSON.parse(
-            Buffer.from(part, 'base64url').toString(),
-          ) as Record<string, unknown>;
-          const exp = payload['exp'];
-          if (typeof exp === 'number') {
-            const nowSeconds = Math.floor(Date.now() / 1000);
-            expiresIn = Math.max(exp - nowSeconds, 60); // at least 60s
-          }
-        }
-      } catch {
-        // non-fatal; keep conservative default
-      }
-    }
-
+    // Should-fix #5: no token from either source — fail loudly.
     if (!token) {
-      log.warn(
+      log.error(
         { enclaveName: this.opts.enclaveName, recordId: record.id },
-        'team-bridge: no token available for token.json; subprocess may fail MCP calls',
+        'team-bridge: no token available; aborting turn and prompting re-auth',
       );
-      return;
+      // Write outbound re-auth prompt directed at the user.
+      const outbound: OutboundRecord = {
+        id: randomUUID(),
+        timestamp: new Date().toISOString(),
+        type: 'error',
+        channelId: record.channelId,
+        threadTs: record.threadTs,
+        text: 'Your session has expired. Please run the device auth flow again to re-authenticate before I can continue.',
+      };
+      try {
+        appendNdjson(this.outboundPath, outbound);
+      } catch {
+        // best-effort
+      }
+      throw new Error(
+        `no token for user ${record.userSlackId}; mailbox turn aborted`,
+      );
     }
 
+    const expiresIn = extractExpiresIn(token, log, this.opts.enclaveName);
     writeTokenFile(this.opts.teamDir, token, expiresIn);
     log.debug(
       { enclaveName: this.opts.enclaveName, expiresIn },
       'team-bridge: refreshed token.json',
     );
+  }
+
+  /** Write a user-facing re-auth prompt to outbound.ndjson. */
+  private writeOutboundReauthPrompt(): void {
+    if (!this.currentRecord) return;
+    const outbound: OutboundRecord = {
+      id: randomUUID(),
+      timestamp: new Date().toISOString(),
+      type: 'error',
+      channelId: this.currentRecord.channelId,
+      threadTs: this.currentRecord.threadTs,
+      text: 'Your session has expired. Please re-authenticate before I can start this task.',
+    };
+    try {
+      appendNdjson(this.outboundPath, outbound);
+    } catch {
+      // best-effort
+    }
   }
 
   private writeOutboundError(record: MailboxRecord, err: unknown): void {
@@ -577,4 +988,42 @@ export class TeamBridge {
       // best-effort
     }
   }
+}
+
+// ---------------------------------------------------------------------------
+// Shared helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Extract expires_in from a JWT 'exp' claim.
+ *
+ * Should-fix #6: uses a 300s fallback (5 min) instead of 3600s so a
+ * malformed token forces an early refresh rather than papering over
+ * the issue for an hour.
+ */
+function extractExpiresIn(
+  token: string,
+  logger: Logger,
+  enclaveName: string,
+): number {
+  try {
+    const part = token.split('.')[1];
+    if (part) {
+      const payload = JSON.parse(
+        Buffer.from(part, 'base64url').toString(),
+      ) as Record<string, unknown>;
+      const exp = payload['exp'];
+      if (typeof exp === 'number') {
+        const nowSeconds = Math.floor(Date.now() / 1000);
+        return Math.max(exp - nowSeconds, 60); // at least 60s
+      }
+    }
+  } catch (err) {
+    // Should-fix #6: warn instead of silently swallowing; use 300s fallback.
+    logger.warn(
+      { enclaveName, err: err instanceof Error ? err.message : String(err) },
+      'team-bridge: could not parse JWT exp; using 300s fallback',
+    );
+  }
+  return 300;
 }
