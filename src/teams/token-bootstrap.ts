@@ -19,8 +19,8 @@
  *   export TNTC_ACCESS_TOKEN=$(cat "$KRAKEN_TOKEN_FILE" | jq -r .access_token)
  *
  * KRAKEN_TOKEN_FILE env var is set in subprocess env (lifecycle.ts C3).
- * The frozen TNTC_ACCESS_TOKEN env var is still set (B2 removes it in the
- * next PR; this PR adds the file-based path alongside the env-based path).
+ * TNTC_ACCESS_TOKEN is NOT in the spawn env (B2, lifecycle.ts).
+ * Subprocesses must read the token from KRAKEN_TOKEN_FILE on each call.
  */
 
 import { writeFileSync } from 'node:fs';

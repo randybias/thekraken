@@ -89,8 +89,9 @@ export function buildSystemPrompt(options: SystemPromptOptions): string {
  *
  * Every spawned subprocess must carry the initiating user's identity so that
  * every MCP call, git operation, and tool invocation is attributed correctly.
- * The token is NOT included in the prompt — it is passed via subprocess env
- * (TNTC_ACCESS_TOKEN). The prompt only carries the human-readable identity.
+ * The token is NOT included in the prompt — it is read from KRAKEN_TOKEN_FILE
+ * (written by the bridge before each turn). The prompt carries the human-readable
+ * identity and the mandatory token-read instruction for every tool call.
  */
 function buildIdentityContext(userSlackId: string, userEmail: string): string {
   return [
