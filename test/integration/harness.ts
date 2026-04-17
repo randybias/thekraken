@@ -443,6 +443,7 @@ export async function createHarness(
       clientSecret: 'secret',
     },
     mcp: { url: 'http://mcp.test:8080', port: 8080 },
+    cluster: { name: 'eastus' },
     llm: {
       defaultProvider: 'anthropic',
       defaultModel: 'claude-sonnet-4-6',

@@ -113,6 +113,7 @@ function makeConfig(teamsDir: string): KrakenConfig {
       clientSecret: 'sec',
     },
     mcp: { url: 'http://mcp:8080', port: 8080 },
+    cluster: { name: 'eastus' },
     llm: {
       defaultProvider: 'anthropic',
       defaultModel: 'claude-sonnet-4-6',
@@ -190,6 +191,41 @@ describe('TeamLifecycleManager', () => {
     await manager.spawnTeam('test-enclave', 'U_ALICE', 'token-alice');
     const b = mockBridges[0]!;
     expect(b.opts.env['KRAKEN_TEAM_DIR']).toContain('test-enclave');
+  });
+
+  // C3 regression tests: env bootstrap must include cluster + MCP vars
+  it('spawnTeam() sets TENTACULAR_CLUSTER in env (C3)', async () => {
+    await manager.spawnTeam('test-enclave', 'U_ALICE', 'token-alice');
+    const b = mockBridges[0]!;
+    expect(b.opts.env['TENTACULAR_CLUSTER']).toBeDefined();
+    expect(b.opts.env['TENTACULAR_CLUSTER']).not.toBe('');
+  });
+
+  it('spawnTeam() sets TNTC_MCP_ENDPOINT in env (C3)', async () => {
+    await manager.spawnTeam('test-enclave', 'U_ALICE', 'token-alice');
+    const b = mockBridges[0]!;
+    expect(b.opts.env['TNTC_MCP_ENDPOINT']).toBeDefined();
+    expect(b.opts.env['TNTC_MCP_ENDPOINT']).toContain('http');
+  });
+
+  it('spawnTeam() sets KRAKEN_TOKEN_FILE in env pointing to team dir (C3)', async () => {
+    await manager.spawnTeam('test-enclave', 'U_ALICE', 'token-alice');
+    const b = mockBridges[0]!;
+    expect(b.opts.env['KRAKEN_TOKEN_FILE']).toBeDefined();
+    expect(b.opts.env['KRAKEN_TOKEN_FILE']).toContain('token.json');
+    expect(b.opts.env['KRAKEN_TOKEN_FILE']).toContain('test-enclave');
+  });
+
+  it('spawnTeam() does NOT set KUBECONFIG in env (C3 — tntc→MCP only, no direct cluster)', async () => {
+    await manager.spawnTeam('test-enclave', 'U_ALICE', 'token-alice');
+    const b = mockBridges[0]!;
+    expect(b.opts.env['KUBECONFIG']).toBeUndefined();
+  });
+
+  it('spawnTeam() sets KRAKEN_ENCLAVE_NAME in env (C3)', async () => {
+    await manager.spawnTeam('test-enclave', 'U_ALICE', 'token-alice');
+    const b = mockBridges[0]!;
+    expect(b.opts.env['KRAKEN_ENCLAVE_NAME']).toBe('test-enclave');
   });
 
   it('isTeamActive() returns true after spawn', async () => {

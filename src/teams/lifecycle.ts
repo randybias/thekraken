@@ -197,6 +197,10 @@ export class TeamLifecycleManager {
     // it would leak OIDC_CLIENT_SECRET, SLACK_BOT_TOKEN, and other
     // secrets into the subprocess (the builder has bash access).
     // D6: Only TNTC_ACCESS_TOKEN carries auth to MCP (per-user token).
+    // C3: also propagate cluster name, MCP endpoint, and token file path.
+    //     Explicitly do NOT set KUBECONFIG — teams use tntc→MCP only,
+    //     never direct kubectl/cluster access.
+    const tokenFilePath = join(teamDir, 'token.json');
     const subprocessEnv: Record<string, string> = {
       // System essentials
       PATH: process.env['PATH'] ?? '/usr/local/bin:/usr/bin:/bin',
@@ -210,6 +214,11 @@ export class TeamLifecycleManager {
       // Team directory for NDJSON IPC
       KRAKEN_TEAM_DIR: teamDir,
       KRAKEN_ENCLAVE_NAME: enclaveName,
+      // C3: Cluster + MCP endpoint so tntc can reach the MCP server
+      TENTACULAR_CLUSTER: this.config.cluster.name,
+      TNTC_MCP_ENDPOINT: this.config.mcp.url,
+      // C3: Token file path — written by bridge before each mailbox turn (C5)
+      KRAKEN_TOKEN_FILE: tokenFilePath,
       // LLM API key for the subprocess (it needs to call the LLM)
       ...(this.config.llm.anthropicApiKey
         ? { ANTHROPIC_API_KEY: this.config.llm.anthropicApiKey }
@@ -220,6 +229,7 @@ export class TeamLifecycleManager {
       ...(this.config.llm.geminiApiKey
         ? { GEMINI_API_KEY: this.config.llm.geminiApiKey }
         : {}),
+      // NOTE: KUBECONFIG is intentionally NOT set — teams use tntc→MCP only.
     };
 
     const initiatingEmail =

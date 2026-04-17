@@ -38,6 +38,15 @@ export interface McpConfig {
   // Per-user OIDC tokens from device flow are stored in SQLite.
 }
 
+export interface ClusterConfig {
+  /**
+   * Tentacular cluster name passed as TENTACULAR_CLUSTER to subprocesses.
+   * This is the cluster name used by `tntc` to target the right cluster.
+   * Required so dev team subprocesses can run tntc commands correctly.
+   */
+  name: string;
+}
+
 export interface LlmConfig {
   /** Default LLM provider. Default: 'anthropic'. */
   defaultProvider: 'anthropic' | 'openai' | 'google';
@@ -101,6 +110,7 @@ export interface KrakenConfig {
   slack: SlackConfig;
   oidc: OidcConfig;
   mcp: McpConfig;
+  cluster: ClusterConfig;
   llm: LlmConfig;
   gitState: GitStateConfig;
   chroma: ChromaConfig;
@@ -219,6 +229,9 @@ export function loadConfig(): KrakenConfig {
   // MCP
   const mcpUrl = required('TENTACULAR_MCP_URL');
 
+  // Cluster
+  const clusterName = required('TENTACULAR_CLUSTER');
+
   // Git state (mandatory — no opt-in toggle)
   const gitStateRepoUrl = required('GIT_STATE_REPO_URL');
 
@@ -294,6 +307,9 @@ export function loadConfig(): KrakenConfig {
     mcp: {
       url: mcpUrl,
       port: validatedPort('MCP_PORT', optional('MCP_PORT', '8080')),
+    },
+    cluster: {
+      name: clusterName,
     },
     llm: {
       defaultProvider,
