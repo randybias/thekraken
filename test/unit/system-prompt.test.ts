@@ -161,6 +161,51 @@ describe('buildManagerPrompt', () => {
   });
 });
 
+// C1: Manager decision-tree and role-boundary tests
+describe('buildManagerPrompt — decision tree (C1)', () => {
+  it('mentions commission_dev_team for build/deploy tasks', () => {
+    const prompt = buildManagerPrompt(BASE_ROLE_OPTS);
+    expect(prompt).toContain('commission_dev_team');
+  });
+
+  it('explicitly states manager never scaffolds or writes code', () => {
+    const prompt = buildManagerPrompt(BASE_ROLE_OPTS);
+    // Key rule: manager must not use edit/write — those belong to the dev team
+    expect(prompt).toContain('never');
+    expect(prompt.toLowerCase()).toContain('scaffold');
+  });
+
+  it('instructs manager to answer read queries directly without commissioning a team', () => {
+    const prompt = buildManagerPrompt(BASE_ROLE_OPTS);
+    // Manager handles read/conversational queries in the same turn
+    expect(prompt.toLowerCase()).toMatch(/read.*query|conversational|answer.*directly|same turn/i);
+  });
+
+  it('instructs manager to commission a dev team for build/deploy tasks without user confirmation', () => {
+    const prompt = buildManagerPrompt(BASE_ROLE_OPTS);
+    // Per feedback_manager_autonomous_delegation.md: no user confirmation
+    expect(prompt.toLowerCase()).toContain('commission');
+    // Must not say "ask user" or "confirm with user" for commission decisions
+    expect(prompt).not.toMatch(/ask.*user.*before commissioning/i);
+    expect(prompt).not.toMatch(/confirm with.*user.*before.*team/i);
+  });
+
+  it('lists signals.ndjson in communication protocol', () => {
+    const prompt = buildManagerPrompt(BASE_ROLE_OPTS);
+    expect(prompt).toContain('signals.ndjson');
+  });
+
+  it('explicitly prohibits manager from using edit/write tools', () => {
+    const prompt = buildManagerPrompt(BASE_ROLE_OPTS);
+    expect(prompt).toContain('NO edit');
+  });
+
+  it('instructs manager to read KRAKEN_TOKEN_FILE for fresh token before tntc calls', () => {
+    const prompt = buildManagerPrompt(BASE_ROLE_OPTS);
+    expect(prompt).toContain('KRAKEN_TOKEN_FILE');
+  });
+});
+
 describe('buildBuilderPrompt', () => {
   it('includes Role: Builder header', () => {
     const prompt = buildBuilderPrompt({

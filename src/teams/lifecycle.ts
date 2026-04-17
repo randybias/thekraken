@@ -21,7 +21,7 @@ import { createChildLogger } from '../logger.js';
 import type { KrakenConfig } from '../config.js';
 import { appendNdjson } from './ndjson.js';
 import { TeamBridge, type TeamBridgeOptions } from './bridge.js';
-import { buildTeamBuilderPrompt } from '../agent/system-prompt.js';
+import { buildManagerPrompt } from '../agent/system-prompt.js';
 import { extractEmailFromToken } from '../auth/index.js';
 
 /**
@@ -232,7 +232,7 @@ export class TeamLifecycleManager {
       modelId: this.config.llm.defaultModel,
       env: subprocessEnv,
       piCliPath: piPath,
-      appendSystemPrompt: buildTeamBuilderPrompt({
+      appendSystemPrompt: buildManagerPrompt({
         enclaveName,
         userSlackId: initiatingUserId,
         userEmail: initiatingEmail,
