@@ -269,24 +269,25 @@ describe('D3: background reconstitution', () => {
     const auth = await import('../../src/auth/index.js');
     vi.mocked(auth.getValidTokenForUser).mockResolvedValue('user-token-abc');
 
-    // Slow reconstitution so the dedup window is still open for the second call
+    // Slow reconstitution so the dedup window is still open for concurrent calls.
     mockBindings.lookupEnclaveWithReconstitute.mockImplementation(
       () => new Promise((r) => setTimeout(r, 200)),
     );
 
     const getMcpCallForToken = vi.fn().mockReturnValue(vi.fn());
 
-    // First mention
-    await triggerMention({ getMcpCallForToken });
-    // Second mention fires before the first reconstitution completes
-    await triggerMention({ getMcpCallForToken });
-    // Third mention also within dedup window
-    await triggerMention({ getMcpCallForToken });
+    // Fire three mentions in the same tick — no intervening awaits.
+    // Sequential awaits would serialize and miss the race; Promise.all
+    // dispatches all three handlers before any settles.
+    const p1 = triggerMention({ getMcpCallForToken });
+    const p2 = triggerMention({ getMcpCallForToken });
+    const p3 = triggerMention({ getMcpCallForToken });
+    await Promise.all([p1, p2, p3]);
 
-    // Wait for all async work to settle
+    // Wait for the background reconstitution to settle.
     await new Promise((r) => setTimeout(r, 300));
 
-    // Only one reconstitution should have fired
+    // Only one reconstitution should have fired despite three concurrent mentions.
     expect(mockBindings.lookupEnclaveWithReconstitute).toHaveBeenCalledOnce();
   });
 
