@@ -337,31 +337,48 @@ function registerEventHandlers(
           // repopulate SQLite. This recovers from PVC loss or cross-instance
           // deploys without blocking the response path or prompting for auth.
           void (async () => {
-            const now = Date.now();
-            const expiry = RECONSTITUTE_IN_FLIGHT.get(userId);
-            if (expiry !== undefined && now < expiry) {
+            // Track whether this IIFE instance claimed the sentinel so the
+            // finally block only clears what we set — not a sentinel from a
+            // concurrent IIFE that got there first.
+            let claimedSentinel = false;
+            try {
+              const now = Date.now();
+              const expiry = RECONSTITUTE_IN_FLIGHT.get(userId);
+              if (expiry !== undefined && now < expiry) {
+                log.info(
+                  { userId, channelId },
+                  'D3: dedup in effect — skipping background reconstitution for this user',
+                );
+                return;
+              }
+
+              // Set the sentinel before any awaits to close the race window
+              // where two concurrent mentions both pass the dedup check.
+              // Cleared on early exit (no token / no factory) so retries
+              // are not blocked for the full 30-second TTL.
+              RECONSTITUTE_IN_FLIGHT.set(
+                userId,
+                now + RECONSTITUTE_DEDUP_TTL_MS,
+              );
+              claimedSentinel = true;
+
+              // Silent check only — no device-auth flow.
+              const existingToken = await getValidTokenForUser(userId);
+              if (!existingToken) {
+                RECONSTITUTE_IN_FLIGHT.delete(userId);
+                return;
+              }
+
+              if (!deps.getMcpCallForToken) {
+                RECONSTITUTE_IN_FLIGHT.delete(userId);
+                return;
+              }
+
               log.info(
                 { userId, channelId },
-                'D3: reconstitution already in flight for this user — skipping dedup',
+                'D3: user authenticated, binding missing — firing background reconstitution',
               );
-              return;
-            }
 
-            // Silent check only — no device-auth flow.
-            const existingToken = await getValidTokenForUser(userId);
-            if (!existingToken) return;
-
-            if (!deps.getMcpCallForToken) return;
-
-            // Mark in-flight before kicking off the async work.
-            RECONSTITUTE_IN_FLIGHT.set(userId, now + RECONSTITUTE_DEDUP_TTL_MS);
-
-            log.info(
-              { userId, channelId },
-              'D3: user authenticated, binding missing — firing background reconstitution',
-            );
-
-            try {
               const mcpCall = deps.getMcpCallForToken(existingToken);
               await deps.bindings.lookupEnclaveWithReconstitute(
                 channelId,
@@ -378,7 +395,12 @@ function registerEventHandlers(
                 'D3: background reconstitution failed',
               );
             } finally {
-              RECONSTITUTE_IN_FLIGHT.delete(userId);
+              // Only delete the sentinel if this IIFE instance set it.
+              // A dedup-skipped IIFE must not clear the sentinel owned by
+              // the winning instance that is still running.
+              if (claimedSentinel) {
+                RECONSTITUTE_IN_FLIGHT.delete(userId);
+              }
             }
           })();
 
