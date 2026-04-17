@@ -277,6 +277,9 @@ function validateSignalFields(
  *   line and call this function to get null; the error is in the log).
  */
 export function decodeSignal(line: string): SignalRecord | null {
+  // Clear before each attempt so getLastDecodeError() never returns a
+  // stale error from a previous unrelated call.
+  _lastDecodeError = null;
   let raw: unknown;
   try {
     raw = JSON.parse(line);

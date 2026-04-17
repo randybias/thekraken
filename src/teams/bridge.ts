@@ -549,10 +549,22 @@ export class TeamBridge {
       const encoded = JSON.stringify(raw);
       const signal = decodeInboundSignal(encoded);
       if (!signal) {
-        log.debug(
-          { enclaveName: this.opts.enclaveName, raw },
-          'team-bridge: ignoring non-inbound record in signals-in',
-        );
+        const fieldErr = getLastDecodeError();
+        if (fieldErr) {
+          log.warn(
+            {
+              enclaveName: this.opts.enclaveName,
+              fieldErr,
+              raw: encoded.slice(0, 200),
+            },
+            'team-bridge: rejected malformed inbound signal (missing required field)',
+          );
+        } else {
+          log.debug(
+            { enclaveName: this.opts.enclaveName, raw },
+            'team-bridge: ignoring non-inbound record in signals-in',
+          );
+        }
         continue;
       }
       if (!isSignificantSignal(signal)) continue;
