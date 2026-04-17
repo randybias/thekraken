@@ -206,11 +206,75 @@ export function encodeSignal(signal: SignalRecord): string {
 }
 
 /**
+ * Validate required fields for each signal type.
+ *
+ * Returns a descriptive error string if validation fails, or null if the
+ * record is valid. Called by decodeSignal after the type is confirmed.
+ */
+function validateSignalFields(
+  type: string,
+  obj: Record<string, unknown>,
+): string | null {
+  // Fields required by every signal type with a taskId.
+  const requiresTaskId = new Set([
+    'commission_dev_team',
+    'terminate_dev_team',
+    'task_started',
+    'progress_update',
+    'task_completed',
+    'task_failed',
+  ]);
+
+  if (requiresTaskId.has(type)) {
+    if (typeof obj['taskId'] !== 'string' || !obj['taskId']) {
+      return `missing or empty required field "taskId" on ${type}`;
+    }
+  }
+
+  switch (type) {
+    case 'commission_dev_team': {
+      if (typeof obj['goal'] !== 'string' || !obj['goal']) {
+        return 'missing or empty required field "goal" on commission_dev_team';
+      }
+      if (obj['role'] !== 'builder' && obj['role'] !== 'deployer') {
+        return `invalid "role" on commission_dev_team: expected "builder" or "deployer", got ${String(obj['role'])}`;
+      }
+      break;
+    }
+    case 'progress_update': {
+      if (typeof obj['message'] !== 'string' || !obj['message']) {
+        return 'missing or empty required field "message" on progress_update';
+      }
+      break;
+    }
+    case 'task_failed': {
+      if (
+        typeof obj['reason'] !== 'string' &&
+        typeof obj['error'] !== 'string'
+      ) {
+        return 'missing required field "reason" or "error" on task_failed';
+      }
+      break;
+    }
+    // task_completed requires taskId (checked above) — no extra fields.
+    // task_started requires taskId (checked above) — no extra fields.
+    // terminate_dev_team requires taskId (checked above) — no extra fields.
+  }
+
+  return null;
+}
+
+/**
  * Decode a single NDJSON line into a typed SignalRecord.
  *
- * Returns null if the line is not valid JSON, has no `type` field, or the
- * `type` is not a known signal type. Invalid records are silently dropped
- * (the caller should log if needed).
+ * Returns null if the line is not valid JSON, has no `type` field, the
+ * `type` is not a known signal type, or required per-type fields are missing.
+ * Rejected records are NOT silently dropped — callers should log at warn
+ * level so the bridge doesn't stall silently on a malformed commission.
+ *
+ * @returns The decoded SignalRecord, or null if invalid. When null is returned
+ *   the caller can inspect decodeSignalError() (not exposed — callers log the
+ *   line and call this function to get null; the error is in the log).
  */
 export function decodeSignal(line: string): SignalRecord | null {
   let raw: unknown;
@@ -223,7 +287,39 @@ export function decodeSignal(line: string): SignalRecord | null {
   const obj = raw as Record<string, unknown>;
   if (typeof obj['type'] !== 'string') return null;
   if (!VALID_SIGNAL_TYPES.has(obj['type'])) return null;
+
+  // Per-type field validation (Finding 4).
+  const fieldError = validateSignalFields(obj['type'], obj);
+  if (fieldError !== null) {
+    // Store the field error for the caller to retrieve via getLastDecodeError().
+    // Callers (decodeOutboundSignal, decodeInboundSignal) log at warn level.
+    _lastDecodeError = fieldError;
+    return null;
+  }
+
+  _lastDecodeError = null;
   return raw as SignalRecord;
+}
+
+/**
+ * The validation error from the last decodeSignal() call that returned null
+ * due to field validation failure (not a parse error or unknown type).
+ *
+ * null if the last call succeeded or failed for a different reason.
+ * Used by decodeOutboundSignal / decodeInboundSignal to surface field errors
+ * in caller logs.
+ */
+let _lastDecodeError: string | null = null;
+
+/**
+ * Return the field-validation error from the most recent decodeSignal() call
+ * that returned null. Returns null if the last failure was not a field error.
+ *
+ * Intended for use by wrapper decode functions (decodeOutboundSignal,
+ * decodeInboundSignal) so they can log a specific error message.
+ */
+export function getLastDecodeError(): string | null {
+  return _lastDecodeError;
 }
 
 /**
