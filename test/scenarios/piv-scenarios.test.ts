@@ -151,10 +151,10 @@ describe('PIV3: status check reads signals without interrupting builder', () => 
     teamsDir = makeTempTeamsDir();
   });
 
-  it('dispatcher can read signals.ndjson while builder is still writing', () => {
+  it('dispatcher can read signals-in.ndjson while builder is still writing', () => {
     const enclaveDir = join(teamsDir, 'engineering');
     mkdirSync(enclaveDir, { recursive: true });
-    const signals = join(enclaveDir, 'signals.ndjson');
+    const signals = join(enclaveDir, 'signals-in.ndjson');
 
     // Builder writes progress signals
     appendNdjson(signals, { type: 'progress', phase: 'compiling', pct: 30 });

@@ -9,7 +9,7 @@
  * Internal ops:
  *   - spawn_enclave_team: Delegates to TeamLifecycleManager
  *   - send_to_team: Appends to mailbox.ndjson
- *   - check_team_status: Reads team signals.ndjson + outbound.ndjson
+ *   - check_team_status: Reads team signals-in.ndjson + outbound.ndjson
  *   - post_to_slack: Direct Slack WebClient post (dispatcher-originated)
  */
 
@@ -17,6 +17,7 @@ import { randomUUID } from 'node:crypto';
 import { join } from 'node:path';
 import { existsSync, statSync } from 'node:fs';
 import { NdjsonReader } from '../teams/ndjson.js';
+import { SIGNALS_IN_FILE } from '../teams/signals.js';
 import { createChildLogger } from '../logger.js';
 import type { KrakenConfig } from '../config.js';
 import type { TeamLifecycleManager } from '../teams/lifecycle.js';
@@ -222,8 +223,8 @@ export function buildDispatcherTools(
           }
         }
 
-        // Read recent signals (last 5)
-        const signalsPath = join(teamDir, 'signals.ndjson');
+        // Read recent inbound signals (dev-team progress; last 5)
+        const signalsPath = join(teamDir, SIGNALS_IN_FILE);
         const recentSignals = readLastN(signalsPath, 5);
 
         // Read recent outbound (last 5)

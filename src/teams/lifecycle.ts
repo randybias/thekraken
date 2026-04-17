@@ -5,10 +5,13 @@
  * One manager per enclave; manager lives 30 minutes after last activity (D7).
  * On pod restart, all teams die — no state resume (D7).
  *
- * D6 enforcement:
- * - User's OIDC token passed in subprocess env as TNTC_ACCESS_TOKEN.
+ * D6 / B2 enforcement:
+ * - User's OIDC token is written to token.json (via bridge C5) before each
+ *   mailbox turn. Subprocess reads it via KRAKEN_TOKEN_FILE.
+ * - TNTC_ACCESS_TOKEN is NOT in the spawn env — frozen env vars go stale
+ *   mid-task and cause MCP 401 errors.
  * - Never a service token, never a fallback.
- * - Token expiry: caller responsibility (mailbox record with expired token).
+ * - Token expiry: bridge refreshes on each turn; subprocess re-reads per-call.
  *
  * IPC: Dispatcher writes to mailbox.ndjson; manager reads it.
  * Teams write outbound.ndjson; OutboundPoller reads it.
@@ -21,8 +24,9 @@ import { createChildLogger } from '../logger.js';
 import type { KrakenConfig } from '../config.js';
 import { appendNdjson } from './ndjson.js';
 import { TeamBridge, type TeamBridgeOptions } from './bridge.js';
-import { buildTeamBuilderPrompt } from '../agent/system-prompt.js';
+import { buildManagerPrompt } from '../agent/system-prompt.js';
 import { extractEmailFromToken } from '../auth/index.js';
+import { getValidTokenForUser } from '../auth/oidc.js';
 
 /**
  * Minimal bridge-shaped interface that TeamLifecycleManager depends on.
@@ -92,7 +96,7 @@ function resolvePiBinary(): string {
  * Ensure the team directory structure exists.
  *
  * Layout: {teamsDir}/{enclaveName}/
- *           mailbox.ndjson, outbound.ndjson, signals.ndjson
+ *           mailbox.ndjson, outbound.ndjson, signals-out.ndjson, signals-in.ndjson
  *           memory/MEMORY.md  (persisted across team restarts)
  */
 function ensureTeamDir(teamDir: string): void {
@@ -155,8 +159,9 @@ export class TeamLifecycleManager {
    * and refreshes the lastActivity timestamp. Otherwise spawns a new
    * manager process.
    *
-   * D6: userToken is the initiating user's OIDC token. It is passed
-   * to the subprocess via TNTC_ACCESS_TOKEN env var. NEVER a service token.
+   * D6/B2: userToken is the initiating user's OIDC token. It is stored in
+   * token.json (via bridge C5) for subprocess re-read each turn. It is NOT
+   * passed as TNTC_ACCESS_TOKEN in the spawn env. NEVER a service token.
    *
    * @param enclaveName - Enclave name (becomes the team directory name).
    * @param initiatingUserId - Slack user ID of the user triggering the spawn.
@@ -196,20 +201,36 @@ export class TeamLifecycleManager {
     // Construct a MINIMAL allow-listed env. Never spread process.env —
     // it would leak OIDC_CLIENT_SECRET, SLACK_BOT_TOKEN, and other
     // secrets into the subprocess (the builder has bash access).
-    // D6: Only TNTC_ACCESS_TOKEN carries auth to MCP (per-user token).
+    //
+    // D6 / B2: TNTC_ACCESS_TOKEN is intentionally NOT in the spawn env.
+    // Tokens expire mid-task and a frozen env var causes MCP 401 errors.
+    // The only supported path is KRAKEN_TOKEN_FILE: the bridge writes a
+    // fresh token.json before each mailbox turn (C5). Every subprocess
+    // role prompt requires:
+    //   export TNTC_ACCESS_TOKEN=$(cat "$KRAKEN_TOKEN_FILE" | jq -r .access_token)
+    // before any tntc or MCP tool call.
+    //
+    // C3: also propagate cluster name, MCP endpoint, and token file path.
+    //     Explicitly do NOT set KUBECONFIG — teams use tntc→MCP only,
+    //     never direct kubectl/cluster access.
+    const tokenFilePath = join(teamDir, 'token.json');
     const subprocessEnv: Record<string, string> = {
       // System essentials
       PATH: process.env['PATH'] ?? '/usr/local/bin:/usr/bin:/bin',
       HOME: process.env['HOME'] ?? '/home/node',
       NODE_ENV: process.env['NODE_ENV'] ?? 'production',
-      // D6: User's OIDC token ONLY
-      TNTC_ACCESS_TOKEN: userToken,
       // Depth guard (pi-subagents pattern)
       PI_SUBAGENT_DEPTH: '0',
       PI_SUBAGENT_MAX_DEPTH: '3',
       // Team directory for NDJSON IPC
       KRAKEN_TEAM_DIR: teamDir,
       KRAKEN_ENCLAVE_NAME: enclaveName,
+      // C3: Cluster + MCP endpoint so tntc can reach the MCP server
+      TENTACULAR_CLUSTER: this.config.cluster.name,
+      TNTC_MCP_ENDPOINT: this.config.mcp.url,
+      // B2/C3: Token file path — written by bridge before each mailbox turn (C5).
+      // Subprocess must read: export TNTC_ACCESS_TOKEN=$(cat "$KRAKEN_TOKEN_FILE" | jq -r .access_token)
+      KRAKEN_TOKEN_FILE: tokenFilePath,
       // LLM API key for the subprocess (it needs to call the LLM)
       ...(this.config.llm.anthropicApiKey
         ? { ANTHROPIC_API_KEY: this.config.llm.anthropicApiKey }
@@ -220,6 +241,8 @@ export class TeamLifecycleManager {
       ...(this.config.llm.geminiApiKey
         ? { GEMINI_API_KEY: this.config.llm.geminiApiKey }
         : {}),
+      // NOTE: KUBECONFIG is intentionally NOT set — teams use tntc→MCP only.
+      // NOTE: TNTC_ACCESS_TOKEN is intentionally NOT set — read from KRAKEN_TOKEN_FILE.
     };
 
     const initiatingEmail =
@@ -232,11 +255,14 @@ export class TeamLifecycleManager {
       modelId: this.config.llm.defaultModel,
       env: subprocessEnv,
       piCliPath: piPath,
-      appendSystemPrompt: buildTeamBuilderPrompt({
+      appendSystemPrompt: buildManagerPrompt({
         enclaveName,
         userSlackId: initiatingUserId,
         userEmail: initiatingEmail,
       }),
+      // C5: Wire the token refresh callback so the bridge refreshes token.json
+      // before each mailbox turn. getValidTokenForUser auto-refreshes if needed.
+      getTokenForUser: getValidTokenForUser,
       onExit: (code) => {
         log.info({ enclaveName, code }, 'team bridge exited');
         this.teams.delete(enclaveName);

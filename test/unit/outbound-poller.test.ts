@@ -38,6 +38,7 @@ function makeConfig(teamsDir: string): KrakenConfig {
       clientSecret: 'sec',
     },
     mcp: { url: 'http://mcp:8080', port: 8080 },
+    cluster: { name: 'eastus' },
     llm: {
       defaultProvider: 'anthropic',
       defaultModel: 'claude-sonnet-4-6',

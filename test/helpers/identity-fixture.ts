@@ -41,8 +41,9 @@ export interface IdentityFixture {
    */
   assertTokenNotInOutbound: (userId: string, token: string) => void;
   /**
-   * Assert that no record in outbound.ndjson or signals.ndjson contains
-   * the given token string. Throws if any record contains the token.
+   * Assert that no record in outbound.ndjson, signals-out.ndjson, or
+   * signals-in.ndjson contains the given token string. Throws if any
+   * record contains the token.
    */
   assertTokenNotLeaked: (token: string) => void;
   cleanup: () => void;
@@ -118,12 +119,21 @@ export function createIdentityFixture(enclaveName: string): IdentityFixture {
           );
         }
       }
-      // Check signals
-      const signals = fixture.readSignals();
-      for (const rec of signals) {
+      // Check outbound signals (signals-out.ndjson, manager→bridge)
+      const signalsOut = fixture.readSignalsOut();
+      for (const rec of signalsOut) {
         if (JSON.stringify(rec).includes(token)) {
           throw new Error(
-            `D6 violation: token "${token.slice(0, 10)}..." found in signals.ndjson`,
+            `D6 violation: token "${token.slice(0, 10)}..." found in signals-out.ndjson`,
+          );
+        }
+      }
+      // Check inbound signals (signals-in.ndjson, dev-team→manager)
+      const signalsIn = fixture.readSignalsIn();
+      for (const rec of signalsIn) {
+        if (JSON.stringify(rec).includes(token)) {
+          throw new Error(
+            `D6 violation: token "${token.slice(0, 10)}..." found in signals-in.ndjson`,
           );
         }
       }

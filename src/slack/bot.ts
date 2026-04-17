@@ -841,8 +841,9 @@ async function fetchThreadTurns(
  * Execute a RouteDecision: deterministic actions go directly; smart
  * path delegates to the dispatcher's AgentSession via deps.onSmartPath().
  *
- * Task 7: userToken is now the real OIDC token, threaded from the auth gate
- * through to mailbox records so teams receive TNTC_ACCESS_TOKEN.
+ * Task 7: userToken is the real OIDC token, threaded from the auth gate
+ * through to mailbox records. The bridge writes it to token.json before
+ * each turn (C5/B2); TNTC_ACCESS_TOKEN is not in the subprocess env.
  */
 async function executeDecision(
   decision: RouteDecision,

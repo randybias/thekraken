@@ -59,7 +59,8 @@ function writeOutbound(
 
 function writeSignal(type: string, message: string, source = 'builder'): void {
   if (!TEAM_DIR) return;
-  appendNdjson(join(TEAM_DIR, 'signals.ndjson'), {
+  // Dev team signals go to signals-in.ndjson (dev-team → manager direction).
+  appendNdjson(join(TEAM_DIR, 'signals-in.ndjson'), {
     id: `sig-${Date.now()}`,
     timestamp: new Date().toISOString(),
     source,

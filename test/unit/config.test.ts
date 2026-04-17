@@ -10,6 +10,7 @@ const REQUIRED_VARS = [
   'OIDC_CLIENT_ID',
   'OIDC_CLIENT_SECRET',
   'TENTACULAR_MCP_URL',
+  'TENTACULAR_CLUSTER',
   'GIT_STATE_REPO_URL',
   'ANTHROPIC_API_KEY',
 ];
@@ -21,6 +22,7 @@ function setRequiredEnv(): void {
   process.env['OIDC_CLIENT_ID'] = 'thekraken';
   process.env['OIDC_CLIENT_SECRET'] = 'test-secret';
   process.env['TENTACULAR_MCP_URL'] = 'http://tentacular-mcp:8080';
+  process.env['TENTACULAR_CLUSTER'] = 'eastus';
   process.env['GIT_STATE_REPO_URL'] = 'https://github.com/test/workflows.git';
   // Narrow to anthropic-only to avoid requiring OpenAI/Gemini keys in tests
   // that don't care about multi-provider scenarios.
@@ -94,6 +96,7 @@ describe('loadConfig', () => {
     expect(config.oidc.issuer).toBe('https://keycloak.example.com/realms/test');
     expect(config.mcp.url).toBe('http://tentacular-mcp:8080');
     expect(config.mcp.port).toBe(8080);
+    expect(config.cluster.name).toBe('eastus');
     expect(config.gitState.repoUrl).toBe(
       'https://github.com/test/workflows.git',
     );

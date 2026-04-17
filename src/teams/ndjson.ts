@@ -5,7 +5,8 @@
  * for the three team protocol files:
  *   - mailbox.ndjson   (dispatcher -> manager)
  *   - outbound.ndjson  (manager -> dispatcher)
- *   - signals.ndjson   (builder/deployer -> manager)
+ *   - signals-out.ndjson  (manager -> bridge: commission/terminate)
+ *   - signals-in.ndjson   (dev-team -> manager: task_started/completed/failed)
  *
  * Design constraints (Section 4.5 of phase1 design):
  * - All files are append-only. Writers append complete lines atomically.
