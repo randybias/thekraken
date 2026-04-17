@@ -29,20 +29,30 @@ describe('isSignificantSignal', () => {
   });
 
   it('task_completed is significant', () => {
-    expect(isSignificantSignal(makeTaskCompleted({ taskId: 't1', result: 'done' }))).toBe(true);
+    expect(
+      isSignificantSignal(makeTaskCompleted({ taskId: 't1', result: 'done' })),
+    ).toBe(true);
   });
 
   it('task_failed is significant', () => {
-    expect(isSignificantSignal(makeTaskFailed({ taskId: 't1', error: 'oops' }))).toBe(true);
+    expect(
+      isSignificantSignal(makeTaskFailed({ taskId: 't1', error: 'oops' })),
+    ).toBe(true);
   });
 
   it('progress_update is significant', () => {
-    expect(isSignificantSignal(makeProgressUpdate({ taskId: 't1', message: 'working...' }))).toBe(true);
+    expect(
+      isSignificantSignal(
+        makeProgressUpdate({ taskId: 't1', message: 'working...' }),
+      ),
+    ).toBe(true);
   });
 
   it('commission_dev_team is NOT significant (it is outbound, not inbound)', () => {
     expect(
-      isSignificantSignal(makeCommissionDevTeam({ taskId: 't1', goal: 'g', role: 'builder' })),
+      isSignificantSignal(
+        makeCommissionDevTeam({ taskId: 't1', goal: 'g', role: 'builder' }),
+      ),
     ).toBe(false);
   });
 });
@@ -80,7 +90,10 @@ describe('HeartbeatController', () => {
 
       // Advance 10s — within the 30s floor
       vi.advanceTimersByTime(10_000);
-      controller.onSignal(makeProgressUpdate({ taskId: 'task-1', message: 'still going' }), 'my-tentacle');
+      controller.onSignal(
+        makeProgressUpdate({ taskId: 'task-1', message: 'still going' }),
+        'my-tentacle',
+      );
       expect(emitted).toHaveLength(1); // no new heartbeat
     } finally {
       vi.useRealTimers();

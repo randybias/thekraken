@@ -20,7 +20,10 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { createTeamFixture } from '../helpers/team-fixture.js';
-import { TOKEN_FILE_NAME, writeTokenFile } from '../../src/teams/token-bootstrap.js';
+import {
+  TOKEN_FILE_NAME,
+  writeTokenFile,
+} from '../../src/teams/token-bootstrap.js';
 
 // We test the bridge's getTokenForUser callback wire-up by verifying
 // that after writeTokenFile is called with the result of that callback,
@@ -47,7 +50,10 @@ describe('bridge token.json wire-up via getTokenForUser callback', () => {
 
     const tokenPath = join(fixture.dir, TOKEN_FILE_NAME);
     expect(existsSync(tokenPath)).toBe(true);
-    const parsed = JSON.parse(readFileSync(tokenPath, 'utf8')) as Record<string, unknown>;
+    const parsed = JSON.parse(readFileSync(tokenPath, 'utf8')) as Record<
+      string,
+      unknown
+    >;
     expect(parsed['access_token']).toBe('fresh-token-from-callback');
 
     expect(mockGetToken).toHaveBeenCalledWith('U_ALICE');
@@ -58,7 +64,9 @@ describe('bridge token.json wire-up via getTokenForUser callback', () => {
     fixtures.push(fixture);
 
     const mailboxToken = 'mailbox-fallback-token';
-    const mockGetToken = vi.fn(async (_userId: string) => null as string | null);
+    const mockGetToken = vi.fn(
+      async (_userId: string) => null as string | null,
+    );
 
     // Simulate bridge refreshTokenFile fallback behavior
     const freshToken = await mockGetToken('U_ALICE');
@@ -66,7 +74,10 @@ describe('bridge token.json wire-up via getTokenForUser callback', () => {
     writeTokenFile(fixture.dir, tokenToWrite, 3600);
 
     const tokenPath = join(fixture.dir, TOKEN_FILE_NAME);
-    const parsed = JSON.parse(readFileSync(tokenPath, 'utf8')) as Record<string, unknown>;
+    const parsed = JSON.parse(readFileSync(tokenPath, 'utf8')) as Record<
+      string,
+      unknown
+    >;
     expect(parsed['access_token']).toBe('mailbox-fallback-token');
   });
 
@@ -81,7 +92,10 @@ describe('bridge token.json wire-up via getTokenForUser callback', () => {
     writeTokenFile(fixture.dir, 'token-turn-2', 3600);
 
     const tokenPath = join(fixture.dir, TOKEN_FILE_NAME);
-    const parsed = JSON.parse(readFileSync(tokenPath, 'utf8')) as Record<string, unknown>;
+    const parsed = JSON.parse(readFileSync(tokenPath, 'utf8')) as Record<
+      string,
+      unknown
+    >;
     expect(parsed['access_token']).toBe('token-turn-2');
   });
 });

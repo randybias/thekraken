@@ -178,7 +178,9 @@ describe('buildManagerPrompt — decision tree (C1)', () => {
   it('instructs manager to answer read queries directly without commissioning a team', () => {
     const prompt = buildManagerPrompt(BASE_ROLE_OPTS);
     // Manager handles read/conversational queries in the same turn
-    expect(prompt.toLowerCase()).toMatch(/read.*query|conversational|answer.*directly|same turn/i);
+    expect(prompt.toLowerCase()).toMatch(
+      /read.*query|conversational|answer.*directly|same turn/i,
+    );
   });
 
   it('instructs manager to commission a dev team for build/deploy tasks without user confirmation', () => {

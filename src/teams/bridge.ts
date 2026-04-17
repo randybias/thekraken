@@ -119,7 +119,9 @@ export class TeamBridge {
     // We only want records appended AFTER this bridge starts.
     this.reader = new NdjsonReader(this.mailboxPath, { startAtEnd: true });
     // C4: signals reader — also start at end (only new dev team signals matter).
-    this.signalsReader = new NdjsonReader(this.signalsPath, { startAtEnd: true });
+    this.signalsReader = new NdjsonReader(this.signalsPath, {
+      startAtEnd: true,
+    });
     // C4: Heartbeat controller emits to outbound.ndjson on the manager's behalf.
     this.heartbeat = new HeartbeatController({
       onHeartbeat: (text) => this.writeHeartbeat(text),
@@ -380,8 +382,7 @@ export class TeamBridge {
 
       // Extract tentacle name from signal if available
       const tentacleName =
-        'tentacleName' in signal &&
-        typeof signal['tentacleName'] === 'string'
+        'tentacleName' in signal && typeof signal['tentacleName'] === 'string'
           ? signal['tentacleName']
           : undefined;
 
@@ -512,15 +513,15 @@ export class TeamBridge {
 
     // Prefer a freshly refreshed token from the callback
     if (this.opts.getTokenForUser) {
-      const fresh = await this.opts.getTokenForUser(record.userSlackId).catch(
-        (err: unknown) => {
+      const fresh = await this.opts
+        .getTokenForUser(record.userSlackId)
+        .catch((err: unknown) => {
           log.warn(
             { enclaveName: this.opts.enclaveName, err },
             'team-bridge: getTokenForUser callback failed; using mailbox token',
           );
           return null;
-        },
-      );
+        });
       if (fresh) {
         token = fresh;
       }

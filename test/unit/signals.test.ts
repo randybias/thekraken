@@ -133,7 +133,9 @@ describe('signal encoding/decoding (round-trip)', () => {
   });
 
   it('decodeSignal returns null for JSON with unknown type', () => {
-    expect(decodeSignal(JSON.stringify({ type: 'unknown_type', taskId: 'x' }))).toBeNull();
+    expect(
+      decodeSignal(JSON.stringify({ type: 'unknown_type', taskId: 'x' })),
+    ).toBeNull();
   });
 
   it('all signals carry a timestamp', () => {
@@ -147,12 +149,20 @@ describe('signal encoding/decoding (round-trip)', () => {
 
 describe('role field validation', () => {
   it('commission_dev_team accepts builder role', () => {
-    const sig = makeCommissionDevTeam({ taskId: 't', goal: 'g', role: 'builder' });
+    const sig = makeCommissionDevTeam({
+      taskId: 't',
+      goal: 'g',
+      role: 'builder',
+    });
     expect(sig.role).toBe('builder');
   });
 
   it('commission_dev_team accepts deployer role', () => {
-    const sig = makeCommissionDevTeam({ taskId: 't', goal: 'g', role: 'deployer' });
+    const sig = makeCommissionDevTeam({
+      taskId: 't',
+      goal: 'g',
+      role: 'deployer',
+    });
     expect(sig.role).toBe('deployer');
   });
 });

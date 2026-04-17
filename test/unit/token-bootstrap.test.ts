@@ -13,7 +13,10 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { existsSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { createTeamFixture } from '../helpers/team-fixture.js';
-import { writeTokenFile, TOKEN_FILE_NAME } from '../../src/teams/token-bootstrap.js';
+import {
+  writeTokenFile,
+  TOKEN_FILE_NAME,
+} from '../../src/teams/token-bootstrap.js';
 
 describe('writeTokenFile', () => {
   const fixtures: ReturnType<typeof createTeamFixture>[] = [];
@@ -37,7 +40,10 @@ describe('writeTokenFile', () => {
   it('writes correct access_token field', () => {
     writeTokenFile(fixture.dir, 'my-access-token', 3600);
     const tokenPath = join(fixture.dir, TOKEN_FILE_NAME);
-    const parsed = JSON.parse(readFileSync(tokenPath, 'utf8')) as Record<string, unknown>;
+    const parsed = JSON.parse(readFileSync(tokenPath, 'utf8')) as Record<
+      string,
+      unknown
+    >;
     expect(parsed['access_token']).toBe('my-access-token');
   });
 
@@ -47,7 +53,10 @@ describe('writeTokenFile', () => {
     const after = Math.floor(Date.now() / 1000);
 
     const tokenPath = join(fixture.dir, TOKEN_FILE_NAME);
-    const parsed = JSON.parse(readFileSync(tokenPath, 'utf8')) as Record<string, unknown>;
+    const parsed = JSON.parse(readFileSync(tokenPath, 'utf8')) as Record<
+      string,
+      unknown
+    >;
     const expiresAt = parsed['expires_at'] as number;
 
     expect(expiresAt).toBeGreaterThanOrEqual(before + 3600);
@@ -57,7 +66,10 @@ describe('writeTokenFile', () => {
   it('writes updated_at as valid ISO-8601 string', () => {
     writeTokenFile(fixture.dir, 'token', 3600);
     const tokenPath = join(fixture.dir, TOKEN_FILE_NAME);
-    const parsed = JSON.parse(readFileSync(tokenPath, 'utf8')) as Record<string, unknown>;
+    const parsed = JSON.parse(readFileSync(tokenPath, 'utf8')) as Record<
+      string,
+      unknown
+    >;
     const updatedAt = parsed['updated_at'] as string;
     expect(typeof updatedAt).toBe('string');
     expect(new Date(updatedAt).getFullYear()).toBeGreaterThan(2024);
@@ -74,7 +86,10 @@ describe('writeTokenFile', () => {
     writeTokenFile(fixture.dir, 'token-v1', 3600);
     writeTokenFile(fixture.dir, 'token-v2', 7200);
     const tokenPath = join(fixture.dir, TOKEN_FILE_NAME);
-    const parsed = JSON.parse(readFileSync(tokenPath, 'utf8')) as Record<string, unknown>;
+    const parsed = JSON.parse(readFileSync(tokenPath, 'utf8')) as Record<
+      string,
+      unknown
+    >;
     expect(parsed['access_token']).toBe('token-v2');
   });
 

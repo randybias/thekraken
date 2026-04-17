@@ -97,7 +97,10 @@ export class HeartbeatController {
    * Matches the voice of the manager: first person, friendly, concise.
    * No jargon, no technical details the user didn't ask for.
    */
-  private buildHeartbeatText(signal: SignalRecord, tentacleName?: string): string {
+  private buildHeartbeatText(
+    signal: SignalRecord,
+    tentacleName?: string,
+  ): string {
     const context = tentacleName ? ` on ${tentacleName}` : '';
     switch (signal.type) {
       case 'task_started':
