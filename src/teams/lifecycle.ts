@@ -23,6 +23,7 @@ import { appendNdjson } from './ndjson.js';
 import { TeamBridge, type TeamBridgeOptions } from './bridge.js';
 import { buildManagerPrompt } from '../agent/system-prompt.js';
 import { extractEmailFromToken } from '../auth/index.js';
+import { getValidTokenForUser } from '../auth/oidc.js';
 
 /**
  * Minimal bridge-shaped interface that TeamLifecycleManager depends on.
@@ -247,6 +248,9 @@ export class TeamLifecycleManager {
         userSlackId: initiatingUserId,
         userEmail: initiatingEmail,
       }),
+      // C5: Wire the token refresh callback so the bridge refreshes token.json
+      // before each mailbox turn. getValidTokenForUser auto-refreshes if needed.
+      getTokenForUser: getValidTokenForUser,
       onExit: (code) => {
         log.info({ enclaveName, code }, 'team bridge exited');
         this.teams.delete(enclaveName);

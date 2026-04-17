@@ -25,6 +25,7 @@ import { existsSync, mkdirSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import { createChildLogger } from '../logger.js';
 import { appendNdjson, NdjsonReader } from './ndjson.js';
+import { writeTokenFile } from './token-bootstrap.js';
 import type { MailboxRecord } from './lifecycle.js';
 import type { OutboundRecord } from './outbound-poller.js';
 
@@ -62,6 +63,20 @@ export interface TeamBridgeOptions {
    * (TeamLifecycleManager) can clean up.
    */
   onExit?: (code: number | null) => void;
+  /**
+   * C5: Optional callback to retrieve a fresh access token for the user
+   * before each mailbox turn. If provided, the token is written to
+   * token.json in the team dir before the prompt is sent to pi.
+   *
+   * The token from the mailbox record is used as the fallback when this
+   * callback is not provided or returns null.
+   *
+   * The callback should use getValidTokenForUser() from src/auth/oidc.ts.
+   *
+   * @param slackUserId - The Slack user ID from the mailbox record.
+   * @returns A fresh access token or null if the user must re-auth.
+   */
+  getTokenForUser?: (slackUserId: string) => Promise<string | null>;
 }
 
 /** A pending RPC request waiting on its response. */
@@ -361,6 +376,11 @@ export class TeamBridge {
       'team-bridge: processing mailbox record',
     );
 
+    // C5: Write a fresh token.json before handing the prompt to the manager.
+    // If a getTokenForUser callback is wired, use it to get a potentially
+    // refreshed token. Fall back to the token in the mailbox record.
+    await this.refreshTokenFile(record);
+
     // Send the user turn to pi
     await this.sendCommand('prompt', { message: record.message });
     // Wait for the agent to finish (agent_end event)
@@ -395,6 +415,70 @@ export class TeamBridge {
         outLen: text.length,
       },
       'team-bridge: wrote outbound record',
+    );
+  }
+
+  /**
+   * C5: Write a fresh token.json to the team dir before each mailbox turn.
+   *
+   * Tries getTokenForUser callback first (which auto-refreshes if needed).
+   * Falls back to the token in the mailbox record if the callback is not
+   * wired or returns null.
+   *
+   * Extracts expires_in from the JWT 'exp' claim when possible; uses a
+   * conservative 3600s default when the claim is unavailable.
+   */
+  private async refreshTokenFile(record: MailboxRecord): Promise<void> {
+    let token = record.userToken;
+    let expiresIn = 3600; // conservative default
+
+    // Prefer a freshly refreshed token from the callback
+    if (this.opts.getTokenForUser) {
+      const fresh = await this.opts.getTokenForUser(record.userSlackId).catch(
+        (err: unknown) => {
+          log.warn(
+            { enclaveName: this.opts.enclaveName, err },
+            'team-bridge: getTokenForUser callback failed; using mailbox token',
+          );
+          return null;
+        },
+      );
+      if (fresh) {
+        token = fresh;
+      }
+    }
+
+    // Extract expiry from JWT 'exp' claim if available
+    if (token) {
+      try {
+        const part = token.split('.')[1];
+        if (part) {
+          const payload = JSON.parse(
+            Buffer.from(part, 'base64url').toString(),
+          ) as Record<string, unknown>;
+          const exp = payload['exp'];
+          if (typeof exp === 'number') {
+            const nowSeconds = Math.floor(Date.now() / 1000);
+            expiresIn = Math.max(exp - nowSeconds, 60); // at least 60s
+          }
+        }
+      } catch {
+        // non-fatal; keep conservative default
+      }
+    }
+
+    if (!token) {
+      log.warn(
+        { enclaveName: this.opts.enclaveName, recordId: record.id },
+        'team-bridge: no token available for token.json; subprocess may fail MCP calls',
+      );
+      return;
+    }
+
+    writeTokenFile(this.opts.teamDir, token, expiresIn);
+    log.debug(
+      { enclaveName: this.opts.enclaveName, expiresIn },
+      'team-bridge: refreshed token.json',
     );
   }
 
