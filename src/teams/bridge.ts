@@ -22,8 +22,9 @@
  * Messages are processed sequentially per-enclave; new mailbox records
  * queue while pi is working on the previous turn.
  *
- * D6 (user identity hard partition): the env passed to pi already carries
- * TNTC_ACCESS_TOKEN (set by TeamLifecycleManager on spawn).
+ * D6/B2 (user identity hard partition): TNTC_ACCESS_TOKEN is NOT in the
+ * spawn env. The bridge writes a fresh token.json before each mailbox turn
+ * (C5); subprocesses read it via KRAKEN_TOKEN_FILE.
  */
 
 import { spawn, type ChildProcess } from 'node:child_process';
@@ -37,6 +38,7 @@ import { HeartbeatController, isSignificantSignal } from './heartbeat.js';
 import {
   decodeOutboundSignal,
   decodeInboundSignal,
+  getLastDecodeError,
   makeTaskFailed,
   SIGNALS_OUT_FILE,
   SIGNALS_IN_FILE,
@@ -320,6 +322,52 @@ export class TeamBridge {
     return !this.stopped && this.proc !== null;
   }
 
+  /**
+   * @internal — for integration tests only.
+   *
+   * Drive a single signals-out poll cycle without starting the full pi RPC
+   * subprocess. Allows tests to verify the commission/terminate/dedup/synthesis
+   * logic without a real pi binary.
+   *
+   * Sets currentRecord so dispatchDevTeam can access the user token.
+   *
+   * Returns a promise that resolves when all dispatched commission tasks have
+   * either been placed in devTeams or produced a task_failed in signals-in.
+   */
+  async driveSignalsPollForTest(record?: MailboxRecord): Promise<void> {
+    this.currentRecord = record ?? null;
+    // Drive one poll cycle through the signals-out reader.
+    // Must collect async promises so the test can await completion.
+    const dispatchPromises: Promise<void>[] = [];
+    const lines = this.signalsOutReader.readNew();
+    for (const raw of lines) {
+      const encoded = JSON.stringify(raw);
+      const signal = decodeOutboundSignal(encoded);
+      if (!signal) continue;
+      if (signal.type === 'commission_dev_team') {
+        dispatchPromises.push(
+          this.dispatchDevTeam(signal).catch((err: unknown) => {
+            log.error(
+              {
+                enclaveName: this.opts.enclaveName,
+                taskId: signal.taskId,
+                err,
+              },
+              'team-bridge: dispatchDevTeam failed (test)',
+            );
+          }),
+        );
+      } else if (signal.type === 'terminate_dev_team') {
+        const handle = this.devTeams.get(signal.taskId);
+        if (handle && !handle.proc.killed) {
+          handle.proc.kill('SIGTERM');
+        }
+      }
+    }
+    await Promise.all(dispatchPromises);
+    this.currentRecord = null;
+  }
+
   /** Handle a single JSON line from pi's stdout. */
   private handleLine(line: string): void {
     let msg: Record<string, unknown>;
@@ -448,10 +496,22 @@ export class TeamBridge {
       const encoded = JSON.stringify(raw);
       const signal = decodeOutboundSignal(encoded);
       if (!signal) {
-        log.debug(
-          { enclaveName: this.opts.enclaveName, raw },
-          'team-bridge: ignoring non-outbound record in signals-out',
-        );
+        const fieldErr = getLastDecodeError();
+        if (fieldErr) {
+          log.warn(
+            {
+              enclaveName: this.opts.enclaveName,
+              fieldErr,
+              raw: encoded.slice(0, 200),
+            },
+            'team-bridge: rejected malformed outbound signal (missing required field)',
+          );
+        } else {
+          log.debug(
+            { enclaveName: this.opts.enclaveName, raw },
+            'team-bridge: ignoring non-outbound record in signals-out',
+          );
+        }
         continue;
       }
       if (signal.type === 'commission_dev_team') {
@@ -516,20 +576,52 @@ export class TeamBridge {
    * The subprocess writes inbound signals (task_started, progress_update,
    * task_completed, task_failed) to signals-in.ndjson. On premature exit
    * (no terminal signal was emitted), synthesizes a task_failed record.
+   *
+   * Race-safety: a placeholder entry is inserted into devTeams
+   * synchronously (before the first await) so that a second commission
+   * signal for the same taskId arriving in the same poll cycle sees the
+   * taskId as already tracked and is rejected with a task_failed rather
+   * than spawning a duplicate subprocess.
    */
   private async dispatchDevTeam(
     signal: CommissionDevTeamSignal,
   ): Promise<void> {
     const { taskId, goal, role, tentacleName } = signal;
 
-    // Deduplicate: if a team for this taskId is already running, ignore.
+    // Deduplicate: reserve the slot synchronously before any await so a
+    // second commission for the same taskId in the same poll cycle is
+    // rejected even if the first await has not yet resolved.
     if (this.devTeams.has(taskId)) {
       log.warn(
         { enclaveName: this.opts.enclaveName, taskId },
-        'team-bridge: duplicate commission for taskId; ignoring',
+        'team-bridge: duplicate commission for taskId; emitting task_failed(duplicate_commission)',
       );
+      const dupSignal = makeTaskFailed({
+        taskId,
+        error: 'duplicate_commission',
+      });
+      try {
+        appendNdjson(this.signalsInPath, dupSignal);
+      } catch (err) {
+        log.warn(
+          { enclaveName: this.opts.enclaveName, taskId, err },
+          'team-bridge: could not write duplicate_commission task_failed',
+        );
+      }
       return;
     }
+
+    // Insert a placeholder immediately (synchronous, before any await).
+    // The real handle is swapped in once the subprocess is spawned.
+    // On any failure path, the placeholder is deleted so the slot is freed.
+    const placeholder: DevTeamHandle = {
+      taskId,
+      // proc placeholder: a minimal stub that satisfies the interface for
+      // the .has() guard. Replaced with the real proc before returning.
+      proc: { killed: false, kill: () => false } as unknown as ChildProcess,
+      terminated: false,
+    };
+    this.devTeams.set(taskId, placeholder);
 
     // Create a task-scoped working directory.
     const taskDir = join(this.opts.teamDir, 'tasks', taskId);
@@ -564,6 +656,8 @@ export class TeamBridge {
 
     if (!tokenWritten) {
       // No token available — synthesize task_failed immediately.
+      // Remove the placeholder so the slot is free for a future retry.
+      this.devTeams.delete(taskId);
       log.error(
         { enclaveName: this.opts.enclaveName, taskId },
         'team-bridge: no token available for dev team; cannot spawn',
@@ -642,6 +736,7 @@ export class TeamBridge {
     });
 
     const devProc = this.spawnDevTeamProcess(spawnOpts);
+    // Swap the real process handle in over the placeholder.
     const handle: DevTeamHandle = { taskId, proc: devProc, terminated: false };
     this.devTeams.set(taskId, handle);
 
@@ -656,7 +751,18 @@ export class TeamBridge {
         'team-bridge: dev team subprocess exited',
       );
       this.devTeams.delete(taskId);
-      // If no terminal signal was ever written, synthesize task_failed.
+
+      // Event-driven terminal signal check (Finding 2):
+      // On exit, do a single bounded scan of signals-in.ndjson to see if
+      // the dev team already wrote a task_completed or task_failed before
+      // exiting. This eliminates the 500ms polling race where a fast
+      // successful exit could beat the old interval-based watcher and
+      // trigger a spurious synthetic task_failed.
+      if (!handle.terminated) {
+        handle.terminated = this.taskHasTerminalSignal(taskId);
+      }
+
+      // If still no terminal signal found, synthesize task_failed.
       if (!handle.terminated) {
         const reason =
           exitSignal === 'SIGTERM'
@@ -674,19 +780,12 @@ export class TeamBridge {
       }
     });
 
-    // Monitor dev team stdout for terminal signal writes so we can mark handle.terminated.
     devProc.stdout?.on('data', (chunk: Buffer) => {
-      const text = chunk.toString('utf8');
-      // Check if the subprocess emitted a terminal signal line.
-      // Dev team writes JSON signals to signals-in.ndjson (not stdout), so we
-      // watch stdout only for debugging. The terminated flag is set when we
-      // observe the file-level signal; we do that via the signals-in reader.
-      // For now, just log stderr for observability.
       log.debug(
         {
           enclaveName: this.opts.enclaveName,
           taskId,
-          stdout: text.slice(0, 200),
+          stdout: chunk.toString('utf8').slice(0, 200),
         },
         'dev team stdout',
       );
@@ -702,55 +801,40 @@ export class TeamBridge {
         'dev team stderr',
       );
     });
-
-    // Watch signals-in for terminal signals from this task so we can mark handle.terminated.
-    this.watchForTaskTermination(taskId, handle);
   }
 
   /**
-   * Poll signals-in.ndjson for task_completed / task_failed for the given taskId.
-   * When found, marks handle.terminated = true so the exit handler won't synthesize
-   * a duplicate task_failed.
+   * Scan signals-in.ndjson for a terminal signal (task_completed or task_failed)
+   * for the given taskId.
    *
-   * Uses a one-shot interval that clears itself when the task terminates or the
-   * bridge stops.
+   * Runs exactly once at child exit time — bounded scan of a small file.
+   * Replaces the old 500ms polling interval (watchForTaskTermination).
+   *
+   * @returns true if a terminal signal for taskId is present in the file.
    */
-  private watchForTaskTermination(taskId: string, handle: DevTeamHandle): void {
-    const watcher = setInterval(() => {
-      if (this.stopped || handle.terminated) {
-        clearInterval(watcher);
-        return;
-      }
-      // Read new inbound signals and look for terminal ones for this task.
-      // Note: this reader is shared with pollSignalsIn, which is fine — both
-      // advance the cursor independently would cause double-reads. Instead we
-      // do a fresh file scan here (readRecords without cursor) to detect termination.
-      try {
-        if (!existsSync(this.signalsInPath)) return;
-        const content = readFileSync(this.signalsInPath, 'utf8');
-        for (const line of content.split('\n')) {
-          const trimmed = line.trim();
-          if (!trimmed) continue;
-          try {
-            const rec = JSON.parse(trimmed) as Record<string, unknown>;
-            if (
-              rec['taskId'] === taskId &&
-              (rec['type'] === 'task_completed' ||
-                rec['type'] === 'task_failed')
-            ) {
-              handle.terminated = true;
-              clearInterval(watcher);
-              return;
-            }
-          } catch {
-            // skip
+  private taskHasTerminalSignal(taskId: string): boolean {
+    try {
+      if (!existsSync(this.signalsInPath)) return false;
+      const content = readFileSync(this.signalsInPath, 'utf8');
+      for (const line of content.split('\n')) {
+        const trimmed = line.trim();
+        if (!trimmed) continue;
+        try {
+          const rec = JSON.parse(trimmed) as Record<string, unknown>;
+          if (
+            rec['taskId'] === taskId &&
+            (rec['type'] === 'task_completed' || rec['type'] === 'task_failed')
+          ) {
+            return true;
           }
+        } catch {
+          // skip malformed lines
         }
-      } catch {
-        // best-effort
       }
-    }, 500);
-    watcher.unref?.();
+    } catch {
+      // best-effort — if file is unreadable, assume no terminal signal
+    }
+    return false;
   }
 
   /**
