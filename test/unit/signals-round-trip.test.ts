@@ -1,17 +1,9 @@
 /**
- * Integration test for the commission_dev_team signal flow (C6).
+ * Unit tests for the NDJSON signal round-trip (C6).
  *
- * Tests:
- * 1. Manager writes commission_dev_team signal to signals.ndjson
- * 2. Bridge reads signals.ndjson and sees the commission
- * 3. Bridge spawns a dev team subprocess with the correct role prompt
- * 4. Dev team writes task_completed signal
- * 5. Bridge relays signal back and heartbeat fires (after 30s)
- *
- * This test uses the NDJSON infrastructure and signal constructors
- * directly (no real LLM). We simulate the manager writing signals
- * and verify that the signal encoding/decoding round-trip works
- * through the NDJSON layer.
+ * Tests that signal constructors, encoding/decoding, and NDJSON I/O work
+ * correctly end-to-end through the filesystem layer. No LLM, no real pi
+ * subprocess — pure unit coverage of the signal protocol infrastructure.
  */
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
@@ -25,6 +17,8 @@ import {
   makeTaskCompleted,
   makeTaskFailed,
   decodeSignal,
+  decodeOutboundSignal,
+  decodeInboundSignal,
   encodeSignal,
   type CommissionDevTeamSignal,
   type TaskCompletedSignal,
@@ -35,12 +29,12 @@ import {
   TOKEN_FILE_NAME,
 } from '../../src/teams/token-bootstrap.js';
 
-describe('commission_dev_team signal round-trip through NDJSON', () => {
+describe('signal round-trip through NDJSON', () => {
   const fixtures: ReturnType<typeof createTeamFixture>[] = [];
   let fixture: ReturnType<typeof createTeamFixture>;
 
   beforeEach(() => {
-    fixture = createTeamFixture('commission-flow-test');
+    fixture = createTeamFixture('signals-rt-test');
     fixtures.push(fixture);
   });
 
@@ -48,7 +42,7 @@ describe('commission_dev_team signal round-trip through NDJSON', () => {
     for (const f of fixtures.splice(0)) f.cleanup();
   });
 
-  it('manager can write commission_dev_team signal to signals.ndjson', () => {
+  it('manager writes commission_dev_team to signals-out.ndjson', () => {
     const signal = makeCommissionDevTeam({
       taskId: 'task-abc',
       goal: 'Build a data ingestion tentacle',
@@ -56,9 +50,9 @@ describe('commission_dev_team signal round-trip through NDJSON', () => {
       tentacleName: 'data-ingestion',
     });
 
-    appendNdjson(fixture.signalsPath, signal);
+    appendNdjson(fixture.signalsOutPath, signal);
 
-    const records = fixture.readSignals();
+    const records = fixture.readSignalsOut();
     expect(records).toHaveLength(1);
     const decoded = decodeSignal(encodeSignal(signal));
     expect(decoded).not.toBeNull();
@@ -69,17 +63,15 @@ describe('commission_dev_team signal round-trip through NDJSON', () => {
     expect(commission.tentacleName).toBe('data-ingestion');
   });
 
-  it('bridge (NdjsonReader) can read commission_dev_team signals from signals.ndjson', () => {
-    // Simulate manager writing commission signal
+  it('NdjsonReader reads commission_dev_team from signals-out.ndjson', () => {
     const commissionSignal = makeCommissionDevTeam({
       taskId: 'task-xyz',
       goal: 'Deploy tentacle to staging',
       role: 'deployer',
     });
-    appendNdjson(fixture.signalsPath, commissionSignal);
+    appendNdjson(fixture.signalsOutPath, commissionSignal);
 
-    // Simulate bridge reading via NdjsonReader
-    const reader = new NdjsonReader(fixture.signalsPath);
+    const reader = new NdjsonReader(fixture.signalsOutPath);
     const records = reader.readNew();
     expect(records).toHaveLength(1);
 
@@ -91,16 +83,14 @@ describe('commission_dev_team signal round-trip through NDJSON', () => {
     expect(commission.role).toBe('deployer');
   });
 
-  it('dev team can write task_completed signal that bridge can read', () => {
-    // Simulate dev team writing completed signal
+  it('dev team writes task_completed to signals-in.ndjson', () => {
     const completedSignal = makeTaskCompleted({
       taskId: 'task-xyz',
       result: 'Deployed v1.3.0 successfully',
     });
-    appendNdjson(fixture.signalsPath, completedSignal);
+    appendNdjson(fixture.signalsInPath, completedSignal);
 
-    // Simulate bridge reading
-    const reader = new NdjsonReader(fixture.signalsPath);
+    const reader = new NdjsonReader(fixture.signalsInPath);
     const records = reader.readNew();
     expect(records).toHaveLength(1);
 
@@ -114,12 +104,12 @@ describe('commission_dev_team signal round-trip through NDJSON', () => {
     const emittedHeartbeats: string[] = [];
     const controller = new HeartbeatController({
       onHeartbeat: (text) => emittedHeartbeats.push(text),
-      heartbeatFloorMs: 0, // no floor for this test — emit on every significant signal
+      heartbeatFloorMs: 0, // no floor — emit on every significant signal
     });
 
-    // 1. Manager writes commission (no heartbeat for outbound signals)
+    // 1. Manager writes commission to signals-out (no heartbeat for outbound signals)
     appendNdjson(
-      fixture.signalsPath,
+      fixture.signalsOutPath,
       makeCommissionDevTeam({
         taskId: 'task-1',
         goal: 'Build a reporting tentacle',
@@ -127,28 +117,27 @@ describe('commission_dev_team signal round-trip through NDJSON', () => {
       }),
     );
 
-    // 2. Dev team writes task_started
-    appendNdjson(fixture.signalsPath, makeTaskStarted({ taskId: 'task-1' }));
+    // 2. Dev team writes task_started to signals-in
+    appendNdjson(fixture.signalsInPath, makeTaskStarted({ taskId: 'task-1' }));
 
-    // 3. Dev team writes task_completed
+    // 3. Dev team writes task_completed to signals-in
     appendNdjson(
-      fixture.signalsPath,
+      fixture.signalsInPath,
       makeTaskCompleted({
         taskId: 'task-1',
         result: 'Reporting tentacle deployed',
       }),
     );
 
-    // Simulate bridge reading all signals
-    const reader = new NdjsonReader(fixture.signalsPath);
+    // Simulate bridge reading signals-in
+    const reader = new NdjsonReader(fixture.signalsInPath);
     const records = reader.readNew();
     for (const raw of records) {
       const signal = decodeSignal(JSON.stringify(raw));
       if (signal) controller.onSignal(signal);
     }
 
-    // commission_dev_team is not significant — 2 significant signals
-    // (task_started + task_completed) → 2 heartbeats (floor=0)
+    // task_started + task_completed = 2 significant signals → 2 heartbeats (floor=0)
     expect(emittedHeartbeats).toHaveLength(2);
     expect(emittedHeartbeats[1]).toMatch(/done|complete|deployed/i);
   });
@@ -161,14 +150,14 @@ describe('commission_dev_team signal round-trip through NDJSON', () => {
     });
 
     appendNdjson(
-      fixture.signalsPath,
+      fixture.signalsInPath,
       makeTaskFailed({
         taskId: 'task-fail',
         error: 'tntc deploy: image build failed',
       }),
     );
 
-    const reader = new NdjsonReader(fixture.signalsPath);
+    const reader = new NdjsonReader(fixture.signalsInPath);
     const records = reader.readNew();
     for (const raw of records) {
       const signal = decodeSignal(JSON.stringify(raw));
@@ -180,14 +169,77 @@ describe('commission_dev_team signal round-trip through NDJSON', () => {
   });
 });
 
-describe('C6 regression: spawn env includes required C3 vars', () => {
+describe('direction-aware decode rejects mismatched signals (Must-fix #3)', () => {
+  it('decodeOutboundSignal accepts commission_dev_team', () => {
+    const sig = makeCommissionDevTeam({
+      taskId: 't',
+      goal: 'g',
+      role: 'builder',
+    });
+    expect(decodeOutboundSignal(encodeSignal(sig))).not.toBeNull();
+  });
+
+  it('decodeOutboundSignal accepts terminate_dev_team', () => {
+    const sig = {
+      type: 'terminate_dev_team',
+      taskId: 't',
+      timestamp: new Date().toISOString(),
+    };
+    expect(decodeOutboundSignal(JSON.stringify(sig))).not.toBeNull();
+  });
+
+  it('decodeOutboundSignal rejects inbound signal types written to wrong file', () => {
+    const sig = makeTaskStarted({ taskId: 't' });
+    expect(decodeOutboundSignal(encodeSignal(sig))).toBeNull();
+  });
+
+  it('decodeOutboundSignal rejects task_completed (inbound direction)', () => {
+    const sig = makeTaskCompleted({ taskId: 't', result: 'r' });
+    expect(decodeOutboundSignal(encodeSignal(sig))).toBeNull();
+  });
+
+  it('decodeInboundSignal accepts task_started', () => {
+    const sig = makeTaskStarted({ taskId: 't' });
+    expect(decodeInboundSignal(encodeSignal(sig))).not.toBeNull();
+  });
+
+  it('decodeInboundSignal accepts task_completed', () => {
+    const sig = makeTaskCompleted({ taskId: 't', result: 'r' });
+    expect(decodeInboundSignal(encodeSignal(sig))).not.toBeNull();
+  });
+
+  it('decodeInboundSignal accepts task_failed', () => {
+    const sig = makeTaskFailed({ taskId: 't', error: 'e' });
+    expect(decodeInboundSignal(encodeSignal(sig))).not.toBeNull();
+  });
+
+  it('decodeInboundSignal rejects commission_dev_team (outbound direction)', () => {
+    const sig = makeCommissionDevTeam({
+      taskId: 't',
+      goal: 'g',
+      role: 'builder',
+    });
+    expect(decodeInboundSignal(encodeSignal(sig))).toBeNull();
+  });
+
+  it('decodeInboundSignal rejects terminate_dev_team (outbound direction)', () => {
+    const sig = {
+      type: 'terminate_dev_team',
+      taskId: 't',
+      timestamp: new Date().toISOString(),
+    };
+    expect(decodeInboundSignal(JSON.stringify(sig))).toBeNull();
+  });
+});
+
+describe('C6 regression: spawn env and token.json bootstrap', () => {
   const fixtures: ReturnType<typeof createTeamFixture>[] = [];
 
   afterEach(() => {
     for (const f of fixtures.splice(0)) f.cleanup();
   });
 
-  it('token.json is in team dir and has correct structure when writeTokenFile is called', () => {
+  it('token.json is written to team dir with correct structure', () => {
     const fixture = createTeamFixture('c6-env-test');
     fixtures.push(fixture);
 
