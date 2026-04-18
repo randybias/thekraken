@@ -16,6 +16,7 @@ export {
 export {
   initTokenStore,
   getUserToken,
+  getUserTokenByEmail,
   setUserToken,
   deleteUserToken,
   getAllUserTokens,

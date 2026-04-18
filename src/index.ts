@@ -28,6 +28,7 @@ import { initDatabase } from './db/index.js';
 import {
   extractEmailFromToken,
   getValidTokenForUser,
+  getUserTokenByEmail,
   initTokenStore,
   startTokenRefreshLoop,
   stopTokenRefreshLoop,
@@ -151,15 +152,23 @@ async function main(): Promise<void> {
     // Drift sync: channel events (member_left, rename, archive) don't
     // come from an authenticated user message. We use the enclave
     // owner's stored OIDC token to call MCP on their behalf. If the
-    // owner isn't currently authenticated, drift sync is a no-op —
-    // next time they talk to the bot, we reconcile then (or they
-    // can manually `@kraken members`).
+    // owner isn't currently authenticated, drift sync is a no-op.
+    //
+    // Owner attribution reconciliation: if the binding's ownerSlackId
+    // was recorded as a fallback (triggering user) during reconstitution
+    // before the real owner had authenticated, we correct it here on the
+    // next drift-sync tick after the owner authenticates. This fulfills
+    // the promise made in lookupEnclaveWithReconstitute's warn log.
     getMcpCallForEnclaveOwner: async (enclaveName: string) => {
       const binding = bindings.lookupByEnclaveName(enclaveName);
       if (!binding) return null;
       const ownerToken = await getValidTokenForUser(binding.ownerSlackId);
       if (!ownerToken) return null;
-      return async (tool, params) => {
+
+      const mcpCall = async (
+        tool: string,
+        params: Record<string, unknown>,
+      ): Promise<unknown> => {
         const conn = await createMcpConnection(config.mcp.url, ownerToken);
         try {
           const result = await conn.client.callTool({
@@ -182,6 +191,43 @@ async function main(): Promise<void> {
           await conn.close().catch(() => undefined);
         }
       };
+
+      // Reconcile owner attribution: fetch enclave_info to get the
+      // authoritative owner email from MCP. If the owner has since
+      // authenticated and their Slack ID differs from the stored value,
+      // update the binding so future drift-sync calls use the correct token.
+      try {
+        const info = (await mcpCall('enclave_info', { name: enclaveName })) as
+          | { owner?: string }
+          | undefined;
+        const ownerEmail = info?.owner;
+        if (ownerEmail) {
+          const resolved = getUserTokenByEmail(ownerEmail);
+          if (resolved && resolved.slack_user_id !== binding.ownerSlackId) {
+            bindings.setOwnerSlackId(binding.channelId, resolved.slack_user_id);
+            log.info(
+              {
+                enclaveName,
+                channelId: binding.channelId,
+                oldOwnerSlackId: binding.ownerSlackId,
+                newOwnerSlackId: resolved.slack_user_id,
+                ownerEmail,
+              },
+              'drift-sync: reconciled binding owner attribution',
+            );
+          }
+        }
+        // eslint-disable-next-line no-catch-all/no-catch-all
+      } catch (err) {
+        // Non-fatal: reconciliation is best-effort; the channel event
+        // that triggered this call proceeds regardless.
+        log.debug(
+          { err, enclaveName },
+          'drift-sync: owner attribution check failed (non-fatal)',
+        );
+      }
+
+      return mcpCall;
     },
     // Home Tab: fetch the set of enclaves this user has access to.
     // Calls enclave_list with the user's email, then wf_list per enclave
