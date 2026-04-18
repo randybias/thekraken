@@ -261,7 +261,7 @@ export class EnclaveBindingEngine {
                   ownerEmail,
                   triggeringUserId,
                 },
-                'reconstitution: owner email not in token store — falling back to triggering user; attribution will be corrected when owner authenticates',
+                'reconstitution: owner email not in token store — falling back to triggering user; attribution will drift until next drift-sync tick after owner authenticates',
               );
             }
           } else {
@@ -296,6 +296,35 @@ export class EnclaveBindingEngine {
         'lazy reconstitution MCP call failed — treating as unbound',
       );
       return null;
+    }
+  }
+
+  /**
+   * Update the owner_slack_id for an existing active binding.
+   *
+   * Called by drift-sync when it discovers the stored ownerSlackId no
+   * longer matches the authoritative owner email from MCP (e.g. because
+   * reconstitution fell back to the triggering user before the real owner
+   * had authenticated). Idempotent — no-op if the value is already correct
+   * or if no active binding exists for the channel.
+   *
+   * @param channelId    - Slack channel ID of the binding to update.
+   * @param slackUserId  - Authoritative Slack user ID resolved from MCP owner email.
+   */
+  setOwnerSlackId(channelId: string, slackUserId: string): void {
+    const result = this.db
+      .prepare(
+        `UPDATE enclave_bindings
+         SET owner_slack_id = ?
+         WHERE channel_id = ? AND status = 'active' AND owner_slack_id != ?`,
+      )
+      .run(slackUserId, channelId, slackUserId);
+
+    if (result.changes > 0) {
+      log.info(
+        { channelId, slackUserId },
+        'binding owner_slack_id reconciled by drift-sync',
+      );
     }
   }
 
