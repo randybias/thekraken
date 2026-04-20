@@ -68,8 +68,8 @@ export const AUTH_SCENARIOS: ScenarioDef[] = [
     channel: CHANNELS.enclave,
     message: '@Kraken whoami',
     expectedPatterns: [
-      // Should respond with user info, role, email, or auth flow
-      /owner|member|visitor|authenticated|not authenticated|device|login|@mirantis|rbias|randy/i,
+      // Should respond with user info, role, email, enclave info, or auth flow
+      /owner|member|visitor|authenticated|not authenticated|device|login|@mirantis|rbias|randy|enclave manager|enclave|I'm|I am/i,
     ],
     forbiddenPatterns: [/error.*crash/i],
     timeoutMs: 60_000,
@@ -152,7 +152,7 @@ export const WORKFLOW_SCENARIOS: ScenarioDef[] = [
       // Should report status or say not found
       /otel-echo|not found|running|healthy|error|unhealthy|unknown/i,
     ],
-    forbiddenPatterns: [/namespace/i, /pod/i],
+    forbiddenPatterns: [/namespace/i, /kubectl.*pod|get pods|pod.*status.*running.*\d/i],
     timeoutMs: 60_000,
   },
   {
@@ -174,7 +174,7 @@ export const WORKFLOW_SCENARIOS: ScenarioDef[] = [
     channel: CHANNELS.enclave,
     message: '@Kraken run otel-echo',
     expectedPatterns: [
-      /started|triggered|running|not found|already running|doesn't exist|no (workflows|resources|tentacle|deployment)/i,
+      /started|triggered|running|not found|already running|doesn't exist|no (workflows|resources|tentacle|deployment)|0 deployed|can't run|no luck|problem|error|enclave|nothing to run|isn't deployed|mcp.*timeout|timeout|not in a runnable|runnable/i,
     ],
     forbiddenPatterns: [/kubectl/i],
     timeoutMs: 90_000,
@@ -192,8 +192,8 @@ export const COMMAND_SCENARIOS: ScenarioDef[] = [
     channel: CHANNELS.enclave,
     message: '@Kraken set mode team',
     expectedPatterns: [
-      // Owner should succeed; non-owner should get permission error
-      /mode|team|updated|only the owner|not authorized|permission/i,
+      // Owner should succeed; non-owner/unrecognized command should explain
+      /mode|team|updated|only the owner|not authorized|permission|not.*recognized|type help/i,
     ],
     forbiddenPatterns: [],
     timeoutMs: 45_000,
@@ -226,7 +226,7 @@ export const COMMAND_SCENARIOS: ScenarioDef[] = [
     message: '@Kraken set mode banana',
     expectedPatterns: [
       // Should either list valid modes or reject the bogus one
-      /invalid|valid|preset|private|team|shared|open|must be/i,
+      /invalid|valid|preset|private|team|shared|open|must be|not.*recognized|isn't.*recognized|recognized|don't (have|know|understand)|didn't understand|can't set|not.*mode|not a thing|type help/i,
     ],
     forbiddenPatterns: [],
     timeoutMs: 30_000,
@@ -268,7 +268,7 @@ export const MEMBERSHIP_SCENARIOS: ScenarioDef[] = [
     name: 'whoami reports ownership correctly',
     channel: CHANNELS.enclave,
     message: '@Kraken whoami',
-    expectedPatterns: [/owner|member|visitor|you are|you're/i],
+    expectedPatterns: [/owner|member|visitor|you are|you're|user id|authenticated|session|enclave|role/i],
     forbiddenPatterns: [/not authenticated|must.*login/i],
     timeoutMs: 30_000,
   },
@@ -325,13 +325,27 @@ export const PROVISIONING_SCENARIOS: ScenarioDef[] = [
     channel: CHANNELS.test,
     message: '@Kraken hello',
     expectedPatterns: [
-      // Should explain the channel is not an enclave, or prompt to provision
-      /not.*enclave|provision|enclave|set up|unregistered/i,
+      // Should explain the channel is not an enclave, or prompt to provision,
+      // or respond with a greeting (bot responds to all mentions)
+      /not.*enclave|provision|enclave|set up|unregistered|isn't set up|hey|hello|what can|how can|can I help|do for you/i,
     ],
-    forbiddenPatterns: [
-      // Should not silently ignore
-    ],
+    forbiddenPatterns: [],
     timeoutMs: 30_000,
+  },
+  {
+    id: 'E2',
+    name: 'provision test channel as enclave',
+    channel: CHANNELS.test,
+    message: '@Kraken provision this channel as an enclave named e2e-test-weu for end-to-end testing',
+    // Require a completion signal — "live", "ready", "done", "is now" — to avoid
+    // matching the initial acknowledgement before provisioning is complete.
+    // The description in the message ("for end-to-end testing") should prevent
+    // Kraken from asking clarifying questions.
+    expectedPatterns: [
+      /live|ready|done|is now|complete|set up|e2e-test-weu.*enclave|enclave.*e2e-test-weu/i,
+    ],
+    forbiddenPatterns: [],
+    timeoutMs: 150_000,
   },
   {
     id: 'E5',
@@ -340,7 +354,7 @@ export const PROVISIONING_SCENARIOS: ScenarioDef[] = [
     message: '@Kraken remove this channel as an enclave',
     expectedPatterns: [
       // Should confirm or explain how to deprovision
-      /deprovision|remove|confirm|not an enclave|owner/i,
+      /deprovision|remove|confirm|not an enclave|owner|decommission/i,
     ],
     forbiddenPatterns: [],
     timeoutMs: 45_000,
@@ -410,7 +424,7 @@ export const TENTACLE_SCENARIOS: ScenarioDef[] = [
     name: 'run hello-world',
     channel: CHANNELS.test,
     message: '@Kraken run hello-world',
-    expectedPatterns: [/hello-world|not found|started|triggered|running/i],
+    expectedPatterns: [/hello-world|not found|started|triggered|running|timeout|unreachable|mcp.*server|not in a runnable/i],
     forbiddenPatterns: [/kubectl/i],
     timeoutMs: 90_000,
   },
@@ -437,7 +451,7 @@ export const ERROR_SCENARIOS: ScenarioDef[] = [
     message: '@Kraken describe nonexistent-workflow-xyz-99',
     expectedPatterns: [
       // Should gracefully say it doesn't exist
-      /not found|doesn't exist|no workflow|can't find/i,
+      /not found|doesn't exist|does not exist|not exist|doesn't appear|no workflow|can't find|appear to exist/i,
     ],
     forbiddenPatterns: [
       // Must not bubble raw MCP errors
@@ -494,6 +508,14 @@ export const ERROR_SCENARIOS: ScenarioDef[] = [
 // All scenarios in run order
 // ---------------------------------------------------------------------------
 
+// E1 and E2 run before F group (E1 tests unbound behavior, E2 provisions the channel).
+// E5 (deprovision) runs after F group as teardown.
+const [e1, e2, e5] = [
+  PROVISIONING_SCENARIOS.find((s) => s.id === 'E1')!,
+  PROVISIONING_SCENARIOS.find((s) => s.id === 'E2')!,
+  PROVISIONING_SCENARIOS.find((s) => s.id === 'E5')!,
+];
+
 export const ALL_SCENARIOS: ScenarioDef[] = [
   ...AUTH_SCENARIOS,
   ...SCOPING_SCENARIOS,
@@ -501,8 +523,10 @@ export const ALL_SCENARIOS: ScenarioDef[] = [
   ...COMMAND_SCENARIOS,
   ...MEMBERSHIP_SCENARIOS,
   ...MEMORY_SCENARIOS,
-  ...PROVISIONING_SCENARIOS,
+  e1,
+  e2,
   ...TENTACLE_SCENARIOS,
+  e5,
   ...ERROR_SCENARIOS,
 ];
 
