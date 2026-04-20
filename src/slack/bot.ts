@@ -327,8 +327,14 @@ function registerEventHandlers(
           if (!PROVISION_PATTERN.test(text)) {
             log.info(
               { channelId, userId },
-              'mention in unbound channel — no provision intent, ignoring',
+              'mention in unbound channel — no provision intent, replying',
             );
+            await say({
+              thread_ts: threadTs,
+              text:
+                "This channel isn't set up as an enclave yet. To get started, say:\n" +
+                '`@Kraken provision this channel as an enclave named <name>`',
+            });
             span.setStatus({ code: SpanStatusCode.OK });
             return;
           }

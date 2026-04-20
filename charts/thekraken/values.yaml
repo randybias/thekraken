@@ -68,6 +68,7 @@ slack:
 
 ingress:
   enabled: true
+  className: 'traefik'
   host: 'kraken.eastus-dev1.ospo-dev.miralabs.dev'
   clusterIssuer: 'letsencrypt-prod'
 

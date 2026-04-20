@@ -86,23 +86,24 @@ export class OutboundTracker {
   }
 
   /**
-   * Check if a specific outbound record (by content hash) was already sent.
+   * Check if a specific outbound record (by content hash) was already sent
+   * to this specific thread. Scoped to (channel_id, thread_ts) to prevent
+   * re-sending the same message to the same thread after a pod restart while
+   * still allowing identical text in different threads (e.g. repeated test runs).
    *
-   * Per-record dedup: prevents re-sending the exact same message after a pod
-   * restart, while allowing multiple different messages in the same thread.
-   * Fixes the thread-level dedup bug caught by Codex review (item 1).
-   *
+   * @param channelId - Slack channel ID.
+   * @param threadTs - Thread timestamp (root message ts for the thread).
    * @param contentHash - SHA-256 hash of the message content.
-   * @returns True if this exact content was already posted.
+   * @returns True if this exact content was already posted to this thread.
    */
-  hasOutboundByHash(contentHash: string): boolean {
+  hasOutboundByHash(channelId: string, threadTs: string, contentHash: string): boolean {
     const row = this.db
       .prepare(
         `SELECT 1 FROM outbound_messages
-         WHERE content_hash = ?
+         WHERE channel_id = ? AND thread_ts = ? AND content_hash = ?
          LIMIT 1`,
       )
-      .get(contentHash);
+      .get(channelId, threadTs, contentHash);
 
     return row !== undefined;
   }

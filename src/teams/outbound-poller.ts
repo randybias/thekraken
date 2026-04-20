@@ -303,7 +303,7 @@ export class OutboundPoller {
           .update(text, 'utf8')
           .digest('hex');
 
-        if (this.deps.tracker.hasOutboundByHash(contentHash)) {
+        if (this.deps.tracker.hasOutboundByHash(channelId, threadTs, contentHash)) {
           log.debug(
             { enclaveName, recordId: record.id },
             'skipping already-posted outbound record (content hash match)',

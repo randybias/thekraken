@@ -9,7 +9,7 @@ metadata:
   annotations:
     cert-manager.io/cluster-issuer: {{ .Values.ingress.clusterIssuer | quote }}
 spec:
-  ingressClassName: traefik
+  ingressClassName: {{ .Values.ingress.className | default "traefik" }}
   tls:
     - hosts:
         - {{ .Values.ingress.host | quote }}
