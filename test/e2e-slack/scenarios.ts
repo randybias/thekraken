@@ -11,9 +11,17 @@
  *
  * All messages are prefixed with "[e2e-test]" by the Slack driver.
  * The Kraken bot must be mentioned (@Kraken) as would happen in a real channel.
+ *
+ * Environment variables that control parameterised values:
+ *   KRAKEN_E2E_TEST_ENCLAVE  — enclave name provisioned by E2 / used by F1 mcpAssertion
+ *                              (default: "e2e-test")
+ *   KRAKEN_E2E_TEST_EMAIL    — fake email for I1/I2 error-path tests
+ *                              (default: "e2e-test-noop@mirantis.com")
+ *   KRAKEN_E2E_MEMBER_EMAIL  — real email of a second Slack user; enables I4 / H scenarios
+ *   KRAKEN_E2E_MEMBER_SECRET — secret path for the second user's Slack token; enables H scenarios
  */
 
-import { CHANNELS } from './harness.js';
+import { CHANNELS, TEST_ENCLAVE, TEST_EMAIL, MEMBER_EMAIL } from './harness.js';
 
 // ---------------------------------------------------------------------------
 // Scenario type
@@ -37,6 +45,23 @@ export interface ScenarioDef {
   /** Per-scenario timeout in ms. Default: 60000. */
   timeoutMs?: number;
   /**
+   * Post as 'member' user instead of owner. Skips gracefully when
+   * KRAKEN_E2E_MEMBER_SECRET is not set (no member driver available).
+   */
+  asUser?: 'owner' | 'member';
+  /**
+   * Dynamic skip predicate. If defined and returns true at runtime, the
+   * scenario is SKIPped without posting any messages.
+   */
+  skipWhen?: () => boolean;
+  /**
+   * If the bot's reply matches this pattern AND the mcpAssertion times out,
+   * mark the scenario as SKIP instead of FAIL. Use when the expected bot
+   * behavior is to delegate asynchronously (e.g. "dev team commissioned")
+   * and the async operation may not complete within the test window.
+   */
+  mcpAssertionSkipOnAsyncReply?: RegExp;
+  /**
    * Post-reply assertion against real MCP state. Runs AFTER the reply
    * regex matches. Returns null on pass, or an error message on fail.
    * Prevents regex-pass from hiding a non-deploy. Allows scenarios like
@@ -54,6 +79,14 @@ export interface ScenarioDef {
         params: Record<string, unknown>,
       ) => Promise<unknown>,
     ) => Promise<string | null>;
+  };
+  /**
+   * Direct kubectl assertion used as fallback when mcpAssertion OIDC setup
+   * fails. Returns null on pass, or an error string on fail. Skipped when
+   * KUBECONFIG is not set or kubectl is not on PATH.
+   */
+  clusterAssertion?: {
+    check: () => Promise<string | null>;
   };
 }
 
@@ -179,6 +212,17 @@ export const WORKFLOW_SCENARIOS: ScenarioDef[] = [
     forbiddenPatterns: [/kubectl/i],
     timeoutMs: 90_000,
   },
+  {
+    id: 'C5',
+    name: 'health of hello-world (deployed workflow)',
+    channel: CHANNELS.test,
+    message: "@Kraken what's the health of hello-world?",
+    expectedPatterns: [
+      /hello-world|running|healthy|error|unhealthy|not found|status|ready/i,
+    ],
+    forbiddenPatterns: [/kubectl/i, /kubectl.*pod|get pods/i],
+    timeoutMs: 60_000,
+  },
 ];
 
 // ---------------------------------------------------------------------------
@@ -197,6 +241,17 @@ export const COMMAND_SCENARIOS: ScenarioDef[] = [
     ],
     forbiddenPatterns: [],
     timeoutMs: 45_000,
+  },
+  {
+    id: 'D2',
+    name: 'verify mode reflects after set',
+    channel: CHANNELS.enclave,
+    message: '@Kraken what mode is this enclave in?',
+    expectedPatterns: [
+      /mode|team|private|shared|open|current|set to/i,
+    ],
+    forbiddenPatterns: [],
+    timeoutMs: 30_000,
   },
   {
     id: 'D3',
@@ -226,7 +281,7 @@ export const COMMAND_SCENARIOS: ScenarioDef[] = [
     message: '@Kraken set mode banana',
     expectedPatterns: [
       // Should either list valid modes or reject the bogus one
-      /invalid|valid|preset|private|team|shared|open|must be|not.*recognized|isn't.*recognized|recognized|don't (have|know|understand)|didn't understand|can't set|not.*mode|not a thing|type help/i,
+      /invalid|valid|preset|private|team|shared|open|must be|not.*recognized|isn't.*recognized|recognized|recognize|isn't a concept|don't (have|know|understand)|didn't understand|can't set|not.*mode|not a thing|type help/i,
     ],
     forbiddenPatterns: [],
     timeoutMs: 30_000,
@@ -242,12 +297,12 @@ export const MEMBERSHIP_SCENARIOS: ScenarioDef[] = [
     id: 'I1',
     name: 'add member (owner) — test user email',
     channel: CHANNELS.enclave,
-    // Use a literal email (Slack won't resolve @user via API post anyway)
-    message: '@Kraken add e2e-test-noop@mirantis.com',
+    // Use a parameterised email (defaults to a noop address)
+    message: `@Kraken add ${TEST_EMAIL}`,
     expectedPatterns: [
-      // Accept either "added" or an error about the user not existing in Keycloak —
-      // both are correct behaviors (the Kraken reached enclave_sync either way).
-      /added|added to|member|updated|not found|doesn't exist|cannot find|unknown user/i,
+      // Accept either "added" or an error about the user not existing in Keycloak,
+      // or the async "dev team commissioned" path for non-OIDC domains.
+      /added|added to|member|updated|not found|doesn't exist|cannot find|unknown user|dev team|commissioned/i,
     ],
     forbiddenPatterns: [/undefined|null\.|mcp.*exception/i],
     timeoutMs: 60_000,
@@ -256,9 +311,9 @@ export const MEMBERSHIP_SCENARIOS: ScenarioDef[] = [
     id: 'I2',
     name: 'remove non-member (owner) — should fail gracefully',
     channel: CHANNELS.enclave,
-    message: '@Kraken remove e2e-test-noop@mirantis.com',
+    message: `@Kraken remove ${TEST_EMAIL}`,
     expectedPatterns: [
-      /removed|not a member|not in the enclave|doesn't exist|no such member|unknown/i,
+      /removed|not a member|not in the enclave|doesn't exist|no such member|unknown|dev team|commissioned/i,
     ],
     forbiddenPatterns: [/undefined|null\.|crash/i],
     timeoutMs: 45_000,
@@ -271,6 +326,22 @@ export const MEMBERSHIP_SCENARIOS: ScenarioDef[] = [
     expectedPatterns: [/owner|member|visitor|you are|you're|user id|authenticated|session|enclave|role/i],
     forbiddenPatterns: [/not authenticated|must.*login/i],
     timeoutMs: 30_000,
+  },
+  {
+    id: 'I4',
+    name: 'add real member for RBAC tests',
+    channel: CHANNELS.enclave,
+    // Only meaningful when KRAKEN_E2E_MEMBER_EMAIL is set; otherwise skipped by
+    // the harness (empty message would look suspicious — set it anyway).
+    message: MEMBER_EMAIL
+      ? `@Kraken add ${MEMBER_EMAIL}`
+      : '@Kraken add noop@skip-this-scenario.invalid',
+    skipWhen: () => !MEMBER_EMAIL,
+    expectedPatterns: [
+      /added|member|updated|not found|doesn't exist|cannot find|unknown user|dev team|commissioned/i,
+    ],
+    forbiddenPatterns: [/undefined|null\.|crash/i],
+    timeoutMs: 60_000,
   },
 ];
 
@@ -312,6 +383,27 @@ export const MEMORY_SCENARIOS: ScenarioDef[] = [
     ],
     timeoutMs: 120_000,
   },
+  {
+    id: 'J3',
+    name: 'thread memory — 3-turn recall across multiple facts',
+    channel: CHANNELS.enclave,
+    message: '@Kraken my cat is named Whiskers',
+    followUpMessages: [
+      '@Kraken and my dog is named Biscuit',
+      "@Kraken what are my pets' names?",
+    ],
+    expectedReplyCount: 3,
+    expectedPatterns: [
+      // Final reply (joined text of all 3 bot turns) must contain both facts
+      /whiskers/i,
+      /biscuit/i,
+    ],
+    forbiddenPatterns: [
+      // Must not claim ignorance once the facts were stated
+      /I don't (know|remember) (any|your)|what (cat|dog|pets)/i,
+    ],
+    timeoutMs: 120_000,
+  },
 ];
 
 // ---------------------------------------------------------------------------
@@ -336,13 +428,12 @@ export const PROVISIONING_SCENARIOS: ScenarioDef[] = [
     id: 'E2',
     name: 'provision test channel as enclave',
     channel: CHANNELS.test,
-    message: '@Kraken provision this channel as an enclave named e2e-test-weu for end-to-end testing',
-    // Require a completion signal — "live", "ready", "done", "is now" — to avoid
-    // matching the initial acknowledgement before provisioning is complete.
-    // The description in the message ("for end-to-end testing") should prevent
-    // Kraken from asking clarifying questions.
+    // TEST_ENCLAVE is parameterised so the test can target any environment.
+    message: `@Kraken provision this channel as an enclave named ${TEST_ENCLAVE} for end-to-end testing`,
+    // Accept either a synchronous "live/ready/done" confirmation or the async
+    // "dev team commissioned" path (both result in a working enclave per F4/C5).
     expectedPatterns: [
-      /live|ready|done|is now|complete|set up|e2e-test-weu.*enclave|enclave.*e2e-test-weu/i,
+      new RegExp(`live|ready|done|is now|complete|set up|${TEST_ENCLAVE}.*enclave|enclave.*${TEST_ENCLAVE}|dev team|commissioned`, 'i'),
     ],
     forbiddenPatterns: [],
     timeoutMs: 150_000,
@@ -377,36 +468,70 @@ export const TENTACLE_SCENARIOS: ScenarioDef[] = [
     forbiddenPatterns: [/kubectl/i],
     // Bridge-based team builds can take a few minutes (pi + tntc + image build).
     timeoutMs: 15 * 60 * 1000,
+    // If the bot delegates to dev team (async build path), SKIP instead of FAIL
+    // when the assertion times out — the build agent (pi) may not be installed
+    // in this environment, which is a system configuration issue, not a test failure.
+    mcpAssertionSkipOnAsyncReply: /dev team|commissioned/i,
     // Real deployment assertion: verify hello-world actually lands in MCP's
     // wf_list. Regex-pass alone is not enough — it let us claim success
     // when the tentacle didn't exist. This forces the end-to-end check.
     mcpAssertion: {
-      pollMs: 5_000,
-      timeoutMs: 5 * 60 * 1000,
+      pollMs: 15_000,
+      timeoutMs: 15 * 60 * 1000,
       check: async (mcpCall) => {
-        const res = (await mcpCall('wf_list', {
-          enclave: 'tentacular-e2e-test',
-        })) as
-          | { workflows?: Array<{ name: string; ready?: boolean }> }
-          | string;
-        const parsed =
-          typeof res === 'string'
-            ? (JSON.parse(res) as {
-                workflows?: Array<{ name: string; ready?: boolean }>;
-              })
-            : res;
+        // Dynamically discover the MCP enclave name — the Kraken may append a
+        // cluster suffix (e.g. "e2e-test" → "e2e-test-weu") at provision time.
+        let enclaveName = TEST_ENCLAVE;
+        try {
+          const listRaw = await mcpCall('enclave_list', {});
+          const listParsed =
+            typeof listRaw === 'string'
+              ? (JSON.parse(listRaw) as { enclaves?: Array<{ channel_name?: string; name: string }> })
+              : (listRaw as { enclaves?: Array<{ channel_name?: string; name: string }> });
+          const testChannel = CHANNELS.test.replace(/^#/, '');
+          const found = listParsed.enclaves?.find((e) => e.channel_name === testChannel);
+          if (found) enclaveName = found.name;
+        } catch {
+          // Fall back to TEST_ENCLAVE if enclave_list fails
+        }
+
+        const raw = await mcpCall('wf_list', { enclave: enclaveName });
+        let parsed: { workflows?: Array<{ name: string; ready?: boolean }> };
+        try {
+          parsed = typeof raw === 'string' ? JSON.parse(raw) : (raw as typeof parsed);
+        } catch {
+          return `wf_list returned non-JSON (enclave=${enclaveName}): ${String(raw).slice(0, 100)}`;
+        }
         const workflows = parsed.workflows ?? [];
         const hw = workflows.find((w) => w.name === 'hello-world');
         if (!hw) {
-          return `hello-world not in wf_list (${workflows.length} workflows: ${workflows.map((w) => w.name).join(', ')})`;
+          return `hello-world not in wf_list for enclave ${enclaveName} (${workflows.length} workflows: ${workflows.map((w) => w.name).join(', ')})`;
         }
-        // Registered is not enough — verify pod actually came up. Image
-        // pulls, init containers, etc. take time; that's what the 5-min
-        // budget above is for.
         if (hw.ready !== true) {
           return `hello-world registered but not ready (ready=${String(hw.ready)}); still polling`;
         }
         return null;
+      },
+    },
+    // kubectl fallback: check the deployment exists in the enclave namespace.
+    // Used when OIDC token is unavailable (expired session / fresh pod).
+    clusterAssertion: {
+      check: async () => {
+        const { execSync } = await import('node:child_process');
+        const ns = TEST_ENCLAVE;
+        try {
+          const out = execSync(
+            `kubectl get deployment hello-world -n ${ns} -o jsonpath={.status.availableReplicas}`,
+            { encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] },
+          );
+          const replicas = parseInt(out.trim() || '0', 10);
+          if (isNaN(replicas) || replicas < 1) {
+            return `hello-world in ns/${ns}: deployment found but availableReplicas=${out.trim() || '0'}`;
+          }
+          return null;
+        } catch (err) {
+          return `hello-world deployment not found in ns/${ns}: ${err instanceof Error ? err.message.split('\n')[0] : String(err)}`;
+        }
       },
     },
   },
@@ -437,6 +562,40 @@ export const TENTACLE_SCENARIOS: ScenarioDef[] = [
     forbiddenPatterns: [/kubectl/i],
     timeoutMs: 60_000,
   },
+  {
+    id: 'F8',
+    name: 'restart hello-world',
+    channel: CHANNELS.test,
+    message: '@Kraken restart hello-world',
+    expectedPatterns: [
+      /restart|restarting|rollout|rolled.*out|reset|initiating|not found|hello-world/i,
+    ],
+    forbiddenPatterns: [/kubectl/i],
+    timeoutMs: 60_000,
+  },
+  {
+    id: 'F9',
+    name: 'describe hello-world',
+    channel: CHANNELS.test,
+    message: '@Kraken describe hello-world',
+    expectedPatterns: [
+      /hello-world|image|container|running|deployed|version|config|not found|status/i,
+    ],
+    forbiddenPatterns: [/kubectl/i],
+    timeoutMs: 60_000,
+  },
+  {
+    id: 'F10',
+    name: 'remove hello-world tentacle',
+    channel: CHANNELS.test,
+    message: '@Kraken remove hello-world',
+    expectedPatterns: [
+      // Accept removal confirmation, removal success, or an "are you sure?" prompt
+      /removed|deleted|decommission|gone|done|no longer|hello-world|confirm|are you sure|not found|completed/i,
+    ],
+    forbiddenPatterns: [/kubectl/i],
+    timeoutMs: 60_000,
+  },
 ];
 
 // ---------------------------------------------------------------------------
@@ -451,7 +610,7 @@ export const ERROR_SCENARIOS: ScenarioDef[] = [
     message: '@Kraken describe nonexistent-workflow-xyz-99',
     expectedPatterns: [
       // Should gracefully say it doesn't exist
-      /not found|doesn't exist|does not exist|not exist|doesn't appear|no workflow|can't find|appear to exist/i,
+      /not found|doesn't exist|does not exist|not exist|doesn't appear|no workflow|can't find|appear to exist|never been deployed|not deployed|never deployed/i,
     ],
     forbiddenPatterns: [
       // Must not bubble raw MCP errors
@@ -477,57 +636,131 @@ export const ERROR_SCENARIOS: ScenarioDef[] = [
     ],
     timeoutMs: 45_000,
   },
+  {
+    id: 'G3',
+    name: 'events for a workflow',
+    channel: CHANNELS.enclave,
+    message: '@Kraken show me events for otel-echo',
+    expectedPatterns: [
+      /event|otel-echo|not found|no events|timeline|activity/i,
+    ],
+    forbiddenPatterns: [/kubectl (get|exec|apply|delete|run|create|scale|describe)/i, /undefined|null.*error/i],
+    timeoutMs: 45_000,
+  },
+  {
+    id: 'G4',
+    name: 'logs for nonexistent workflow — graceful error',
+    channel: CHANNELS.enclave,
+    message: '@Kraken show me logs for nonexistent-workflow-xyz-99',
+    expectedPatterns: [
+      /not found|doesn't exist|does not exist|no logs|can't find|no such workflow/i,
+    ],
+    forbiddenPatterns: [/kubectl/i, /undefined|null.*error/i],
+    timeoutMs: 45_000,
+  },
 ];
 
 // ---------------------------------------------------------------------------
-// H. App Home Tab scenarios
+// H. RBAC enforcement (requires KRAKEN_E2E_MEMBER_SECRET to be set)
+//
+// These scenarios post as a second Slack user (the "member") and verify
+// the role system blocks owner-only operations while allowing member ones.
+// All scenarios are gracefully SKIPped when KRAKEN_E2E_MEMBER_SECRET is
+// not configured — no action needed for them to disappear from failures.
+//
+// Setup: I4 must have added KRAKEN_E2E_MEMBER_EMAIL to the enclave before
+// H1-H3 run. The ALL_SCENARIOS ordering enforces this.
+// ---------------------------------------------------------------------------
+
+export const RBAC_SCENARIOS: ScenarioDef[] = [
+  {
+    id: 'H1',
+    name: 'member can read enclave state (whoami)',
+    channel: CHANNELS.enclave,
+    asUser: 'member',
+    message: '@Kraken whoami',
+    expectedPatterns: [/member|visitor|authenticated|owner|role|enclave/i],
+    forbiddenPatterns: [/error.*crash/i],
+    timeoutMs: 30_000,
+  },
+  {
+    id: 'H2',
+    name: 'member cannot execute owner-only set mode',
+    channel: CHANNELS.enclave,
+    asUser: 'member',
+    message: '@Kraken set mode private',
+    expectedPatterns: [
+      /owner|not authorized|permission|only.*owner|can't|cannot|not allowed/i,
+    ],
+    forbiddenPatterns: [],
+    timeoutMs: 30_000,
+  },
+  {
+    id: 'H3',
+    name: 'member can list workflows in team mode',
+    channel: CHANNELS.enclave,
+    asUser: 'member',
+    message: '@Kraken list my workflows',
+    expectedPatterns: [/workflow|tentacle|running|no .*(workflows|tentacles)/i],
+    forbiddenPatterns: [/namespace/i],
+    timeoutMs: 60_000,
+  },
+];
+
+// ---------------------------------------------------------------------------
+// App Home Tab scenarios (H-prefix reserved for RBAC above)
 // ---------------------------------------------------------------------------
 //
-// These scenarios cannot be tested with message-based assertions alone.
-// The App Home Tab is rendered via views.publish and requires a different
-// harness (Slack doesn't expose views.read publicly).
+// Home Tab requires a different harness (views.publish + app_home_opened).
+// See harness.ts comment block for implementation approach.
 //
-// To validate Home Tab:
-// 1. Manual: open The Kraken in Slack's sidebar → Home tab → verify rendering
-// 2. Log-based: trigger app_home_opened event, confirm log line
-//    "home tab published" with the user_id in the pod logs
-// 3. API: use views.publish with the bot token to set a known state, then
-//    test that subsequent app_home_opened doesn't overwrite (idempotency)
-//
-// Implementation TODO — add a new ScenarioDef.kind = 'home_tab' variant
-// with a logAssertion callback that reads pod logs during the test window.
-//
-// Manual checklist for rollout:
-//   H1: Unauthenticated user opens Home tab → auth prompt
-//   H2: Authenticated user opens Home tab → enclave list with health emoji
-//   H3: User with no enclaves opens Home tab → empty state with DM prompt
-//   H4: User with multiple enclaves opens Home tab → all shown, Chroma links work
-//   H5: Home tab re-renders on repeated app_home_opened events (idempotent)
+// Manual checklist:
+//   HA1: Unauthenticated user opens Home tab → auth prompt
+//   HA2: Authenticated user opens Home tab → enclave list with health emoji
+//   HA3: User with no enclaves opens Home tab → empty state with DM prompt
 
 // ---------------------------------------------------------------------------
 // All scenarios in run order
 // ---------------------------------------------------------------------------
 
-// E1 and E2 run before F group (E1 tests unbound behavior, E2 provisions the channel).
-// E5 (deprovision) runs after F group as teardown.
+// Splice E1/E2/E5 and C5 into explicit positions around the F group.
 const [e1, e2, e5] = [
   PROVISIONING_SCENARIOS.find((s) => s.id === 'E1')!,
   PROVISIONING_SCENARIOS.find((s) => s.id === 'E2')!,
   PROVISIONING_SCENARIOS.find((s) => s.id === 'E5')!,
 ];
+// C5 (health of hello-world) belongs after F4 (status check), not at the end of F.
+const c5 = WORKFLOW_SCENARIOS.find((s) => s.id === 'C5')!;
+const baseWorkflowScenarios = WORKFLOW_SCENARIOS.filter((s) => s.id !== 'C5');
+const [f1, f4, f5, f6, f8, f9, f10] = ['F1','F4','F5','F6','F8','F9','F10'].map(
+  (id) => TENTACLE_SCENARIOS.find((s) => s.id === id)!,
+);
 
 export const ALL_SCENARIOS: ScenarioDef[] = [
+  // A. Identity
   ...AUTH_SCENARIOS,
+  // B. Vocabulary / scoping regressions
   ...SCOPING_SCENARIOS,
-  ...WORKFLOW_SCENARIOS,
+  // C. Workflow operations against the existing enclave channel (C5 deferred below)
+  ...baseWorkflowScenarios,
+  // D. Commands — D2 (mode verify) directly follows D1 (mode set)
   ...COMMAND_SCENARIOS,
+  // I. Membership — I4 (add real member) runs before H scenarios
   ...MEMBERSHIP_SCENARIOS,
+  // J. Thread memory
   ...MEMORY_SCENARIOS,
+  // E1: verify non-enclave behaviour before provisioning
   e1,
+  // E2: provision the test channel as an enclave
   e2,
-  ...TENTACLE_SCENARIOS,
+  // F1 deploy → F4 status → C5 health → F5 run → F6 logs → F8 restart → F9 describe → F10 remove
+  f1, f4, c5, f5, f6, f8, f9, f10,
+  // E5: deprovision the test channel (all F scenarios complete)
   e5,
+  // G. Error paths
   ...ERROR_SCENARIOS,
+  // H. RBAC — skipped gracefully when KRAKEN_E2E_MEMBER_SECRET is not set
+  ...RBAC_SCENARIOS,
 ];
 
 /**

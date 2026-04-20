@@ -12,13 +12,30 @@
  *   Exits 0 if all scenarios pass (or skip).
  *   Exits 1 if any scenario fails or errors.
  *
- * Prerequisites:
- *   secrets get slack/tentacular-e2e/user-token   (xoxp-... Randy's user token)
- *   secrets get slack/tentacular-e2e/bot-token    (xoxb-... Kraken bot token)
- *   secrets get slack/tentacular-e2e/bot-user-id  (U... Kraken bot Slack user ID)
+ * Required env / secrets for a new environment:
+ *   KRAKEN_E2E_USER_SECRET     secret path for the owner user token (xoxp-...)
+ *                               default: slack/tentacular-e2e/user-token
+ *                               weu-dev1: tentacular/westeurope-dev1/e2e-user-token
+ *   KRAKEN_E2E_BOT_SECRET      secret path for the Kraken bot token (xoxb-...)
+ *                               default: slack/thekraken/bot-token
+ *                               weu-dev1: tentacular/westeurope-dev1/kraken-slack-bot-token
+ *   KRAKEN_E2E_ENCLAVE_CHANNEL channel ID or name of the pre-existing enclave channel
+ *                               default: tentacular-agensys
+ *   KRAKEN_E2E_TEST_CHANNEL    channel ID or name for provisioning tests
+ *                               default: newkraken-test
+ *
+ * Optional env for parameterisation:
+ *   KRAKEN_E2E_TEST_ENCLAVE    name to give the E2-provisioned enclave (default: e2e-test)
+ *   KRAKEN_E2E_TEST_EMAIL      fake email for I1/I2 graceful-error tests
+ *                               (default: e2e-test-noop@example.com)
+ *   KRAKEN_E2E_MEMBER_EMAIL    real email of a second Slack user; enables I4 scenario
+ *   KRAKEN_E2E_MEMBER_SECRET   secret path for second user token; enables H1-H3 RBAC scenarios
+ *   KRAKEN_E2E_NAMESPACE       K8s namespace where Kraken runs (default: tentacular-kraken)
+ *   KRAKEN_E2E_MCP_URL         in-cluster MCP server URL (default: cluster-local address)
+ *   KUBECONFIG                 path to kubeconfig; enables kubectl cluster assertions in F1
  *
  * Safety:
- *   - Only posts to #tentacular-agensys and #newkraken-test
+ *   - Only posts to the configured enclave/test channels
  *   - All messages carry the "[e2e-test]" prefix from the Slack driver
  *   - Do NOT add production channels to CHANNELS in harness.ts
  */
