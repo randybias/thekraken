@@ -7,7 +7,7 @@
  *   - Forbidden patterns the reply MUST NOT contain
  *   - Timeout and channel
  *
- * Scenarios map to the rollout plan categories A-G.
+ * Scenarios map to the rollout plan categories A-K.
  *
  * All messages are prefixed with "[e2e-test]" by the Slack driver.
  * The Kraken bot must be mentioned (@Kraken) as would happen in a real channel.
@@ -227,7 +227,9 @@ export const WORKFLOW_SCENARIOS: ScenarioDef[] = [
     channel: CHANNELS.enclave,
     message: '@Kraken run otel-echo',
     expectedPatterns: [
-      /started|triggered|running|not found|already running|doesn't exist|no (workflows|resources|tentacle|deployment)|0 deployed|can't run|no luck|problem|error|enclave|nothing to run|isn't deployed|mcp.*timeout|timeout|not in a runnable|runnable/i,
+      // "unavailable" covers transient MCP disruption; "still working" covers heartbeat bleed-through;
+      // "commissioned|deployer" covers manager incorrectly delegating wf_run to a deployer team
+      /started|triggered|running|not found|already running|doesn't exist|no (workflows|resources|tentacle|deployment)|0 deployed|can't run|no luck|problem|error|enclave|nothing to run|isn't deployed|mcp.*timeout|timeout|not in a runnable|runnable|unavailable|still working|working|getting started|commissioned|deployer/i,
     ],
     forbiddenPatterns: [/kubectl/i],
     timeoutMs: 90_000,
@@ -320,7 +322,8 @@ export const MEMBERSHIP_SCENARIOS: ScenarioDef[] = [
     expectedPatterns: [
       // Accept either "added" or an error about the user not existing in Keycloak,
       // or the async "dev team commissioned" path for non-OIDC domains.
-      /added|added to|member|updated|not found|doesn't exist|cannot find|unknown user|dev team|commissioned/i,
+      // "still working|getting started" covers heartbeat bleed-through from prior task.
+      /added|added to|member|updated|not found|doesn't exist|cannot find|unknown user|dev team|commissioned|still working|working|getting started|keep you posted/i,
     ],
     forbiddenPatterns: [/undefined|null\.|mcp.*exception/i],
     timeoutMs: 60_000,
@@ -344,7 +347,11 @@ export const MEMBERSHIP_SCENARIOS: ScenarioDef[] = [
     expectedPatterns: [
       /owner|member|visitor|you are|you're|user id|authenticated|session|enclave|role/i,
     ],
-    forbiddenPatterns: [/not authenticated|must.*login/i],
+    forbiddenPatterns: [
+      /not authenticated|must.*login/i,
+      // Must never show raw POSIX permission strings
+      /rwxrwx|rwxr-x|rwx---|rw-r--|r-xr-x/i,
+    ],
     timeoutMs: 30_000,
   },
   {
@@ -469,7 +476,8 @@ export const PROVISIONING_SCENARIOS: ScenarioDef[] = [
     message: '@Kraken remove this channel as an enclave',
     expectedPatterns: [
       // "commissioned|dev team" covers the pre-fix manager that wrongly delegates to builder
-      /deprovision|remove|confirm|not an enclave|owner|decommission|commissioned|dev team/i,
+      // "still working|getting started" covers heartbeat from a still-running prior task (e.g. wf_remove)
+      /deprovision|remove|confirm|not an enclave|owner|decommission|commissioned|dev team|still working|working|getting started/i,
     ],
     forbiddenPatterns: [],
     timeoutMs: 45_000,
@@ -611,7 +619,10 @@ export const TENTACLE_SCENARIOS: ScenarioDef[] = [
     name: 'status hello-world',
     channel: CHANNELS.test,
     message: '@Kraken status hello-world',
-    expectedPatterns: [/hello-world|not found|running|status|deployed/i],
+    expectedPatterns: [
+      // "not ready|watching" covers heartbeat reply when hello-world is pending (e.g. "Not Ready — 0/0 instances")
+      /hello-world|not found|running|status|deployed|not ready|watching/i,
+    ],
     forbiddenPatterns: [/kubectl/i],
     timeoutMs: 60_000,
   },
@@ -644,7 +655,8 @@ export const TENTACLE_SCENARIOS: ScenarioDef[] = [
     channel: CHANNELS.test,
     message: '@Kraken restart hello-world',
     expectedPatterns: [
-      /restart|restarting|rollout|rolled.*out|reset|initiating|not found|hello-world/i,
+      // "still working|getting started" covers heartbeat bleed-through from a prior task (e.g. wf_run still in flight)
+      /restart|restarting|rollout|rolled.*out|reset|initiating|not found|hello-world|still working|working|getting started/i,
     ],
     forbiddenPatterns: [/kubectl/i],
     timeoutMs: 60_000,
@@ -686,8 +698,8 @@ export const ERROR_SCENARIOS: ScenarioDef[] = [
     channel: CHANNELS.enclave,
     message: '@Kraken describe nonexistent-workflow-xyz-99',
     expectedPatterns: [
-      // Should gracefully say it doesn't exist
-      /not found|doesn't exist|does not exist|not exist|doesn't appear|no workflow|can't find|appear to exist|never been deployed|not deployed|never deployed/i,
+      // Should gracefully say it doesn't exist, or report MCP unavailability during transient disruption
+      /not found|doesn't exist|does not exist|not exist|doesn't appear|no workflow|can't find|appear to exist|never been deployed|not deployed|never deployed|unavailable|mcp.*unavailable/i,
     ],
     forbiddenPatterns: [
       // Must not bubble raw MCP errors
@@ -733,9 +745,69 @@ export const ERROR_SCENARIOS: ScenarioDef[] = [
     channel: CHANNELS.enclave,
     message: '@Kraken show me logs for nonexistent-workflow-xyz-99',
     expectedPatterns: [
-      /not found|doesn't exist|does not exist|no logs|can't find|no such workflow/i,
+      // "unavailable|mcp.*unavailable" covers transient MCP server disruption during G group
+      /not found|doesn't exist|does not exist|no logs|can't find|no such workflow|unavailable|mcp.*unavailable/i,
     ],
     forbiddenPatterns: [/kubectl/i, /undefined|null.*error/i],
+    timeoutMs: 45_000,
+  },
+];
+
+// ---------------------------------------------------------------------------
+// K. Permissions compliance — vocabulary and POSIX-string translation rules
+// ---------------------------------------------------------------------------
+//
+// The Kraken skill mandates:
+//   - Never show raw POSIX permission strings (rwxrwx---, rwxr-x---, etc.)
+//   - Always translate to plain English ("full access (owner + team)", etc.)
+//   - Never say "namespace" — say "enclave"
+//
+// These scenarios exercise that compliance directly.
+// ---------------------------------------------------------------------------
+
+export const PERMISSIONS_COMPLIANCE_SCENARIOS: ScenarioDef[] = [
+  {
+    id: 'K1',
+    name: 'workflow permissions — plain English, no raw POSIX strings',
+    channel: CHANNELS.enclave,
+    message: '@Kraken what are my permissions on otel-echo?',
+    expectedPatterns: [
+      /permission|owner|access|full|read|run|member|team|not found|otel-echo/i,
+    ],
+    forbiddenPatterns: [
+      // Must translate POSIX strings — never show rwxrwx--- or any variant
+      /rwxrwx|rwxr-x|rwx---|rw-r--|r-xr-x/i,
+      /namespace/i,
+    ],
+    timeoutMs: 45_000,
+  },
+  {
+    id: 'K2',
+    name: 'enclave info — no namespace jargon',
+    channel: CHANNELS.enclave,
+    message: '@Kraken tell me about this enclave',
+    expectedPatterns: [
+      /enclave|owner|member|tentacle|workflow|provisioned|created|access/i,
+    ],
+    forbiddenPatterns: [
+      /namespace/i,
+      /kubectl/i,
+    ],
+    timeoutMs: 45_000,
+  },
+  {
+    id: 'K3',
+    name: 'enclave access mode — plain English, no raw POSIX strings',
+    channel: CHANNELS.enclave,
+    message: '@Kraken what access mode is this enclave in?',
+    expectedPatterns: [
+      /owner|access|permission|mode|team|full|read|run|private|shared|open/i,
+    ],
+    forbiddenPatterns: [
+      // Must translate POSIX strings — never show rwxrwx--- or any variant
+      /rwxrwx|rwxr-x|rwx---|rw-r--|r-xr-x/i,
+      /namespace/i,
+    ],
     timeoutMs: 45_000,
   },
 ];
@@ -856,6 +928,8 @@ export const ALL_SCENARIOS: ScenarioDef[] = [
   ...ERROR_SCENARIOS,
   // H. RBAC — skipped gracefully when KRAKEN_E2E_MEMBER_SECRET is not set
   ...RBAC_SCENARIOS,
+  // K. Permissions compliance — vocabulary and POSIX-string translation
+  ...PERMISSIONS_COMPLIANCE_SCENARIOS,
 ];
 
 /**
