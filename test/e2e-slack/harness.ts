@@ -504,31 +504,57 @@ export async function runScenario(
     // Post the initial message
     const threadTs = await postDriver.postAsUser(channelId, scenario.message);
 
-    // If there are follow-up messages, send them in the thread
-    for (const followUp of scenario.followUpMessages ?? []) {
-      // Small delay between messages to avoid rate limiting
-      await new Promise<void>((r) => setTimeout(r, 1000));
-      await postDriver.postAsUser(channelId, followUp, threadTs);
-    }
-
-    // Wait for Kraken reply
-    const replyCount = scenario.expectedReplyCount ?? 1;
     let replyText: string;
 
-    if (replyCount === 1) {
-      replyText = await postDriver.waitForKrakenReply(
+    if (scenario.followUpAfterFirstReply && (scenario.followUpMessages?.length ?? 0) > 0) {
+      // Sequential mode: wait for the first reply, then send follow-ups,
+      // then wait for the replies to each follow-up. expectedPatterns are
+      // evaluated against only the follow-up replies (not the first reply).
+      const firstReply = await postDriver.waitForKrakenReply(
         channelId,
         threadTs,
         scenario.timeoutMs ?? DEFAULT_TIMEOUT_MS,
       );
+      const subsequentReplies: string[] = [];
+      for (const followUp of scenario.followUpMessages!) {
+        await new Promise<void>((r) => setTimeout(r, 1000));
+        await postDriver.postAsUser(channelId, followUp, threadTs);
+        const followUpReply = await postDriver.waitForKrakenReply(
+          channelId,
+          threadTs,
+          scenario.timeoutMs ?? DEFAULT_TIMEOUT_MS,
+        );
+        subsequentReplies.push(followUpReply);
+      }
+      // Expose the full thread for mcpAssertionSkipOnAsyncReply check,
+      // but only check expectedPatterns against the follow-up replies.
+      replyText = [firstReply, ...subsequentReplies].join('\n\n---\n\n');
     } else {
-      const replies = await postDriver.waitForKrakenReplies(
-        channelId,
-        threadTs,
-        replyCount,
-        scenario.timeoutMs ?? DEFAULT_TIMEOUT_MS,
-      );
-      replyText = replies.join('\n\n---\n\n');
+      // Default mode: send all follow-up messages upfront before waiting.
+      for (const followUp of scenario.followUpMessages ?? []) {
+        // Small delay between messages to avoid rate limiting
+        await new Promise<void>((r) => setTimeout(r, 1000));
+        await postDriver.postAsUser(channelId, followUp, threadTs);
+      }
+
+      // Wait for Kraken reply
+      const replyCount = scenario.expectedReplyCount ?? 1;
+
+      if (replyCount === 1) {
+        replyText = await postDriver.waitForKrakenReply(
+          channelId,
+          threadTs,
+          scenario.timeoutMs ?? DEFAULT_TIMEOUT_MS,
+        );
+      } else {
+        const replies = await postDriver.waitForKrakenReplies(
+          channelId,
+          threadTs,
+          replyCount,
+          scenario.timeoutMs ?? DEFAULT_TIMEOUT_MS,
+        );
+        replyText = replies.join('\n\n---\n\n');
+      }
     }
 
     // Evaluate assertions

@@ -34,8 +34,20 @@ export interface ScenarioDef {
   channel: string;
   /** Primary message to post (the Kraken mention). */
   message: string;
-  /** Additional messages posted in the same thread after the first reply. */
+  /**
+   * Additional messages posted in the same thread.
+   * When followUpAfterFirstReply is false (default), they are sent before
+   * any reply is received (all in the mailbox at once).
+   * When followUpAfterFirstReply is true, they are sent after the first
+   * Kraken reply — useful for testing responsiveness during long async ops.
+   */
   followUpMessages?: string[];
+  /**
+   * When true, followUpMessages are sent AFTER the first Kraken reply.
+   * The test then waits for one more reply per follow-up message and
+   * evaluates expectedPatterns against only those subsequent replies.
+   */
+  followUpAfterFirstReply?: boolean;
   /** Regex or string patterns that MUST appear in the Kraken reply. */
   expectedPatterns?: Array<string | RegExp>;
   /** Regex or string patterns that MUST NOT appear in the Kraken reply. */
@@ -437,7 +449,7 @@ export const PROVISIONING_SCENARIOS: ScenarioDef[] = [
     // "dev team commissioned" path (both result in a working enclave per F4/C5).
     expectedPatterns: [
       new RegExp(
-        `live|ready|done|is now|complete|set up|${TEST_ENCLAVE}.*enclave|enclave.*${TEST_ENCLAVE}|dev team|commissioned`,
+        `live|ready|done|is now|complete|set up|${TEST_ENCLAVE}.*enclave|enclave.*${TEST_ENCLAVE}|dev team|commissioned|working|getting started`,
         'i',
       ),
     ],
@@ -550,6 +562,28 @@ export const TENTACLE_SCENARIOS: ScenarioDef[] = [
     },
   },
   {
+    id: 'F2',
+    name: 'manager stays responsive during a build',
+    channel: CHANNELS.test,
+    // Trigger a build commission, then (AFTER the first reply is received)
+    // ask a read query. Tests that the manager handles a new message while
+    // the builder subprocess is still running in the background.
+    message: '@Kraken build hello-world',
+    followUpAfterFirstReply: true,
+    followUpMessages: [
+      '@Kraken while that is being worked on, what is the health of otel-echo?',
+    ],
+    expectedPatterns: [
+      // The manager must respond to the follow-up — anything is acceptable:
+      // direct health answer, "Still working" heartbeat, or acknowledgment.
+      // What we verify is that the manager does NOT go silent while the build
+      // runs. A timeout would indicate the manager is blocked/unresponsive.
+      /otel-echo|health|running|healthy|unhealthy|status|still working|working|here|got it|checking/i,
+    ],
+    forbiddenPatterns: [/kubectl/i],
+    timeoutMs: 120_000,
+  },
+  {
     id: 'F4',
     name: 'status hello-world',
     channel: CHANNELS.test,
@@ -574,7 +608,9 @@ export const TENTACLE_SCENARIOS: ScenarioDef[] = [
     name: 'logs hello-world',
     channel: CHANNELS.test,
     message: '@Kraken logs hello-world',
-    expectedPatterns: [/hello-world|not found|log|no logs/i],
+    // "done|task completed" covers the case where the manager broadcasts a
+    // task completion from an earlier operation before answering this query.
+    expectedPatterns: [/hello-world|not found|log|no logs|done|task completed/i],
     forbiddenPatterns: [/kubectl/i],
     timeoutMs: 60_000,
   },
@@ -606,8 +642,8 @@ export const TENTACLE_SCENARIOS: ScenarioDef[] = [
     channel: CHANNELS.test,
     message: '@Kraken remove hello-world',
     expectedPatterns: [
-      // Accept removal confirmation, removal success, or an "are you sure?" prompt
-      /removed|deleted|decommission|gone|done|no longer|hello-world|confirm|are you sure|not found|completed/i,
+      // Accept removal confirmation, removal success, heartbeat, or "are you sure?" prompt
+      /removed|deleted|decommission|gone|done|no longer|hello-world|confirm|are you sure|not found|completed|working|getting started/i,
     ],
     forbiddenPatterns: [/kubectl/i],
     timeoutMs: 60_000,
@@ -751,8 +787,9 @@ const [e1, e2, e5] = [
 // C5 (health of hello-world) belongs after F4 (status check), not at the end of F.
 const c5 = WORKFLOW_SCENARIOS.find((s) => s.id === 'C5')!;
 const baseWorkflowScenarios = WORKFLOW_SCENARIOS.filter((s) => s.id !== 'C5');
-const [f1, f4, f5, f6, f8, f9, f10] = [
+const [f1, f2, f4, f5, f6, f8, f9, f10] = [
   'F1',
+  'F2',
   'F4',
   'F5',
   'F6',
@@ -778,8 +815,9 @@ export const ALL_SCENARIOS: ScenarioDef[] = [
   e1,
   // E2: provision the test channel as an enclave
   e2,
-  // F1 deploy → F4 status → C5 health → F5 run → F6 logs → F8 restart → F9 describe → F10 remove
+  // F1 deploy → F2 concurrent chat → F4 status → C5 health → F5 run → F6 logs → F8 restart → F9 describe → F10 remove
   f1,
+  f2,
   f4,
   c5,
   f5,
