@@ -254,9 +254,9 @@ export async function bootHarness(): Promise<HarnessBootResult> {
 
   // Retrieve credentials from secrets CLI
   const userSecretPath =
-    process.env['KRAKEN_E2E_USER_SECRET'] ?? 'slack/tentacular-e2e/user-token';
+    process.env['KRAKEN_E2E_USER_SECRET'] ?? 'tentacular/westeurope-dev1/e2e-user-token';
   const botSecretPath =
-    process.env['KRAKEN_E2E_BOT_SECRET'] ?? 'slack/thekraken/bot-token';
+    process.env['KRAKEN_E2E_BOT_SECRET'] ?? 'tentacular/westeurope-dev1/kraken-slack-bot-token';
   const memberSecretPath = process.env['KRAKEN_E2E_MEMBER_SECRET'];
 
   const [userToken, botToken] = await Promise.all([
