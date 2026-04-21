@@ -192,10 +192,18 @@ describe('buildManagerPrompt — decision tree (C1)', () => {
     expect(prompt).not.toMatch(/confirm with.*user.*before.*team/i);
   });
 
-  it('lists signals-out.ndjson and signals-in.ndjson in communication protocol', () => {
+  it('uses $KRAKEN_TEAM_DIR absolute path for signal files — not bare relative paths', () => {
     const prompt = buildManagerPrompt(BASE_ROLE_OPTS);
-    expect(prompt).toContain('signals-out.ndjson');
-    expect(prompt).toContain('signals-in.ndjson');
+    // Must use absolute env-var path so pi writes to teamDir, not pi's cwd (gitStateDir).
+    expect(prompt).toContain('$KRAKEN_TEAM_DIR/signals-out.ndjson');
+    expect(prompt).toContain('$KRAKEN_TEAM_DIR/signals-in.ndjson');
+    // Every line that mentions a signal file must include the $KRAKEN_TEAM_DIR prefix.
+    const lines = prompt.split('\n');
+    for (const line of lines) {
+      if (line.includes('signals-out.ndjson') || line.includes('signals-in.ndjson')) {
+        expect(line).toMatch(/\$KRAKEN_TEAM_DIR\//);
+      }
+    }
   });
 
   it('explicitly prohibits manager from using edit/write tools', () => {
@@ -253,6 +261,21 @@ describe('buildBuilderPrompt', () => {
     expect(prompt).toContain('edit');
     expect(prompt).toContain('write');
   });
+
+  it('uses $KRAKEN_TEAM_DIR absolute path for task_completed signal — not a bare relative path', () => {
+    const prompt = buildBuilderPrompt({
+      ...BASE_ROLE_OPTS,
+      taskDescription: 'task',
+    });
+    // Builder writes task_completed to signals-in.ndjson; must use absolute path.
+    expect(prompt).toContain('$KRAKEN_TEAM_DIR/signals-in.ndjson');
+    const lines = prompt.split('\n');
+    for (const line of lines) {
+      if (line.includes('signals-in.ndjson')) {
+        expect(line).toMatch(/\$KRAKEN_TEAM_DIR\//);
+      }
+    }
+  });
 });
 
 describe('buildDeployerPrompt', () => {
@@ -289,6 +312,21 @@ describe('buildDeployerPrompt', () => {
     });
     expect(prompt).toContain('tntc deploy');
     expect(prompt).toContain('wf_apply');
+  });
+
+  it('uses $KRAKEN_TEAM_DIR absolute path for task_completed signal — not a bare relative path', () => {
+    const prompt = buildDeployerPrompt({
+      ...BASE_ROLE_OPTS,
+      taskDescription: 'task',
+    });
+    // Deployer writes task_completed to signals-in.ndjson; must use absolute path.
+    expect(prompt).toContain('$KRAKEN_TEAM_DIR/signals-in.ndjson');
+    const lines = prompt.split('\n');
+    for (const line of lines) {
+      if (line.includes('signals-in.ndjson')) {
+        expect(line).toMatch(/\$KRAKEN_TEAM_DIR\//);
+      }
+    }
   });
 
   it('explicitly says NO edit/write tools', () => {
