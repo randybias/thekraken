@@ -184,7 +184,11 @@ export const WORKFLOW_SCENARIOS: ScenarioDef[] = [
     name: 'list my workflows',
     channel: CHANNELS.enclave,
     message: '@Kraken list my workflows',
-    expectedPatterns: [/workflow|tentacle|running|no .*(workflows|tentacles)/i],
+    expectedPatterns: [
+      // Accept workflow list in any format: prose ("workflows"), table header ("Name | Version"),
+      // or workflow names directly (e.g. "echo-probe", "deployed by")
+      /workflow|tentacle|running|no .*(workflows|tentacles)|name.*version|echo|deployed by/i,
+    ],
     forbiddenPatterns: [/namespace/i, /pod/i, /kubectl/i],
     timeoutMs: 60_000,
   },
@@ -593,7 +597,10 @@ export const TENTACLE_SCENARIOS: ScenarioDef[] = [
       // direct health answer, "Still working" heartbeat, or acknowledgment.
       // What we verify is that the manager does NOT go silent while the build
       // runs. A timeout would indicate the manager is blocked/unresponsive.
-      /otel-echo|health|running|healthy|unhealthy|status|still working|working|here|got it|checking/i,
+      // "commissioned|build progresses|keep you updated" covers the case where
+      // the manager is mid-build and forwards the health question to its running
+      // dev team context — the reply proves the manager is responsive, not silent.
+      /otel-echo|health|running|healthy|unhealthy|status|still working|working|here|got it|checking|commissioned|build progresses|keep you updated/i,
     ],
     forbiddenPatterns: [/kubectl/i],
     timeoutMs: 120_000,
