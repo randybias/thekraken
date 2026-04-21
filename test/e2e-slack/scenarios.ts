@@ -544,20 +544,34 @@ export const TENTACLE_SCENARIOS: ScenarioDef[] = [
     clusterAssertion: {
       check: async () => {
         const { execSync } = await import('node:child_process');
-        const ns = TEST_ENCLAVE;
+        // The Kraken may append a cluster suffix to TEST_ENCLAVE
+        // (e.g. "e2e-test" → "e2e-test-weu"). Discover all matching namespaces
+        // rather than checking a hardcoded name.
+        let candidates: string[];
         try {
-          const out = execSync(
-            `kubectl get deployment hello-world -n ${ns} -o jsonpath={.status.availableReplicas}`,
+          const allNs = execSync(
+            `kubectl get ns -o jsonpath='{.items[*].metadata.name}'`,
             { encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] },
-          );
-          const replicas = parseInt(out.trim() || '0', 10);
-          if (isNaN(replicas) || replicas < 1) {
-            return `hello-world in ns/${ns}: deployment found but availableReplicas=${out.trim() || '0'}`;
-          }
-          return null;
-        } catch (err) {
-          return `hello-world deployment not found in ns/${ns}: ${err instanceof Error ? err.message.split('\n')[0] : String(err)}`;
+          ).trim().split(' ');
+          candidates = allNs.filter((n) => n === TEST_ENCLAVE || n.startsWith(`${TEST_ENCLAVE}-`));
+        } catch {
+          candidates = [TEST_ENCLAVE];
         }
+        if (candidates.length === 0) {
+          return `no namespace matching ${TEST_ENCLAVE}* found in cluster`;
+        }
+        for (const ns of candidates) {
+          try {
+            const out = execSync(
+              `kubectl get deployment hello-world -n ${ns} -o jsonpath={.status.availableReplicas}`,
+              { encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] },
+            );
+            const replicas = parseInt(out.trim() || '0', 10);
+            if (!isNaN(replicas) && replicas >= 1) return null;
+            return `hello-world in ns/${ns}: availableReplicas=${out.trim() || '0'}`;
+          } catch { /* try next namespace */ }
+        }
+        return `hello-world not found in ns/${candidates.join(', ')}`;
       },
     },
   },
