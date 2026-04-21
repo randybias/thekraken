@@ -55,8 +55,7 @@ export const TEST_EMAIL =
  * Real email of a second Slack user for RBAC scenarios (I4, H1-H3).
  * Set KRAKEN_E2E_MEMBER_EMAIL to enable these scenarios; leave unset to skip.
  */
-export const MEMBER_EMAIL =
-  process.env['KRAKEN_E2E_MEMBER_EMAIL'] ?? '';
+export const MEMBER_EMAIL = process.env['KRAKEN_E2E_MEMBER_EMAIL'] ?? '';
 
 export const DEFAULT_TIMEOUT_MS = 60_000; // 60s per scenario
 
@@ -162,7 +161,9 @@ export function createMockDriver(
         `waitForKrakenReplies(${channel}, ${threadTs}, count=${count})`,
       );
       // Return the same canned response for each reply so multi-turn patterns match.
-      return Array.from({ length: count }, () => MOCK_CANNED_RESPONSE(krakenBotUserId));
+      return Array.from({ length: count }, () =>
+        MOCK_CANNED_RESPONSE(krakenBotUserId),
+      );
     },
 
     async resolveBotUserId(): Promise<string> {
@@ -266,16 +267,14 @@ export async function bootHarness(): Promise<HarnessBootResult> {
   if (!userToken) {
     return {
       ctx: null,
-      skipReason:
-        `${userSecretPath} not available — run \`secrets get ${userSecretPath}\` to verify`,
+      skipReason: `${userSecretPath} not available — run \`secrets get ${userSecretPath}\` to verify`,
     };
   }
 
   if (!botToken) {
     return {
       ctx: null,
-      skipReason:
-        `${botSecretPath} not available — run \`secrets get ${botSecretPath}\` to verify`,
+      skipReason: `${botSecretPath} not available — run \`secrets get ${botSecretPath}\` to verify`,
     };
   }
 
@@ -310,7 +309,8 @@ export async function bootHarness(): Promise<HarnessBootResult> {
     const { WebClient: WC } = await import('@slack/web-api');
     const userAuthResult = await new WC(userToken).auth.test();
     if (userAuthResult.ok && userAuthResult.user_id) {
-      process.env['KRAKEN_E2E_SLACK_USER_ID'] = userAuthResult.user_id as string;
+      process.env['KRAKEN_E2E_SLACK_USER_ID'] =
+        userAuthResult.user_id as string;
       console.log(`[harness] Test user Slack ID: ${userAuthResult.user_id}`);
     }
   } catch {
@@ -567,12 +567,20 @@ export async function runScenario(
     // not just the reply text. Polls until the check passes or times out.
     // Skipped in dry-run mode (mock driver, no real cluster).
     if (scenario.mcpAssertion && process.env['KRAKEN_E2E_DRY_RUN'] !== '1') {
-      let mcpCallSetup: { mcpCall: (tool: string, params: Record<string, unknown>) => Promise<unknown> };
+      let mcpCallSetup: {
+        mcpCall: (
+          tool: string,
+          params: Record<string, unknown>,
+        ) => Promise<unknown>;
+      };
       try {
         mcpCallSetup = await getMcpCallForUser();
       } catch (setupErr: unknown) {
-        const oidcMsg = setupErr instanceof Error ? setupErr.message : String(setupErr);
-        console.warn(`[harness] mcpAssertion OIDC unavailable for ${scenario.id}: ${oidcMsg}`);
+        const oidcMsg =
+          setupErr instanceof Error ? setupErr.message : String(setupErr);
+        console.warn(
+          `[harness] mcpAssertion OIDC unavailable for ${scenario.id}: ${oidcMsg}`,
+        );
 
         // Try kubectl-based cluster assertion as fallback when KUBECONFIG is set.
         if (scenario.clusterAssertion && process.env['KUBECONFIG']) {
@@ -588,7 +596,9 @@ export async function runScenario(
                 replyText,
               };
             }
-            console.log(`[harness] kubectl cluster check passed for ${scenario.id}`);
+            console.log(
+              `[harness] kubectl cluster check passed for ${scenario.id}`,
+            );
             return {
               id: scenario.id,
               name: scenario.name,

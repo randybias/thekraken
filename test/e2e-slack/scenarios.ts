@@ -185,7 +185,10 @@ export const WORKFLOW_SCENARIOS: ScenarioDef[] = [
       // Should report status or say not found
       /otel-echo|not found|running|healthy|error|unhealthy|unknown/i,
     ],
-    forbiddenPatterns: [/namespace/i, /kubectl.*pod|get pods|pod.*status.*running.*\d/i],
+    forbiddenPatterns: [
+      /namespace/i,
+      /kubectl.*pod|get pods|pod.*status.*running.*\d/i,
+    ],
     timeoutMs: 60_000,
   },
   {
@@ -247,9 +250,7 @@ export const COMMAND_SCENARIOS: ScenarioDef[] = [
     name: 'verify mode reflects after set',
     channel: CHANNELS.enclave,
     message: '@Kraken what mode is this enclave in?',
-    expectedPatterns: [
-      /mode|team|private|shared|open|current|set to/i,
-    ],
+    expectedPatterns: [/mode|team|private|shared|open|current|set to/i],
     forbiddenPatterns: [],
     timeoutMs: 30_000,
   },
@@ -323,7 +324,9 @@ export const MEMBERSHIP_SCENARIOS: ScenarioDef[] = [
     name: 'whoami reports ownership correctly',
     channel: CHANNELS.enclave,
     message: '@Kraken whoami',
-    expectedPatterns: [/owner|member|visitor|you are|you're|user id|authenticated|session|enclave|role/i],
+    expectedPatterns: [
+      /owner|member|visitor|you are|you're|user id|authenticated|session|enclave|role/i,
+    ],
     forbiddenPatterns: [/not authenticated|must.*login/i],
     timeoutMs: 30_000,
   },
@@ -433,7 +436,10 @@ export const PROVISIONING_SCENARIOS: ScenarioDef[] = [
     // Accept either a synchronous "live/ready/done" confirmation or the async
     // "dev team commissioned" path (both result in a working enclave per F4/C5).
     expectedPatterns: [
-      new RegExp(`live|ready|done|is now|complete|set up|${TEST_ENCLAVE}.*enclave|enclave.*${TEST_ENCLAVE}|dev team|commissioned`, 'i'),
+      new RegExp(
+        `live|ready|done|is now|complete|set up|${TEST_ENCLAVE}.*enclave|enclave.*${TEST_ENCLAVE}|dev team|commissioned`,
+        'i',
+      ),
     ],
     forbiddenPatterns: [],
     timeoutMs: 150_000,
@@ -486,10 +492,16 @@ export const TENTACLE_SCENARIOS: ScenarioDef[] = [
           const listRaw = await mcpCall('enclave_list', {});
           const listParsed =
             typeof listRaw === 'string'
-              ? (JSON.parse(listRaw) as { enclaves?: Array<{ channel_name?: string; name: string }> })
-              : (listRaw as { enclaves?: Array<{ channel_name?: string; name: string }> });
+              ? (JSON.parse(listRaw) as {
+                  enclaves?: Array<{ channel_name?: string; name: string }>;
+                })
+              : (listRaw as {
+                  enclaves?: Array<{ channel_name?: string; name: string }>;
+                });
           const testChannel = CHANNELS.test.replace(/^#/, '');
-          const found = listParsed.enclaves?.find((e) => e.channel_name === testChannel);
+          const found = listParsed.enclaves?.find(
+            (e) => e.channel_name === testChannel,
+          );
           if (found) enclaveName = found.name;
         } catch {
           // Fall back to TEST_ENCLAVE if enclave_list fails
@@ -498,7 +510,8 @@ export const TENTACLE_SCENARIOS: ScenarioDef[] = [
         const raw = await mcpCall('wf_list', { enclave: enclaveName });
         let parsed: { workflows?: Array<{ name: string; ready?: boolean }> };
         try {
-          parsed = typeof raw === 'string' ? JSON.parse(raw) : (raw as typeof parsed);
+          parsed =
+            typeof raw === 'string' ? JSON.parse(raw) : (raw as typeof parsed);
         } catch {
           return `wf_list returned non-JSON (enclave=${enclaveName}): ${String(raw).slice(0, 100)}`;
         }
@@ -549,7 +562,9 @@ export const TENTACLE_SCENARIOS: ScenarioDef[] = [
     name: 'run hello-world',
     channel: CHANNELS.test,
     message: '@Kraken run hello-world',
-    expectedPatterns: [/hello-world|not found|started|triggered|running|timeout|unreachable|mcp.*server|not in a runnable/i],
+    expectedPatterns: [
+      /hello-world|not found|started|triggered|running|timeout|unreachable|mcp.*server|not in a runnable/i,
+    ],
     forbiddenPatterns: [/kubectl/i],
     timeoutMs: 90_000,
   },
@@ -644,7 +659,10 @@ export const ERROR_SCENARIOS: ScenarioDef[] = [
     expectedPatterns: [
       /event|otel-echo|not found|no events|timeline|activity/i,
     ],
-    forbiddenPatterns: [/kubectl (get|exec|apply|delete|run|create|scale|describe)/i, /undefined|null.*error/i],
+    forbiddenPatterns: [
+      /kubectl (get|exec|apply|delete|run|create|scale|describe)/i,
+      /undefined|null.*error/i,
+    ],
     timeoutMs: 45_000,
   },
   {
@@ -732,9 +750,15 @@ const [e1, e2, e5] = [
 // C5 (health of hello-world) belongs after F4 (status check), not at the end of F.
 const c5 = WORKFLOW_SCENARIOS.find((s) => s.id === 'C5')!;
 const baseWorkflowScenarios = WORKFLOW_SCENARIOS.filter((s) => s.id !== 'C5');
-const [f1, f4, f5, f6, f8, f9, f10] = ['F1','F4','F5','F6','F8','F9','F10'].map(
-  (id) => TENTACLE_SCENARIOS.find((s) => s.id === id)!,
-);
+const [f1, f4, f5, f6, f8, f9, f10] = [
+  'F1',
+  'F4',
+  'F5',
+  'F6',
+  'F8',
+  'F9',
+  'F10',
+].map((id) => TENTACLE_SCENARIOS.find((s) => s.id === id)!);
 
 export const ALL_SCENARIOS: ScenarioDef[] = [
   // A. Identity
@@ -754,7 +778,14 @@ export const ALL_SCENARIOS: ScenarioDef[] = [
   // E2: provision the test channel as an enclave
   e2,
   // F1 deploy → F4 status → C5 health → F5 run → F6 logs → F8 restart → F9 describe → F10 remove
-  f1, f4, c5, f5, f6, f8, f9, f10,
+  f1,
+  f4,
+  c5,
+  f5,
+  f6,
+  f8,
+  f9,
+  f10,
   // E5: deprovision the test channel (all F scenarios complete)
   e5,
   // G. Error paths

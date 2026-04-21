@@ -96,7 +96,11 @@ export class OutboundTracker {
    * @param contentHash - SHA-256 hash of the message content.
    * @returns True if this exact content was already posted to this thread.
    */
-  hasOutboundByHash(channelId: string, threadTs: string, contentHash: string): boolean {
+  hasOutboundByHash(
+    channelId: string,
+    threadTs: string,
+    contentHash: string,
+  ): boolean {
     const row = this.db
       .prepare(
         `SELECT 1 FROM outbound_messages
