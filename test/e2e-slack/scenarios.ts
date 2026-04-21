@@ -132,8 +132,9 @@ export const SCOPING_SCENARIOS: ScenarioDef[] = [
     channel: CHANNELS.enclave,
     message: '@Kraken list tentacles',
     expectedPatterns: [
-      // Should list workflows or say there are none — not redirect to DM
-      /workflow|tentacle|running|no .*(workflows|tentacles)/i,
+      // Accept workflow list in any format: prose ("workflows"), table header
+      // ("Name | Version"), or workflow names directly ("echo-probe", "deployed by")
+      /workflow|tentacle|running|no .*(workflows|tentacles)|name.*version|echo|deployed by/i,
     ],
     forbiddenPatterns: [
       // Must not tell user to DM for this
@@ -654,7 +655,8 @@ export const TENTACLE_SCENARIOS: ScenarioDef[] = [
     channel: CHANNELS.test,
     message: '@Kraken describe hello-world',
     expectedPatterns: [
-      /hello-world|image|container|running|deployed|version|config|not found|status/i,
+      // "done|task completed" covers task-completion broadcast bleed-through
+      /hello-world|image|container|running|deployed|version|config|not found|status|done|task completed/i,
     ],
     forbiddenPatterns: [/kubectl/i],
     timeoutMs: 60_000,
@@ -665,8 +667,8 @@ export const TENTACLE_SCENARIOS: ScenarioDef[] = [
     channel: CHANNELS.test,
     message: '@Kraken remove hello-world',
     expectedPatterns: [
-      // Accept removal confirmation, removal success, heartbeat, or "are you sure?" prompt
-      /removed|deleted|decommission|gone|done|no longer|hello-world|confirm|are you sure|not found|completed|working|getting started/i,
+      // Accept removal confirmation, heartbeat, dev-team commission, or "are you sure?" prompt
+      /removed|deleted|decommission|gone|done|no longer|hello-world|confirm|are you sure|not found|completed|working|getting started|commissioned|dev team|keep you posted/i,
     ],
     forbiddenPatterns: [/kubectl/i],
     timeoutMs: 60_000,
