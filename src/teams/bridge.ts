@@ -873,7 +873,9 @@ export class TeamBridge {
     return spawn(this.opts.piCliPath, args, {
       cwd: opts.gitStateDir,
       env: opts.env,
-      stdio: ['pipe', 'pipe', 'pipe'],
+      // 'ignore' for stdin so pi's readPipedStdin() gets immediate EOF
+      // instead of blocking forever on an open pipe.
+      stdio: ['ignore', 'pipe', 'pipe'],
     });
   }
 
