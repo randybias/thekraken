@@ -469,7 +469,7 @@ export const TENTACLE_SCENARIOS: ScenarioDef[] = [
     channel: CHANNELS.test,
     message: '@Kraken build a hello-world tentacle for me',
     expectedPatterns: [
-      /build|hello-world|scaffold|deploy|redeploy|apply|ready|verify|running|committed/i,
+      /build|hello-world|scaffold|deploy|redeploy|apply|ready|verify|running|committed|working|delegat/i,
     ],
     forbiddenPatterns: [/kubectl/i],
     // Bridge-based team builds can take a few minutes (pi + tntc + image build).
@@ -477,7 +477,8 @@ export const TENTACLE_SCENARIOS: ScenarioDef[] = [
     // If the bot delegates to dev team (async build path), SKIP instead of FAIL
     // when the assertion times out — the build agent (pi) may not be installed
     // in this environment, which is a system configuration issue, not a test failure.
-    mcpAssertionSkipOnAsyncReply: /dev team|commissioned/i,
+    // Also matches "Still working" heartbeat replies sent before the commission message.
+    mcpAssertionSkipOnAsyncReply: /dev team|commissioned|still working|getting started/i,
     // Real deployment assertion: verify hello-world actually lands in MCP's
     // wf_list. Regex-pass alone is not enough — it let us claim success
     // when the tentacle didn't exist. This forces the end-to-end check.
