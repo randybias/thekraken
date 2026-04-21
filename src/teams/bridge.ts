@@ -856,18 +856,19 @@ export class TeamBridge {
     if (this.opts.spawnDevTeam) {
       return this.opts.spawnDevTeam(opts);
     }
-    // Real spawn: pi in one-shot prompt mode.
+    // Real spawn: pi in print mode (non-interactive one-shot execution).
+    // --print makes pi process the goal, run tools, and exit — no RPC loop needed.
     const args = [
-      '--mode',
-      'rpc',
       '--provider',
       this.opts.provider,
       '--model',
       this.opts.modelId,
       '--no-session',
       '--no-extensions',
+      '--print',
       '--append-system-prompt',
       opts.systemPrompt,
+      opts.goal,
     ];
     return spawn(this.opts.piCliPath, args, {
       cwd: opts.gitStateDir,
