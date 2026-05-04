@@ -33,6 +33,35 @@ const log = createChildLogger({ module: 'smart-path' });
 
 export type SmartPathMode = 'dm' | 'provision';
 
+/**
+ * Static per-mode allowlist of MCP tool names exposed to the LLM.
+ *
+ * The 2026-05-04 incident showed that exposing the entire MCP tool
+ * catalog to a chat-only LLM lets it confabulate plus mutate cluster
+ * state without the user's explicit consent. The allowlist is the
+ * single source of truth for what the LLM can call. Mutations live
+ * on the team-manager path (D2/D7) — never here.
+ *
+ * Spec: docs/superpowers/specs/2026-05-04-smart-path-tightening-design.md
+ */
+export const MODE_TOOL_ALLOWLIST: Record<SmartPathMode, ReadonlyArray<string>> =
+  {
+    dm: ['enclave_list'],
+    provision: ['enclave_provision'],
+  };
+
+/**
+ * Filter an MCP-advertised tool list down to the per-mode allowlist.
+ * Pure function — no side effects, easy to test.
+ */
+export function filterToolsForMode<T extends { name: string }>(
+  tools: ReadonlyArray<T>,
+  mode: SmartPathMode,
+): T[] {
+  const allowed = MODE_TOOL_ALLOWLIST[mode];
+  return tools.filter((t) => allowed.includes(t.name));
+}
+
 /** Maximum number of LLM ↔ tool turns per request. Guards against loops. */
 const MAX_TURNS = 8;
 
@@ -146,7 +175,7 @@ export async function runSmartPath(
   const baseContext: Context = {
     systemPrompt,
     messages,
-    tools: mcp?.tools ?? [],
+    tools: filterToolsForMode(mcp?.tools ?? [], input.mode),
   };
 
   let finalText: string | null = null;
@@ -196,7 +225,7 @@ export async function runSmartPath(
             );
             const oldMcp = mcp;
             mcp = await createMcpConnection(input.mcpUrl, fresh);
-            baseContext.tools = mcp.tools;
+            baseContext.tools = filterToolsForMode(mcp.tools, input.mode);
             input.userToken = fresh;
             await oldMcp.close().catch(() => undefined);
           }
