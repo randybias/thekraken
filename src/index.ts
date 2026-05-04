@@ -38,7 +38,7 @@ import { TeamLifecycleManager } from './teams/lifecycle.js';
 import { OutboundPoller } from './teams/outbound-poller.js';
 import { createSlackBot } from './slack/bot.js';
 import { createMcpConnection } from './agent/mcp-connection.js';
-import { runSmartPath } from './dispatcher/smart-path.js';
+import { runSmartPath, type SmartPathMode } from './dispatcher/smart-path.js';
 
 const log = createChildLogger({ module: 'main' });
 
@@ -128,7 +128,7 @@ async function main(): Promise<void> {
           mcpUrl: config.mcp.url,
           anthropicApiKey: apiKey,
           modelId: config.llm.defaultModel,
-          mode: ctx.mode,
+          mode: ctx.mode as SmartPathMode,
           channelId: ctx.channelId,
           channelName: ctx.channelName,
           priorTurns: ctx.priorTurns,
