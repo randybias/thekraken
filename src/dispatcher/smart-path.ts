@@ -23,7 +23,6 @@ import {
   type ToolResultMessage,
 } from '@mariozechner/pi-ai';
 import { createChildLogger } from '../logger.js';
-import { buildManagerPrompt } from '../agent/system-prompt.js';
 import {
   createMcpConnection,
   type McpConnection,
@@ -31,6 +30,8 @@ import {
 import { extractEmailFromToken, extractSubFromToken } from '../auth/index.js';
 
 const log = createChildLogger({ module: 'smart-path' });
+
+export type SmartPathMode = 'dm' | 'provision';
 
 /** Maximum number of LLM ↔ tool turns per request. Guards against loops. */
 const MAX_TURNS = 8;
@@ -60,8 +61,8 @@ export interface SmartPathInput {
   modelId: string;
   /** Slack bot user ID — used to strip the leading mention. */
   botUserId?: string;
-  /** Dispatch mode: 'enclave' (default), 'dm', or 'provision'. */
-  mode?: 'enclave' | 'dm' | 'provision';
+  /** Dispatch mode: 'dm' (DM with no enclave) or 'provision' (unbound channel). */
+  mode: SmartPathMode;
   /** Slack channel ID — passed through for provisioning mode. */
   channelId?: string;
   /** Slack channel name — passed through for provisioning mode. */
@@ -106,13 +107,7 @@ export async function runSmartPath(
           input.channelId ?? '',
           input.channelName ?? 'unknown-channel',
         )
-      : input.enclaveName
-        ? buildManagerPrompt({
-            enclaveName: input.enclaveName,
-            userSlackId: input.userSlackId,
-            userEmail,
-          })
-        : buildDmSystemPrompt(userEmail);
+      : buildDmSystemPrompt(userEmail);
 
   let mcp: McpConnection | null = null;
   try {
@@ -231,17 +226,9 @@ export async function runSmartPath(
           continue;
         }
 
-        // Auto-inject enclave when the tool's input schema accepts it.
         const args: Record<string, unknown> = {
           ...(toolCall.arguments as Record<string, unknown>),
         };
-        if (
-          input.enclaveName &&
-          toolAcceptsEnclave(tool) &&
-          args['enclave'] === undefined
-        ) {
-          args['enclave'] = input.enclaveName;
-        }
 
         try {
           const result = await tool.execute(
@@ -321,13 +308,6 @@ function stripBotMention(text: string, botUserId?: string): string {
   s = s.replace(/^<@[A-Z0-9_]+>\s*/i, '');
   s = s.replace(/^@kraken\s*/i, '');
   return s.trim();
-}
-
-function toolAcceptsEnclave(tool: { parameters: unknown }): boolean {
-  const schema = tool.parameters as
-    | { properties?: Record<string, unknown> }
-    | undefined;
-  return Boolean(schema?.properties && 'enclave' in schema.properties);
 }
 
 function buildDmSystemPrompt(userEmail: string): string {
