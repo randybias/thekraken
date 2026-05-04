@@ -44,11 +44,13 @@ export type SmartPathMode = 'dm' | 'provision';
  *
  * Spec: docs/superpowers/specs/2026-05-04-smart-path-tightening-design.md
  */
-export const MODE_TOOL_ALLOWLIST: Record<SmartPathMode, ReadonlyArray<string>> =
-  {
-    dm: ['enclave_list'],
-    provision: ['enclave_provision'],
-  };
+export const MODE_TOOL_ALLOWLIST: Record<
+  SmartPathMode,
+  ReadonlyArray<string>
+> = {
+  dm: ['enclave_list'],
+  provision: ['enclave_provision'],
+};
 
 /**
  * Filter an MCP-advertised tool list down to the per-mode allowlist.
@@ -434,7 +436,12 @@ export function findLastToolError(
 ): { toolName: string; content: Array<{ type: string; text: string }> } | null {
   for (let i = messages.length - 1; i >= 0; i--) {
     const m = messages[i] as
-      | { role: string; toolName?: string; content?: unknown; isError?: boolean }
+      | {
+          role: string;
+          toolName?: string;
+          content?: unknown;
+          isError?: boolean;
+        }
       | undefined;
     if (m && m.role === 'toolResult' && m.isError === true) {
       return {
