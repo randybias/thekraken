@@ -98,15 +98,30 @@ remaining mode needs them.
 
 **`src/dispatcher/router.ts`**
 
-Today: in-enclave @mention with non-command text → smart path. Change:
-in-enclave @mention with non-command text → team manager dispatch
-(via `lifecycle.ts` spawn-or-send, the same path that already handles
-build/deploy work). DMs and unbound-channel mentions continue to flow
-to smart path.
+The router already routes correctly per A4 ("ALL enclave-bound
+traffic routes to the team subprocess", router.ts:211 comment).
+In-enclave @mentions with non-command text resolve to
+`spawn_and_forward` or `forward_to_active_team` — both deterministic
+team paths, neither smart path. The smart path is only reached when
+`channelType === 'im'` AND no binding exists (i.e., a DM).
 
-If team-manager spawn fails, return an honest error to the user
-("I couldn't spawn the manager team for this enclave: <reason>"). No
-silent fall-back to smart path.
+The remaining work in `router.ts` is type narrowing only:
+- `SmartContext.mode` field type narrows from `'enclave' | 'dm'` to
+  `'dm'`.
+- The unreachable ternary branch at `router.ts:242`
+  (`mode: event.channelType === 'im' ? 'dm' : 'enclave'`) collapses
+  to `mode: 'dm'`.
+
+Existing routing matrix tests
+(`test/unit/dispatcher-router-basic.test.ts`,
+`test/unit/router-classifier.test.ts`) keep covering the team-path
+behavior unchanged. No new routing test cases needed for this design
+— the routing was already done; only the type/code narrowing is new.
+
+If team-manager spawn fails (existing `spawn_and_forward` path), the
+existing handler in `index.ts` should already report an honest error
+to the user. Out of scope for this design beyond confirming the
+behavior with a test.
 
 ### Behavior per mode
 
