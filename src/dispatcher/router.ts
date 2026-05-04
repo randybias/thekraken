@@ -15,6 +15,7 @@
  */
 
 import type { EnclaveBindingEngine } from '../enclave/binding.js';
+import type { SmartPathMode } from './smart-path.js';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -53,7 +54,7 @@ export interface SmartContext {
   userId: string;
   text: string;
   enclaveName: string | null;
-  mode: 'enclave' | 'dm';
+  mode: Extract<SmartPathMode, 'dm'>;
 }
 
 /** Normalized representation of an inbound Slack event. */
@@ -239,7 +240,7 @@ export function routeEvent(
       userId: event.userId,
       text: event.text,
       enclaveName,
-      mode: event.channelType === 'im' ? 'dm' : 'enclave',
+      mode: 'dm',
     },
   };
 }
