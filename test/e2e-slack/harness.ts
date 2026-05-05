@@ -34,6 +34,13 @@ export const CHANNELS = {
   enclave: process.env['KRAKEN_E2E_ENCLAVE_CHANNEL'] ?? 'tentacular-agensys',
   /** New channel for provisioning/deprovisioning/tentacle tests. Overridable via KRAKEN_E2E_TEST_CHANNEL. */
   test: process.env['KRAKEN_E2E_TEST_CHANNEL'] ?? 'newkraken-test',
+  /**
+   * DM channel between the test user and the bot. Used by L group
+   * (smart-path lockdown) scenarios to verify DM-mode behavior — the
+   * 2026-05-04 confabulation incident happened in this channel.
+   * Overridable via KRAKEN_E2E_DM_CHANNEL.
+   */
+  dm: process.env['KRAKEN_E2E_DM_CHANNEL'] ?? 'D0AEFM5BL03',
 };
 
 /**

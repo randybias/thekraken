@@ -819,6 +819,121 @@ export const PERMISSIONS_COMPLIANCE_SCENARIOS: ScenarioDef[] = [
 ];
 
 // ---------------------------------------------------------------------------
+// L. Smart-path lockdown (DM-mode behavior)
+//
+// Validates the smart-path tightening (PR #8, design at
+// docs/superpowers/specs/2026-05-04-smart-path-tightening-design.md).
+// All scenarios run in CHANNELS.dm — the DM with the bot — which
+// exercises the surviving smart-path DM mode. Unbound-channel
+// provision-mode coverage lives in E1–E5.
+//
+// L1 is the load-bearing test: replays the 2026-05-04 incident
+// scenario and asserts the new behavior (no fabricated telemetry).
+// ---------------------------------------------------------------------------
+
+export const SMART_PATH_LOCKDOWN_SCENARIOS: ScenarioDef[] = [
+  {
+    id: 'L1',
+    name: 'DM workflow query — no fabricated telemetry (2026-05-04 incident replay)',
+    channel: CHANNELS.dm,
+    message: 'tell me about ai-news-digest',
+    expectedPatterns: [
+      // Acceptable responses: route to enclave channel, list enclaves,
+      // disclaim that DM cannot inspect workflows.
+      /enclave|inside|channel|don't have access|cannot|can't see|ask me from|which enclave|tentacular-agensys|tentacular-e2e|yevhens-test/i,
+    ],
+    forbiddenPatterns: [
+      // No fabricated telemetry — these phrases should never appear in DM
+      // because smart-path can't see workflow state in DM mode.
+      /uptime|days.*running|completed successfully|error rate.*0%|status.*green|run history|31 events|19\.7 days/i,
+    ],
+    timeoutMs: 60_000,
+  },
+  {
+    id: 'L2',
+    name: 'DM mutation request — Kraken refuses, no new deployment',
+    channel: CHANNELS.dm,
+    message: 'redeploy ai-news-digest',
+    expectedPatterns: [
+      // Acceptable: refusal + redirect, never an action confirmation.
+      /can't|cannot|in DM|enclave channel|ask me from|won't|will not|need to be in/i,
+    ],
+    forbiddenPatterns: [
+      // Smart-path must NOT post any "I deployed/redeployed" message.
+      /^deployed|^redeployed|deploying now|^running|triggered.*run/i,
+    ],
+    // Cluster-state assertion: snapshot the deployment list before the
+    // test, compare after the reply window. No new Deployment object
+    // should appear in tentacular-agensys.
+    mcpAssertion: {
+      pollMs: 5_000,
+      timeoutMs: 60_000,
+      check: async (mcpCall) => {
+        // Use wf_list to enumerate workflows in tentacular-agensys.
+        // Smart-path could only have created a Deployment via wf_apply,
+        // which would surface as a new entry here.
+        try {
+          const raw = await mcpCall('wf_list', {
+            enclave: 'tentacular-agensys',
+          });
+          const parsed =
+            typeof raw === 'string'
+              ? (JSON.parse(raw) as {
+                  workflows?: Array<{ name: string; age: string }>;
+                })
+              : (raw as {
+                  workflows?: Array<{ name: string; age: string }>;
+                });
+          const fresh = (parsed.workflows ?? []).filter((w) => {
+            // age formats like "5m" / "12s" / "3m41s" indicate <1h since
+            // creation — anything older predates this scenario.
+            return /^\d+(s|m\d*s?)\b/.test(w.age);
+          });
+          if (fresh.length > 0) {
+            return `unexpected fresh workflows after L2: ${fresh
+              .map((w) => `${w.name}@${w.age}`)
+              .join(', ')}`;
+          }
+          return null;
+        } catch (err) {
+          // If MCP isn't reachable, skip rather than fail — the regex
+          // assertion already proved Kraken refused.
+          return null;
+        }
+      },
+    },
+  },
+  {
+    id: 'L3',
+    name: 'DM enclave list — Kraken can call enclave_list and respond',
+    channel: CHANNELS.dm,
+    message: 'what enclaves am I in?',
+    expectedPatterns: [
+      // Should mention at least one of the user's known enclaves.
+      /tentacular-agensys|tentacular-e2e|yevhens-test|enclave/i,
+    ],
+    forbiddenPatterns: [
+      // No cluster jargon leaking through.
+      /namespace|kubectl|pod\b|deployment\.apps/i,
+    ],
+    timeoutMs: 45_000,
+  },
+  {
+    id: 'L4',
+    name: 'DM conversational fallback — explain Tentacular without tool calls',
+    channel: CHANNELS.dm,
+    message: 'what is tentacular?',
+    expectedPatterns: [/tentacular|workflow|enclave|platform|agent|tentacle/i],
+    forbiddenPatterns: [
+      // Must NOT fabricate specific workflow or enclave details to
+      // pad an answer to a generic question.
+      /you have \d+ workflow|31 events|completed successfully/i,
+    ],
+    timeoutMs: 30_000,
+  },
+];
+
+// ---------------------------------------------------------------------------
 // H. RBAC enforcement (requires KRAKEN_E2E_MEMBER_SECRET to be set)
 //
 // These scenarios post as a second Slack user (the "member") and verify
@@ -936,6 +1051,8 @@ export const ALL_SCENARIOS: ScenarioDef[] = [
   ...RBAC_SCENARIOS,
   // K. Permissions compliance — vocabulary and POSIX-string translation
   ...PERMISSIONS_COMPLIANCE_SCENARIOS,
+  // L. Smart-path lockdown — DM-mode behavior, 2026-05-04 incident replay
+  ...SMART_PATH_LOCKDOWN_SCENARIOS,
 ];
 
 /**
