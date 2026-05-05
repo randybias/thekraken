@@ -5,7 +5,7 @@
  * PRAGMA foreign_keys = ON enforced here.
  */
 import Database from 'better-sqlite3';
-import { SCHEMA_V1 } from './schema.js';
+import { SCHEMA_V1, SCHEMA_V2 } from './schema.js';
 
 /**
  * Apply the initial schema to a database connection.
@@ -20,6 +20,8 @@ export function applyMigrations(db: Database.Database): void {
   db.exec('PRAGMA journal_mode = WAL');
   db.exec('PRAGMA foreign_keys = ON');
   db.exec(SCHEMA_V1);
+  // V2: change_summaries cache table (G4 — git-state recovery).
+  db.exec(SCHEMA_V2);
 }
 
 /**

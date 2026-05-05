@@ -49,8 +49,10 @@ export interface DispatcherToolDeps {
   config: KrakenConfig;
   teams: TeamLifecycleManager;
   slack: SlackPostClient;
-  /** Optional DB handle — required for record_deploy_event tool. */
+  /** Optional DB handle — required for record_deploy_event, list_deploy_events, describe_change, record_change_summary tools. */
   db?: Database.Database;
+  /** Optional git differ — required for describe_change tool. Tests inject a mock. */
+  gitDiffer?: GitDiffer;
 }
 
 // ---------------------------------------------------------------------------
@@ -105,6 +107,184 @@ export async function recordDeployEvent(
   );
 }
 
+// ---------------------------------------------------------------------------
+// list_deploy_events — standalone export for manager use
+// ---------------------------------------------------------------------------
+
+export interface DeployEventPublic {
+  ts: string;
+  deployer_email: string;
+  summary: string;
+  /** Internal-only SHA the LLM reasons about. NOT for user output. */
+  _internal_sha: string;
+}
+
+/**
+ * List past deploy events for (enclave, tentacle), newest first.
+ *
+ * Returns only the public schema — no version_number, git_tag, or other
+ * internal fields. The _internal_sha field is included for the manager LLM
+ * to reference when calling commission_revert; it must NOT appear in user
+ * output.
+ */
+export async function listDeployEvents(
+  db: Database.Database,
+  params: { enclave: string; tentacle: string },
+): Promise<DeployEventPublic[]> {
+  const rows = db
+    .prepare(
+      `SELECT git_sha, deployed_by_email, summary, created_at
+       FROM deployments
+       WHERE enclave = ? AND tentacle = ?
+       ORDER BY datetime(created_at) DESC, id DESC`,
+    )
+    .all(params.enclave, params.tentacle) as Array<{
+    git_sha: string;
+    deployed_by_email: string;
+    summary: string;
+    created_at: string;
+  }>;
+  return rows.map((r) => ({
+    ts: r.created_at,
+    deployer_email: r.deployed_by_email,
+    summary: r.summary,
+    _internal_sha: r.git_sha,
+  }));
+}
+
+// ---------------------------------------------------------------------------
+// describe_change + record_change_summary — standalone exports for manager use
+// ---------------------------------------------------------------------------
+
+/**
+ * Adapter for calling `git diff <shaA> <shaB>` against the tentacles repo.
+ *
+ * Tests inject a mock implementation. Production wires the real git differ.
+ */
+export interface GitDiffer {
+  diff(shaA: string, shaB: string): Promise<string>;
+}
+
+export interface DescribeChangeResult {
+  cached: boolean;
+  summary?: string;
+  diff?: string;
+}
+
+/**
+ * Return a plain-English summary of the diff between two SHAs.
+ *
+ * On cache hit (sha_a, sha_b row in change_summaries): returns
+ * `{cached: true, summary}`.
+ *
+ * On cache miss: calls the git differ and returns `{cached: false, diff}`.
+ * The manager LLM should compose a summary and follow up with
+ * `recordChangeSummary` to cache it.
+ */
+export async function describeChange(
+  db: Database.Database,
+  differ: GitDiffer,
+  params: { shaA: string; shaB: string },
+): Promise<DescribeChangeResult> {
+  const cached = db
+    .prepare(
+      `SELECT summary FROM change_summaries WHERE sha_a = ? AND sha_b = ?`,
+    )
+    .get(params.shaA, params.shaB) as { summary: string } | undefined;
+
+  if (cached) {
+    return { cached: true, summary: cached.summary };
+  }
+
+  const diff = await differ.diff(params.shaA, params.shaB);
+  return { cached: false, diff };
+}
+
+export interface RecordChangeSummaryParams {
+  shaA: string;
+  shaB: string;
+  summary: string;
+}
+
+/**
+ * Persist a manager-composed plain-English summary for a (shaA, shaB) pair.
+ *
+ * Uses INSERT OR REPLACE so the call is idempotent — running twice with the
+ * same key replaces the previous summary.
+ */
+export async function recordChangeSummary(
+  db: Database.Database,
+  params: RecordChangeSummaryParams,
+): Promise<void> {
+  db.prepare(
+    `INSERT OR REPLACE INTO change_summaries (sha_a, sha_b, summary)
+     VALUES (?, ?, ?)`,
+  ).run(params.shaA, params.shaB, params.summary);
+}
+
+// ---------------------------------------------------------------------------
+// commission_revert — standalone export for manager use
+// ---------------------------------------------------------------------------
+
+export interface CommissionRevertParams {
+  enclave: string;
+  tentacle: string;
+  targetSha: string;
+  additionalIntent?: string;
+  userSlackId: string;
+}
+
+export interface CommissionRevertResult {
+  status: 'commissioned';
+  jobId: string;
+}
+
+export interface RevertBrief {
+  intent: string;
+  enclave: string;
+  tentacle: string;
+  targetSha: string;
+  userSlackId: string;
+}
+
+/** Minimal interface the revert path needs from teams. Tests inject a mock. */
+export interface RevertTeams {
+  spawn(brief: RevertBrief): Promise<{ jobId: string }>;
+}
+
+/**
+ * Commission the dev team to restore a tentacle to a prior SHA and
+ * optionally apply an additional change on top of the revert.
+ *
+ * Constructs a structured brief and calls teams.spawn() asynchronously.
+ * Returns immediately with {status: 'commissioned', jobId}.
+ */
+export async function commissionRevert(
+  teams: RevertTeams,
+  params: CommissionRevertParams,
+): Promise<CommissionRevertResult> {
+  const additionalLine = params.additionalIntent
+    ? `\nThen apply this additional change: ${params.additionalIntent}.`
+    : '';
+
+  const intent =
+    `Restore ${params.tentacle} in ${params.enclave} to the version at ${params.targetSha}.` +
+    additionalLine +
+    `\nAfter all changes are committed, deploy as a single new version.` +
+    `\nCompose the per-deploy summary describing the combined effect from the user's POV (not the mechanics).`;
+
+  const brief: RevertBrief = {
+    intent,
+    enclave: params.enclave,
+    tentacle: params.tentacle,
+    targetSha: params.targetSha,
+    userSlackId: params.userSlackId,
+  };
+
+  const { jobId } = await teams.spawn(brief);
+  return { status: 'commissioned', jobId };
+}
+
 /**
  * Build the dispatcher's custom tool set.
  *
@@ -114,7 +294,7 @@ export async function recordDeployEvent(
 export function buildDispatcherTools(
   deps: DispatcherToolDeps,
 ): ToolDefinition[] {
-  const { config, teams, slack, db } = deps;
+  const { config, teams, slack, db, gitDiffer } = deps;
 
   return [
     // -------------------------------------------------------------------------
@@ -399,6 +579,193 @@ export function buildDispatcherTools(
           'tool: record_deploy_event',
         );
         return JSON.stringify({ ok: true });
+      },
+    },
+
+    // -------------------------------------------------------------------------
+    // list_deploy_events
+    // -------------------------------------------------------------------------
+    {
+      name: 'list_deploy_events',
+      description:
+        'List past deploy events for a tentacle in an enclave, newest first. ' +
+        'Returns {ts, deployer_email, summary, _internal_sha}. ' +
+        'Use _internal_sha when calling commission_revert. ' +
+        'Never surface _internal_sha or SHA values in user-facing output.',
+      parameters: {
+        type: 'object',
+        properties: {
+          enclave: { type: 'string', description: 'Enclave name' },
+          tentacle: { type: 'string', description: 'Tentacle name' },
+        },
+        required: ['enclave', 'tentacle'],
+      },
+      execute: async (params) => {
+        if (!db) {
+          log.warn('list_deploy_events called but no db available in deps');
+          return JSON.stringify({ ok: false, error: 'db not available' });
+        }
+        const events = await listDeployEvents(
+          db,
+          params as { enclave: string; tentacle: string },
+        );
+        log.debug(
+          {
+            enclave: params['enclave'],
+            tentacle: params['tentacle'],
+            count: events.length,
+          },
+          'tool: list_deploy_events',
+        );
+        return JSON.stringify({ events });
+      },
+    },
+
+    // -------------------------------------------------------------------------
+    // describe_change
+    // -------------------------------------------------------------------------
+    {
+      name: 'describe_change',
+      description:
+        'Return a plain-English summary of the diff between two deploy SHAs. ' +
+        'On cache hit: returns {cached: true, summary}. ' +
+        'On cache miss: returns {cached: false, diff} — compose a summary and call record_change_summary to cache it.',
+      parameters: {
+        type: 'object',
+        properties: {
+          shaA: {
+            type: 'string',
+            description: 'Older SHA (from list_deploy_events._internal_sha)',
+          },
+          shaB: {
+            type: 'string',
+            description: 'Newer SHA (from list_deploy_events._internal_sha)',
+          },
+        },
+        required: ['shaA', 'shaB'],
+      },
+      execute: async (params) => {
+        if (!db) {
+          log.warn('describe_change called but no db available in deps');
+          return JSON.stringify({ ok: false, error: 'db not available' });
+        }
+        const differ: GitDiffer = gitDiffer ?? {
+          diff: async () => '(git differ not configured)',
+        };
+        const result = await describeChange(
+          db,
+          differ,
+          params as { shaA: string; shaB: string },
+        );
+        log.debug(
+          { shaA: params['shaA'], shaB: params['shaB'], cached: result.cached },
+          'tool: describe_change',
+        );
+        return JSON.stringify(result);
+      },
+    },
+
+    // -------------------------------------------------------------------------
+    // record_change_summary
+    // -------------------------------------------------------------------------
+    {
+      name: 'record_change_summary',
+      description:
+        'Cache a manager-composed plain-English summary of the diff between two deploy SHAs. ' +
+        'Call this after receiving a cache miss from describe_change, once you have composed the summary. ' +
+        'The summary must not contain SHAs, version numbers, or git terminology.',
+      parameters: {
+        type: 'object',
+        properties: {
+          shaA: { type: 'string', description: 'Older SHA' },
+          shaB: { type: 'string', description: 'Newer SHA' },
+          summary: {
+            type: 'string',
+            description:
+              'Plain-English summary of what changed between the two versions',
+          },
+        },
+        required: ['shaA', 'shaB', 'summary'],
+      },
+      execute: async (params) => {
+        if (!db) {
+          log.warn('record_change_summary called but no db available in deps');
+          return JSON.stringify({ ok: false, error: 'db not available' });
+        }
+        await recordChangeSummary(db, params as RecordChangeSummaryParams);
+        log.info(
+          { shaA: params['shaA'], shaB: params['shaB'] },
+          'tool: record_change_summary',
+        );
+        return JSON.stringify({ ok: true });
+      },
+    },
+
+    // -------------------------------------------------------------------------
+    // commission_revert
+    // -------------------------------------------------------------------------
+    {
+      name: 'commission_revert',
+      description:
+        'Commission the dev team to restore a tentacle to a prior version (by internal SHA) ' +
+        'and optionally apply an additional change on top. ' +
+        'Always confirm with the user before calling this tool. ' +
+        'Returns {status: "commissioned", jobId} immediately — the team handles the work async.',
+      parameters: {
+        type: 'object',
+        properties: {
+          enclave: { type: 'string', description: 'Enclave name' },
+          tentacle: { type: 'string', description: 'Tentacle name' },
+          targetSha: {
+            type: 'string',
+            description: 'Target SHA from list_deploy_events._internal_sha',
+          },
+          additionalIntent: {
+            type: 'string',
+            description:
+              'Optional: additional change to apply on top of the revert (plain English)',
+          },
+          userSlackId: {
+            type: 'string',
+            description: 'Slack user ID of the requesting user',
+          },
+        },
+        required: ['enclave', 'tentacle', 'targetSha', 'userSlackId'],
+      },
+      execute: async (params) => {
+        const revertTeams: RevertTeams = {
+          spawn: async (brief) => {
+            // Wire into the teams lifecycle — use spawnTeam as the delegation path.
+            // The brief is sent as a mailbox message to the enclave team.
+            const p = params as {
+              enclave: string;
+              tentacle: string;
+              targetSha: string;
+              userSlackId: string;
+              additionalIntent?: string;
+            };
+            await teams.spawnTeam(p.enclave, p.userSlackId, '');
+            await teams.sendToTeam(p.enclave, {
+              id: randomUUID(),
+              timestamp: new Date().toISOString(),
+              from: 'dispatcher',
+              type: 'user_message',
+              threadTs: '',
+              channelId: '',
+              userSlackId: p.userSlackId,
+              userToken: '',
+              message: brief.intent,
+            });
+            return { jobId: `revert-${p.tentacle}-${Date.now()}` };
+          },
+        };
+        const p = params as CommissionRevertParams;
+        const result = await commissionRevert(revertTeams, p);
+        log.info(
+          { enclave: p.enclave, tentacle: p.tentacle, targetSha: p.targetSha },
+          'tool: commission_revert',
+        );
+        return JSON.stringify(result);
       },
     },
   ];

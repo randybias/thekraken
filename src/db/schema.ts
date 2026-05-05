@@ -95,3 +95,20 @@ CREATE INDEX IF NOT EXISTS idx_thread_sessions_user
 CREATE INDEX IF NOT EXISTS idx_thread_sessions_enclave
   ON thread_sessions(enclave_name);
 `;
+
+/**
+ * Schema v2: cross-version change summary cache (G4).
+ *
+ * Caches manager-composed plain-English summaries of the diff between
+ * two git SHAs. Primary key is (sha_a, sha_b) — ordered by convention
+ * (older first). INSERT OR REPLACE handles idempotent updates.
+ */
+export const SCHEMA_V2 = `
+CREATE TABLE IF NOT EXISTS change_summaries (
+  sha_a TEXT NOT NULL,
+  sha_b TEXT NOT NULL,
+  summary TEXT NOT NULL,
+  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+  PRIMARY KEY (sha_a, sha_b)
+);
+`;
