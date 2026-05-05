@@ -23,7 +23,6 @@ import {
   type ToolResultMessage,
 } from '@mariozechner/pi-ai';
 import { createChildLogger } from '../logger.js';
-import { buildManagerPrompt } from '../agent/system-prompt.js';
 import {
   createMcpConnection,
   type McpConnection,
@@ -31,6 +30,39 @@ import {
 import { extractEmailFromToken, extractSubFromToken } from '../auth/index.js';
 
 const log = createChildLogger({ module: 'smart-path' });
+
+export type SmartPathMode = 'dm' | 'provision';
+
+/**
+ * Static per-mode allowlist of MCP tool names exposed to the LLM.
+ *
+ * The 2026-05-04 incident showed that exposing the entire MCP tool
+ * catalog to a chat-only LLM lets it confabulate plus mutate cluster
+ * state without the user's explicit consent. The allowlist is the
+ * single source of truth for what the LLM can call. Mutations live
+ * on the team-manager path (D2/D7) — never here.
+ *
+ * Spec: docs/superpowers/specs/2026-05-04-smart-path-tightening-design.md
+ */
+export const MODE_TOOL_ALLOWLIST: Record<
+  SmartPathMode,
+  ReadonlyArray<string>
+> = {
+  dm: ['enclave_list'],
+  provision: ['enclave_provision'],
+};
+
+/**
+ * Filter an MCP-advertised tool list down to the per-mode allowlist.
+ * Pure function — no side effects, easy to test.
+ */
+export function filterToolsForMode<T extends { name: string }>(
+  tools: ReadonlyArray<T>,
+  mode: SmartPathMode,
+): T[] {
+  const allowed = MODE_TOOL_ALLOWLIST[mode];
+  return tools.filter((t) => allowed.includes(t.name));
+}
 
 /** Maximum number of LLM ↔ tool turns per request. Guards against loops. */
 const MAX_TURNS = 8;
@@ -60,8 +92,8 @@ export interface SmartPathInput {
   modelId: string;
   /** Slack bot user ID — used to strip the leading mention. */
   botUserId?: string;
-  /** Dispatch mode: 'enclave' (default), 'dm', or 'provision'. */
-  mode?: 'enclave' | 'dm' | 'provision';
+  /** Dispatch mode: 'dm' (DM with no enclave) or 'provision' (unbound channel). */
+  mode: SmartPathMode;
   /** Slack channel ID — passed through for provisioning mode. */
   channelId?: string;
   /** Slack channel name — passed through for provisioning mode. */
@@ -106,13 +138,7 @@ export async function runSmartPath(
           input.channelId ?? '',
           input.channelName ?? 'unknown-channel',
         )
-      : input.enclaveName
-        ? buildManagerPrompt({
-            enclaveName: input.enclaveName,
-            userSlackId: input.userSlackId,
-            userEmail,
-          })
-        : buildDmSystemPrompt(userEmail);
+      : buildDmSystemPrompt(userEmail);
 
   let mcp: McpConnection | null = null;
   try {
@@ -151,7 +177,7 @@ export async function runSmartPath(
   const baseContext: Context = {
     systemPrompt,
     messages,
-    tools: mcp?.tools ?? [],
+    tools: filterToolsForMode(mcp?.tools ?? [], input.mode),
   };
 
   let finalText: string | null = null;
@@ -201,7 +227,7 @@ export async function runSmartPath(
             );
             const oldMcp = mcp;
             mcp = await createMcpConnection(input.mcpUrl, fresh);
-            baseContext.tools = mcp.tools;
+            baseContext.tools = filterToolsForMode(mcp.tools, input.mode);
             input.userToken = fresh;
             await oldMcp.close().catch(() => undefined);
           }
@@ -231,17 +257,9 @@ export async function runSmartPath(
           continue;
         }
 
-        // Auto-inject enclave when the tool's input schema accepts it.
         const args: Record<string, unknown> = {
           ...(toolCall.arguments as Record<string, unknown>),
         };
-        if (
-          input.enclaveName &&
-          toolAcceptsEnclave(tool) &&
-          args['enclave'] === undefined
-        ) {
-          args['enclave'] = input.enclaveName;
-        }
 
         try {
           const result = await tool.execute(
@@ -278,31 +296,27 @@ export async function runSmartPath(
       messages.push(...results);
     }
 
-    // If we exhausted MAX_TURNS without a terminal text response,
-    // salvage text from any assistant message in the history so the
-    // user at least sees the agent's partial thinking rather than
-    // the generic fallback.
+    // MAX_TURNS exhausted without a terminal text response. Surface
+    // the most recent tool error if one exists — replaying a stale
+    // assistant utterance produced the misleading "Deployed. Now
+    // triggering a manual run." message in the 2026-05-04 incident.
     if (!finalText) {
-      for (let i = messages.length - 1; i >= 0; i--) {
-        const m = messages[i];
-        if (m && m.role === 'assistant') {
-          const text = (
-            m as { content: Array<{ type: string; text?: string }> }
-          ).content
-            .filter((c) => c.type === 'text' && c.text)
-            .map((c) => c.text as string)
-            .join('')
-            .trim();
-          if (text) {
-            log.warn(
-              { turns: MAX_TURNS },
-              'smart-path: MAX_TURNS reached, returning last assistant text',
-            );
-            finalText = text;
-            break;
-          }
-        }
+      const lastErr = findLastToolError(messages);
+      if (lastErr) {
+        const errText = lastErr.content
+          .filter((c) => c.type === 'text' && c.text)
+          .map((c) => c.text)
+          .join('')
+          .trim();
+        finalText = `I couldn't complete this. The last tool I tried (\`${lastErr.toolName}\`) returned: ${truncate(errText, 500)}`;
+      } else {
+        finalText =
+          "I ran out of steps trying to answer this and don't have a final result. Please re-ask, or @mention me in your enclave channel for a longer-running answer.";
       }
+      log.warn(
+        { turns: MAX_TURNS, hadToolError: Boolean(lastErr) },
+        'smart-path: budget exhausted',
+      );
     }
   } finally {
     if (mcp) await mcp.close().catch(() => undefined);
@@ -323,25 +337,43 @@ function stripBotMention(text: string, botUserId?: string): string {
   return s.trim();
 }
 
-function toolAcceptsEnclave(tool: { parameters: unknown }): boolean {
-  const schema = tool.parameters as
-    | { properties?: Record<string, unknown> }
-    | undefined;
-  return Boolean(schema?.properties && 'enclave' in schema.properties);
-}
-
 function buildDmSystemPrompt(userEmail: string): string {
   return [
     '# Role: The Kraken (DM mode)',
     '',
-    'You are The Kraken, a conversational assistant for the Tentacular platform.',
-    'The user is currently messaging you in a direct message (no enclave context).',
-    `User email: ${userEmail}`,
+    `You are answering a direct message from ${userEmail}. You DO NOT`,
+    "have access to any enclave's workflows, deployments, logs, or state.",
+    'The only thing you can query is `enclave_list` — to remind the user',
+    "which enclaves they're a member of.",
     '',
-    '## Response Style',
-    '- Respond directly in first person. Never narrate your own actions.',
-    '- Be concise and technical. Users are engineers.',
-    '- If the user asks about workflows/tentacles, remind them those live inside enclave channels.',
+    '## What you can do',
+    '- Answer general questions about Tentacular (concepts, scaffolds, skill).',
+    "- List the user's enclaves and direct them to the right channel.",
+    '- Help the user provision a new enclave (you will be re-prompted in',
+    "  provision mode if they're in an unbound channel).",
+    '',
+    '## What you must NOT do',
+    '- Claim anything about a specific workflow, deployment, run history,',
+    '  log line, or status. You cannot see these in DM. If asked, say:',
+    '  "Ask me from inside #<enclave-name> and I will answer with real data."',
+    '- Invent telemetry, uptimes, run counts, error rates, or workflow',
+    '  names. If you do not have a fact in front of you (from `enclave_list`',
+    '  or the user message), it does not exist.',
+    '',
+    '## Prior thread context',
+    'Earlier replies in this thread are shown to you for continuity. Do',
+    'NOT treat your own prior replies as facts. If a prior reply mentioned',
+    'specific telemetry, run history, or workflow state, that information',
+    'is no longer available — restate only if the user re-asks and',
+    'disclose you cannot verify.',
+    '',
+    '## Tool errors',
+    'If a tool call returns an error, report the error verbatim and stop.',
+    'Do not retry, do not invent a workaround, do not paper over.',
+    '',
+    '## Style',
+    '- First person. Concise. Engineers reading.',
+    '- If you do not know, say so.',
   ].join('\n');
 }
 
@@ -378,10 +410,51 @@ function buildProvisioningPrompt(
     '   start using it immediately (@Kraken in this channel).',
     '   On failure, report the error clearly.',
     '',
+    '## Prior thread context',
+    'Earlier replies in this thread are shown to you for continuity. Do',
+    'NOT treat your own prior replies as facts. Continue the provisioning',
+    'flow from wherever the user is now, not from what you previously',
+    'claimed had happened.',
+    '',
     '## Rules',
     '- Be conversational and concise. Users are engineers.',
     '- Do NOT ask for owner_email, owner_sub, channel_id, or platform — you already have those.',
     '- Only ask for name and description.',
     '- NEVER mention kubectl, namespace, or pod.',
   ].join('\n');
+}
+
+/**
+ * Walk a message list in reverse, returning the most recent tool
+ * result with isError === true, or null if none exist.
+ *
+ * Used by the MAX_TURNS bailout to surface a real tool error to the
+ * user rather than replaying a stale assistant utterance.
+ */
+export function findLastToolError(
+  messages: ReadonlyArray<unknown>,
+): { toolName: string; content: Array<{ type: string; text: string }> } | null {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const m = messages[i] as
+      | {
+          role: string;
+          toolName?: string;
+          content?: unknown;
+          isError?: boolean;
+        }
+      | undefined;
+    if (m && m.role === 'toolResult' && m.isError === true) {
+      return {
+        toolName: String(m.toolName ?? 'unknown'),
+        content: (m.content as Array<{ type: string; text: string }>) ?? [],
+      };
+    }
+  }
+  return null;
+}
+
+/** Truncate a string for safe inclusion in a user-facing message. */
+function truncate(s: string, max: number): string {
+  if (s.length <= max) return s;
+  return s.slice(0, max - 3) + '...';
 }
