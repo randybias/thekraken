@@ -12,13 +12,11 @@
  *   Exits 0 if all scenarios pass (or skip).
  *   Exits 1 if any scenario fails or errors.
  *
- * Required env / secrets for a new environment:
+ * Required env / secrets (defaults target weu-dev1):
  *   KRAKEN_E2E_USER_SECRET     secret path for the owner user token (xoxp-...)
- *                               default: slack/tentacular-e2e/user-token
- *                               weu-dev1: tentacular/westeurope-dev1/e2e-user-token
+ *                               default: tentacular/westeurope-dev1/e2e-user-token
  *   KRAKEN_E2E_BOT_SECRET      secret path for the Kraken bot token (xoxb-...)
- *                               default: slack/thekraken/bot-token
- *                               weu-dev1: tentacular/westeurope-dev1/kraken-slack-bot-token
+ *                               default: tentacular/westeurope-dev1/kraken-slack-bot-token
  *   KRAKEN_E2E_ENCLAVE_CHANNEL channel ID or name of the pre-existing enclave channel
  *                               default: tentacular-agensys
  *   KRAKEN_E2E_TEST_CHANNEL    channel ID or name for provisioning tests

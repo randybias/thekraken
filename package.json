@@ -1,6 +1,6 @@
 {
   "name": "thekraken",
-  "version": "0.9.0",
+  "version": "0.10.0-rc.9",
   "description": "The Kraken — Pi-based enclave-centric Slack bot for Tentacular",
   "type": "module",
   "main": "dist/index.js",
