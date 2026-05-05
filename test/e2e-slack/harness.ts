@@ -254,9 +254,11 @@ export async function bootHarness(): Promise<HarnessBootResult> {
 
   // Retrieve credentials from secrets CLI
   const userSecretPath =
-    process.env['KRAKEN_E2E_USER_SECRET'] ?? 'tentacular/westeurope-dev1/e2e-user-token';
+    process.env['KRAKEN_E2E_USER_SECRET'] ??
+    'tentacular/westeurope-dev1/e2e-user-token';
   const botSecretPath =
-    process.env['KRAKEN_E2E_BOT_SECRET'] ?? 'tentacular/westeurope-dev1/kraken-slack-bot-token';
+    process.env['KRAKEN_E2E_BOT_SECRET'] ??
+    'tentacular/westeurope-dev1/kraken-slack-bot-token';
   const memberSecretPath = process.env['KRAKEN_E2E_MEMBER_SECRET'];
 
   const [userToken, botToken] = await Promise.all([
@@ -506,7 +508,10 @@ export async function runScenario(
 
     let replyText: string;
 
-    if (scenario.followUpAfterFirstReply && (scenario.followUpMessages?.length ?? 0) > 0) {
+    if (
+      scenario.followUpAfterFirstReply &&
+      (scenario.followUpMessages?.length ?? 0) > 0
+    ) {
       // Sequential mode: wait for the first reply, then send follow-ups,
       // then wait for the replies to each follow-up. expectedPatterns are
       // evaluated against only the follow-up replies (not the first reply).

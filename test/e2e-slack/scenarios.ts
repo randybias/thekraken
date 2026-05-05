@@ -504,7 +504,8 @@ export const TENTACLE_SCENARIOS: ScenarioDef[] = [
     // when the assertion times out — the build agent (pi) may not be installed
     // in this environment, which is a system configuration issue, not a test failure.
     // Also matches "Still working" heartbeat replies sent before the commission message.
-    mcpAssertionSkipOnAsyncReply: /dev team|commissioned|still working|getting started/i,
+    mcpAssertionSkipOnAsyncReply:
+      /dev team|commissioned|still working|getting started/i,
     // Real deployment assertion: verify hello-world actually lands in MCP's
     // wf_list. Regex-pass alone is not enough — it let us claim success
     // when the tentacle didn't exist. This forces the end-to-end check.
@@ -566,8 +567,12 @@ export const TENTACLE_SCENARIOS: ScenarioDef[] = [
           const allNs = execSync(
             `kubectl get ns -o jsonpath='{.items[*].metadata.name}'`,
             { encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] },
-          ).trim().split(' ');
-          candidates = allNs.filter((n) => n === TEST_ENCLAVE || n.startsWith(`${TEST_ENCLAVE}-`));
+          )
+            .trim()
+            .split(' ');
+          candidates = allNs.filter(
+            (n) => n === TEST_ENCLAVE || n.startsWith(`${TEST_ENCLAVE}-`),
+          );
         } catch {
           candidates = [TEST_ENCLAVE];
         }
@@ -583,7 +588,9 @@ export const TENTACLE_SCENARIOS: ScenarioDef[] = [
             const replicas = parseInt(out.trim() || '0', 10);
             if (!isNaN(replicas) && replicas >= 1) return null;
             return `hello-world in ns/${ns}: availableReplicas=${out.trim() || '0'}`;
-          } catch { /* try next namespace */ }
+          } catch {
+            /* try next namespace */
+          }
         }
         return `hello-world not found in ns/${candidates.join(', ')}`;
       },
@@ -645,7 +652,9 @@ export const TENTACLE_SCENARIOS: ScenarioDef[] = [
     message: '@Kraken logs hello-world',
     // "done|task completed" covers the case where the manager broadcasts a
     // task completion from an earlier operation before answering this query.
-    expectedPatterns: [/hello-world|not found|log|no logs|done|task completed/i],
+    expectedPatterns: [
+      /hello-world|not found|log|no logs|done|task completed/i,
+    ],
     forbiddenPatterns: [/kubectl/i],
     timeoutMs: 60_000,
   },
@@ -789,10 +798,7 @@ export const PERMISSIONS_COMPLIANCE_SCENARIOS: ScenarioDef[] = [
     expectedPatterns: [
       /enclave|owner|member|tentacle|workflow|provisioned|created|access/i,
     ],
-    forbiddenPatterns: [
-      /namespace/i,
-      /kubectl/i,
-    ],
+    forbiddenPatterns: [/namespace/i, /kubectl/i],
     timeoutMs: 45_000,
   },
   {

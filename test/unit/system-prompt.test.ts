@@ -200,7 +200,10 @@ describe('buildManagerPrompt — decision tree (C1)', () => {
     // Every line that mentions a signal file must include the $KRAKEN_TEAM_DIR prefix.
     const lines = prompt.split('\n');
     for (const line of lines) {
-      if (line.includes('signals-out.ndjson') || line.includes('signals-in.ndjson')) {
+      if (
+        line.includes('signals-out.ndjson') ||
+        line.includes('signals-in.ndjson')
+      ) {
         expect(line).toMatch(/\$KRAKEN_TEAM_DIR\//);
       }
     }
