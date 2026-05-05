@@ -21,6 +21,7 @@ import { SIGNALS_IN_FILE } from '../teams/signals.js';
 import { createChildLogger } from '../logger.js';
 import type { KrakenConfig } from '../config.js';
 import type { TeamLifecycleManager } from '../teams/lifecycle.js';
+import type Database from 'better-sqlite3';
 import type { SlackPostClient } from '../teams/outbound-poller.js';
 
 const log = createChildLogger({ module: 'dispatcher-internal-ops' });
@@ -48,6 +49,60 @@ export interface DispatcherToolDeps {
   config: KrakenConfig;
   teams: TeamLifecycleManager;
   slack: SlackPostClient;
+  /** Optional DB handle — required for record_deploy_event tool. */
+  db?: Database.Database;
+}
+
+// ---------------------------------------------------------------------------
+// record_deploy_event — standalone export for use by deployer subprocess
+// ---------------------------------------------------------------------------
+
+export interface RecordDeployEventParams {
+  enclave: string;
+  tentacle: string;
+  gitSha: string;
+  summary: string;
+  deployedByEmail: string;
+  triggeredByChannel: string;
+  triggeredByTs: string;
+}
+
+/**
+ * Record a deployer-generated plain-English summary for a deploy event.
+ *
+ * Computes the next monotonic version for (enclave, tentacle) automatically
+ * so callers do not have to track version numbers.
+ *
+ * Falls back to "(deployed; no notes)" when summary is empty or whitespace-only.
+ */
+export async function recordDeployEvent(
+  db: Database.Database,
+  params: RecordDeployEventParams,
+): Promise<void> {
+  const summary = params.summary.trim() || '(deployed; no notes)';
+  const nextVersion = (
+    db
+      .prepare(
+        `SELECT COALESCE(MAX(version), 0) + 1 AS v FROM deployments
+         WHERE enclave = ? AND tentacle = ?`,
+      )
+      .get(params.enclave, params.tentacle) as { v: number }
+  ).v;
+  db.prepare(
+    `INSERT INTO deployments (enclave, tentacle, version, git_sha, git_tag,
+      deploy_type, summary, deployed_by_email, triggered_by_channel,
+      triggered_by_ts, status)
+     VALUES (?, ?, ?, ?, '', 'manual', ?, ?, ?, ?, 'success')`,
+  ).run(
+    params.enclave,
+    params.tentacle,
+    nextVersion,
+    params.gitSha,
+    summary,
+    params.deployedByEmail,
+    params.triggeredByChannel,
+    params.triggeredByTs,
+  );
 }
 
 /**
@@ -59,7 +114,7 @@ export interface DispatcherToolDeps {
 export function buildDispatcherTools(
   deps: DispatcherToolDeps,
 ): ToolDefinition[] {
-  const { config, teams, slack } = deps;
+  const { config, teams, slack, db } = deps;
 
   return [
     // -------------------------------------------------------------------------
@@ -283,6 +338,67 @@ export function buildDispatcherTools(
           channelId,
           messageTs: result.ts,
         });
+      },
+    },
+
+    // -------------------------------------------------------------------------
+    // record_deploy_event
+    // -------------------------------------------------------------------------
+    {
+      name: 'record_deploy_event',
+      description:
+        'Record a plain-English summary for a completed deploy event in Kraken DB. ' +
+        'Call this BEFORE wf_apply, after composing the per-deploy summary. ' +
+        'The summary must be a single sentence written for a non-engineer reader.',
+      parameters: {
+        type: 'object',
+        properties: {
+          enclave: { type: 'string', description: 'Enclave name' },
+          tentacle: { type: 'string', description: 'Tentacle name' },
+          gitSha: {
+            type: 'string',
+            description: 'Git SHA of the deployed commit',
+          },
+          summary: {
+            type: 'string',
+            description:
+              'Plain-English summary of what this deploy changes (~120 chars max). ' +
+              'Leave empty to record "(deployed; no notes)".',
+          },
+          deployedByEmail: {
+            type: 'string',
+            description: 'Email of the deploying user',
+          },
+          triggeredByChannel: {
+            type: 'string',
+            description: 'Slack channel ID that triggered the deploy',
+          },
+          triggeredByTs: {
+            type: 'string',
+            description: 'Slack message timestamp that triggered the deploy',
+          },
+        },
+        required: [
+          'enclave',
+          'tentacle',
+          'gitSha',
+          'summary',
+          'deployedByEmail',
+          'triggeredByChannel',
+          'triggeredByTs',
+        ],
+      },
+      execute: async (params) => {
+        if (!db) {
+          log.warn('record_deploy_event called but no db available in deps');
+          return JSON.stringify({ ok: false, error: 'db not available' });
+        }
+        await recordDeployEvent(db, params as RecordDeployEventParams);
+        log.info(
+          { enclave: params['enclave'], tentacle: params['tentacle'] },
+          'tool: record_deploy_event',
+        );
+        return JSON.stringify({ ok: true });
       },
     },
   ];

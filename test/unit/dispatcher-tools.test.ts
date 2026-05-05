@@ -1,11 +1,12 @@
 /**
  * Dispatcher tools unit tests (T15).
  *
- * Tests each of the four dispatcher tools:
+ * Tests each of the five dispatcher tools:
  * - spawn_enclave_team
  * - send_to_team
  * - check_team_status
  * - post_to_slack
+ * - record_deploy_event
  */
 
 import { describe, it, expect, afterEach, vi, beforeEach } from 'vitest';
@@ -138,14 +139,15 @@ describe('buildDispatcherTools', () => {
     };
   }
 
-  it('returns 4 tools', () => {
+  it('returns 5 tools', () => {
     const tools = buildDispatcherTools(makeDeps());
-    expect(tools).toHaveLength(4);
+    expect(tools).toHaveLength(5);
     const names = tools.map((t) => t.name);
     expect(names).toContain('spawn_enclave_team');
     expect(names).toContain('send_to_team');
     expect(names).toContain('check_team_status');
     expect(names).toContain('post_to_slack');
+    expect(names).toContain('record_deploy_event');
   });
 
   describe('spawn_enclave_team', () => {
