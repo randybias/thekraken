@@ -27,7 +27,7 @@ import { createDatabase } from '../../src/db/migrations.js';
 // Fix #1: Per-record dedup — multiple messages in one thread
 // ---------------------------------------------------------------------------
 
-describe('Codex Fix #1: per-record content-hash dedup', () => {
+describe('Codex Fix #1: per-record content-hash dedup (thread-scoped)', () => {
   it('allows multiple different messages in the same thread', () => {
     const db = createDatabase(':memory:');
     const tracker = new OutboundTracker(db);
@@ -39,52 +39,88 @@ describe('Codex Fix #1: per-record content-hash dedup', () => {
     expect(tracker.hasOutboundInThread('C_CHAN', '1000.1')).toBe(true);
 
     // But a DIFFERENT message should NOT be considered duplicate
-    expect(tracker.hasOutboundByHash(hashContent('Deploy complete v3'))).toBe(
-      false,
-    );
+    expect(
+      tracker.hasOutboundByHash(
+        'C_CHAN',
+        '1000.1',
+        hashContent('Deploy complete v3'),
+      ),
+    ).toBe(false);
 
     // Store the second message
     tracker.store('C_CHAN', '1000.1', 'ts-2', 'Deploy complete v3');
 
-    // Now both are in the DB
-    expect(tracker.hasOutboundByHash(hashContent('Hello from builder'))).toBe(
-      true,
-    );
-    expect(tracker.hasOutboundByHash(hashContent('Deploy complete v3'))).toBe(
-      true,
-    );
+    // Now both are in the DB for this thread
+    expect(
+      tracker.hasOutboundByHash(
+        'C_CHAN',
+        '1000.1',
+        hashContent('Hello from builder'),
+      ),
+    ).toBe(true);
+    expect(
+      tracker.hasOutboundByHash(
+        'C_CHAN',
+        '1000.1',
+        hashContent('Deploy complete v3'),
+      ),
+    ).toBe(true);
 
     // A third different message is still not a duplicate
     expect(
-      tracker.hasOutboundByHash(hashContent('Heartbeat: running tests')),
+      tracker.hasOutboundByHash(
+        'C_CHAN',
+        '1000.1',
+        hashContent('Heartbeat: running tests'),
+      ),
     ).toBe(false);
   });
 
-  it('rejects re-sending the exact same content', () => {
+  it('rejects re-sending the exact same content in the same thread', () => {
     const db = createDatabase(':memory:');
     const tracker = new OutboundTracker(db);
 
     tracker.store('C_CHAN', '1000.1', 'ts-1', 'exact same text');
-    expect(tracker.hasOutboundByHash(hashContent('exact same text'))).toBe(
-      true,
-    );
+    expect(
+      tracker.hasOutboundByHash(
+        'C_CHAN',
+        '1000.1',
+        hashContent('exact same text'),
+      ),
+    ).toBe(true);
   });
 
-  it('treats different threads independently', () => {
+  it('treats different threads independently (dedup is thread-scoped)', () => {
     const db = createDatabase(':memory:');
     const tracker = new OutboundTracker(db);
 
     tracker.store('C_CHAN', '1000.1', 'ts-1', 'message in thread A');
 
-    // Different thread — same content should not be a duplicate
-    // (content hash matches, but that's fine — we dedup by content, not thread)
-    expect(tracker.hasOutboundByHash(hashContent('message in thread A'))).toBe(
-      true,
-    );
-    // Different content in a different thread is not duplicate
-    expect(tracker.hasOutboundByHash(hashContent('message in thread B'))).toBe(
-      false,
-    );
+    // Same content in the SAME thread is a duplicate.
+    expect(
+      tracker.hasOutboundByHash(
+        'C_CHAN',
+        '1000.1',
+        hashContent('message in thread A'),
+      ),
+    ).toBe(true);
+    // Same content in a DIFFERENT thread is NOT a duplicate — dedup
+    // is thread-scoped per the outbound design (commit 484d1b6).
+    expect(
+      tracker.hasOutboundByHash(
+        'C_CHAN',
+        '2000.1',
+        hashContent('message in thread A'),
+      ),
+    ).toBe(false);
+    // Different content in the same thread is also not duplicate.
+    expect(
+      tracker.hasOutboundByHash(
+        'C_CHAN',
+        '1000.1',
+        hashContent('message in thread B'),
+      ),
+    ).toBe(false);
   });
 });
 

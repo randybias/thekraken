@@ -157,7 +157,7 @@ describe('createSlackBot event handlers (post-pivot)', () => {
   });
 
   describe('app_mention handler', () => {
-    it('silently ignores mentions in unbound channels without provision intent (A3)', async () => {
+    it('posts a provisioning hint in unbound channels without provision intent', async () => {
       await getSlackBot();
       mockBindings.lookupEnclave.mockReturnValue(null);
 
@@ -174,12 +174,14 @@ describe('createSlackBot event handlers (post-pivot)', () => {
         client: mockClient,
       });
 
-      // A3: non-enclave channels are passive. Text does not match
-      // PROVISION_PATTERN so the handler returns silently — no say,
-      // no smart path, no auth prompt.
+      // Unbound channel + non-PROVISION_PATTERN text: hand the user a
+      // hint about how to provision the channel rather than silently
+      // ignoring. No team dispatch, no smart-path invocation.
       expect(mockTeams.sendToTeam).not.toHaveBeenCalled();
-      expect(say).not.toHaveBeenCalled();
       expect(mockSmartPath).not.toHaveBeenCalled();
+      expect(say).toHaveBeenCalledTimes(1);
+      const sayArg = say.mock.calls[0]?.[0];
+      expect(sayArg?.text).toContain('provision this channel');
     });
 
     it('forwards mentions in enclave channels to team (deterministic: spawn_and_forward)', async () => {
