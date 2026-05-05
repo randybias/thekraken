@@ -934,6 +934,135 @@ export const SMART_PATH_LOCKDOWN_SCENARIOS: ScenarioDef[] = [
 ];
 
 // ---------------------------------------------------------------------------
+// M. Git-state recovery (version management UX in Slack)
+//
+// Validates the git-state recovery design (PR-set G1-G5,
+// docs/superpowers/specs/2026-05-05-git-state-recovery-design.md).
+//
+// Preconditions for M1, M2: at least 2 deploys must have happened on
+// the test tentacle prior to running these scenarios. The harness
+// does not pre-seed; rely on natural state from prior F-group scenarios
+// or manual setup.
+// ---------------------------------------------------------------------------
+
+const FORBIDDEN_GIT_VOCABULARY =
+  /\bv\d+\b|\bsha\b|\bcommit\b|\btag\b|\bbranch\b|\bnamespace\b|\bkubectl\b|\bpod\b/i;
+
+export const GIT_STATE_SCENARIOS: ScenarioDef[] = [
+  {
+    id: 'M1',
+    name: 'list past versions in plain English (no version numbers, no git terms)',
+    channel: CHANNELS.enclave,
+    message: "@Kraken what's been changing on ai-news-digest?",
+    expectedPatterns: [
+      // At least one dated entry should appear
+      /\d{1,2}(:\d{2})?\s*(am|pm)|tuesday|wednesday|thursday|friday|monday|last\s+(week|month)|april|may|june/i,
+    ],
+    forbiddenPatterns: [FORBIDDEN_GIT_VOCABULARY],
+    timeoutMs: 60_000,
+  },
+  {
+    id: 'M2',
+    name: 'comparative summary uses prose, not diff lines',
+    channel: CHANNELS.enclave,
+    message: '@Kraken what changed since last week?',
+    expectedPatterns: [
+      // Prose mentioning behavior change
+      /title|filter|interval|channel|added|removed|changed|increased|decreased/i,
+    ],
+    forbiddenPatterns: [
+      FORBIDDEN_GIT_VOCABULARY,
+      /^[+-]/m, // No diff lines
+    ],
+    timeoutMs: 60_000,
+  },
+  {
+    id: 'M3',
+    name: 'revert with confirm flow + cluster annotation advances',
+    channel: CHANNELS.enclave,
+    message: "@Kraken go back to last Tuesday's version of ai-news-digest",
+    expectedPatterns: [
+      // First reply must be a confirm prompt
+      /you mean|to be sure|confirm|ok to proceed|want me to/i,
+    ],
+    forbiddenPatterns: [FORBIDDEN_GIT_VOCABULARY],
+    followUpMessages: ['yes'],
+    followUpAfterFirstReply: true,
+    expectedReplyCount: 2,
+    timeoutMs: 5 * 60_000,
+    mcpAssertion: {
+      pollMs: 10_000,
+      timeoutMs: 5 * 60_000,
+      check: async (mcpCall) => {
+        // After confirm + commission, the deployment's git-sha annotation
+        // must have changed (forward-revert produces a new SHA whose tree
+        // matches the target).
+        const before = process.env['M3_BASELINE_SHA'];
+        if (!before) return null; // baseline not captured, skip assertion
+        const raw = await mcpCall('wf_describe', {
+          enclave: 'tentacular-agensys',
+          name: 'ai-news-digest',
+        });
+        const parsed = typeof raw === 'string' ? JSON.parse(raw) : (raw as any);
+        const after = parsed?.annotations?.['tentacular.io/git-sha'];
+        if (!after || after === before) {
+          return `git-sha did not advance (was ${before}, still ${after})`;
+        }
+        return null;
+      },
+    },
+  },
+  {
+    id: 'M4',
+    name: 'revert + tweak — combined intent, single deploy event',
+    channel: CHANNELS.enclave,
+    message:
+      "@Kraken go back to last Tuesday's but raise the title limit to 80",
+    expectedPatterns: [/you mean|confirm|ok to proceed|want me to/i],
+    forbiddenPatterns: [FORBIDDEN_GIT_VOCABULARY],
+    followUpMessages: ['yes'],
+    followUpAfterFirstReply: true,
+    expectedReplyCount: 2,
+    timeoutMs: 10 * 60_000,
+    // mcpAssertion verifies cluster annotation advanced AND a single new
+    // deploy event row exists in Kraken DB. Skipped if Kraken DB query
+    // path isn't yet exposed via MCP — placeholder.
+  },
+  {
+    id: 'M5',
+    name: 'ambiguity disambiguation by person+time, not SHA',
+    channel: CHANNELS.enclave,
+    message: "@Kraken go back to Tuesday's version",
+    expectedPatterns: [
+      // Manager must ask which one (the morning/afternoon, or by deployer)
+      /which one|two changes on tuesday|morning|afternoon|or do you mean/i,
+    ],
+    forbiddenPatterns: [
+      FORBIDDEN_GIT_VOCABULARY,
+      // Disambig prompt itself must not list SHAs
+      /[a-f0-9]{7,}/i,
+    ],
+    timeoutMs: 60_000,
+    skipWhen: () => process.env['KRAKEN_E2E_AMBIGUITY_PRECONDITION'] !== 'true',
+  },
+  {
+    id: 'M6',
+    name: 'manager refuses git-talk, redirects to dated phrasing',
+    channel: CHANNELS.enclave,
+    message: '@Kraken what changed in commit abc123def?',
+    expectedPatterns: [
+      // Manager redirects to date/person/behavior framing
+      /which deploy|when was that|i talk about deploys by date|let me know which version/i,
+    ],
+    forbiddenPatterns: [
+      // Must NOT confirm understanding of "abc123" as a meaningful identifier
+      /abc123def is|i'll look at abc123/i,
+    ],
+    timeoutMs: 45_000,
+  },
+];
+
+// ---------------------------------------------------------------------------
 // H. RBAC enforcement (requires KRAKEN_E2E_MEMBER_SECRET to be set)
 //
 // These scenarios post as a second Slack user (the "member") and verify
@@ -1053,6 +1182,8 @@ export const ALL_SCENARIOS: ScenarioDef[] = [
   ...PERMISSIONS_COMPLIANCE_SCENARIOS,
   // L. Smart-path lockdown — DM-mode behavior, 2026-05-04 incident replay
   ...SMART_PATH_LOCKDOWN_SCENARIOS,
+  // M. Git-state recovery — version management UX
+  ...GIT_STATE_SCENARIOS,
 ];
 
 /**
