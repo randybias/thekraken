@@ -285,40 +285,75 @@ export function buildBuilderPrompt(
  *
  * Deployers are short-lived: spawned per deploy task, exit when the deploy
  * completes. They run git operations and MCP wf_apply — no code editing.
+ *
+ * After every commit, the deployer must compose a one-sentence plain-English
+ * summary of the deploy and record it via the record_deploy_event internal-op
+ * BEFORE calling wf_apply. This ensures every deploy has a human-readable
+ * change note accessible to non-engineer users (G3).
  */
 export function buildDeployerPrompt(
   options: RolePromptOptions & {
-    /** Description of the deploy task to perform. */
-    taskDescription: string;
+    /** Description of the deploy task to perform. Optional — omit when building for testing. */
+    taskDescription?: string;
   },
 ): string {
   const { enclaveName, userSlackId, userEmail, taskDescription } = options;
 
-  return [
+  const sections: string[] = [
     '# Role: Deployer',
     '',
     `You are a deployer subprocess for the **${enclaveName}** enclave.`,
     'Your job is to deploy tentacle code to the cluster.',
     '',
-    '## Your Task',
-    taskDescription,
-    '',
+  ];
+
+  if (taskDescription) {
+    sections.push('## Your Task', taskDescription, '');
+  }
+
+  sections.push(
     '## Deploy Flow',
     '1. Validate tentacle code is clean (git status)',
     '2. Run tntc deploy with the user token',
     '3. Git commit + tag + push (monotonic version)',
-    '4. MCP wf_apply with version + git_sha',
-    '5. Write task_completed signal to $KRAKEN_TEAM_DIR/signals-in.ndjson (ALWAYS use the full path):',
+    '4. Compose a per-deploy plain-English summary (see below)',
+    '5. Call record_deploy_event with the summary',
+    '6. MCP wf_apply with version + git_sha',
+    '7. Write task_completed signal to $KRAKEN_TEAM_DIR/signals-in.ndjson (ALWAYS use the full path):',
     '     TASK_ID="${KRAKEN_TASK_ID:-unknown}"',
     '     printf \'{"type":"task_completed","timestamp":"%s","taskId":"%s","result":"%s"}\\n\' \\',
     '       "$(date -u +%Y-%m-%dT%H:%M:%S.000Z)" "$TASK_ID" "Deployed successfully." \\',
     '       >> "$KRAKEN_TEAM_DIR/signals-in.ndjson"',
     '',
+    '## Per-deploy summary (REQUIRED before wf_apply)',
+    '',
+    'After the commit lands and BEFORE you call wf_apply, compose a',
+    'one-sentence plain-English summary of what THIS deploy changes,',
+    'for a non-engineer reader (e.g., a marketing or sales person).',
+    '',
+    'Rules for the summary:',
+    '- One sentence, max ~120 chars.',
+    "- Plain English. Don't mention file names, diff syntax, or technical",
+    '  terms (no "function X", "added imports", "config").',
+    '- Describe the user-visible behavior change, not the code.',
+    '  Bad:  "Updated FILTER_WINDOW from 86400 to 604800"',
+    '  Good: "Filter window expanded from 1 day to 7 days"',
+    '- If you can\'t determine intent, write "(deployed; no notes)".',
+    '',
+    'Then call the `record_deploy_event` internal-op with:',
+    '  { enclave, tentacle, gitSha, summary, deployedByEmail,',
+    '    triggeredByChannel, triggeredByTs }',
+    '',
+    'Only after record_deploy_event succeeds, call wf_apply.',
+    '',
     '## Tools Available',
     '- bash, read, grep, find (run git + tntc operations)',
     '- MCP tools scoped to this enclave for wf_apply',
+    '- record_deploy_event internal-op for recording the per-deploy summary',
     '- NO edit, write tools (deployers do not modify code)',
     '',
     buildIdentityContext(userSlackId, userEmail),
-  ].join('\n');
+  );
+
+  return sections.join('\n');
 }
