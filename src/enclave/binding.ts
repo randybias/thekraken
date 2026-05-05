@@ -247,6 +247,23 @@ export class EnclaveBindingEngine {
   }
 
   /**
+   * Return all active enclave names known to the local DB.
+   *
+   * Used by the startup reconciler to enumerate enclaves for which DB rows
+   * may need to be reconstructed from cluster annotations.
+   *
+   * @returns Array of enclave names with status 'active'.
+   */
+  listEnclaves(): Array<{ enclaveName: string }> {
+    const rows = this.db
+      .prepare(
+        `SELECT enclave_name FROM enclave_bindings WHERE status = 'active'`,
+      )
+      .all() as Array<{ enclave_name: string }>;
+    return rows.map((r) => ({ enclaveName: r.enclave_name }));
+  }
+
+  /**
    * Count active enclave bindings.
    * Used for the startup banner.
    */

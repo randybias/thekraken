@@ -144,6 +144,65 @@ export function getLatestDeployment(
 }
 
 /**
+ * Find a deployment record by enclave, tentacle, and git SHA.
+ *
+ * Used by the reconciler to check whether a cluster-reported SHA already
+ * has a corresponding DB row before inserting a reconstructed one.
+ *
+ * @param db - Open Database instance.
+ * @param enclave - Enclave name.
+ * @param tentacle - Tentacle name.
+ * @param gitSha - Git SHA to look up.
+ * @returns The matching DeploymentRecord, or null if none exists.
+ */
+export function findByEnclaveTentacleSha(
+  db: Database.Database,
+  enclave: string,
+  tentacle: string,
+  gitSha: string,
+): DeploymentRecord | null {
+  const row = db
+    .prepare(
+      `SELECT * FROM deployments
+       WHERE enclave = ? AND tentacle = ? AND git_sha = ?
+       LIMIT 1`,
+    )
+    .get(enclave, tentacle, gitSha) as DeploymentRecord | undefined;
+  return row ?? null;
+}
+
+/**
+ * Insert a reconstructed deployment row recovered from cluster annotations.
+ *
+ * Uses INSERT OR IGNORE so concurrent reconciler runs are safe — only the
+ * first insert wins (idempotent on the enclave/tentacle/version unique key).
+ * Reconstructed rows use version=0 and deploy_type='reconstructed'.
+ *
+ * @param db - Open Database instance.
+ * @param params - Parameters recovered from cluster annotations.
+ */
+export function insertReconstructed(
+  db: Database.Database,
+  params: {
+    enclave: string;
+    tentacle: string;
+    gitSha: string;
+    deployedByEmail: string;
+    deployedAt?: string;
+  },
+): void {
+  db.prepare(
+    `INSERT OR IGNORE INTO deployments
+       (enclave, tentacle, version, git_sha, git_tag,
+        deploy_type, summary, deployed_by_email, triggered_by_channel,
+        triggered_by_ts, status)
+     VALUES (?, ?, 0, ?, '', 'reconstructed',
+       '(reconstructed from cluster — no original notes)',
+       ?, '', '', 'success')`,
+  ).run(params.enclave, params.tentacle, params.gitSha, params.deployedByEmail);
+}
+
+/**
  * Update the status of a deployment by ID.
  *
  * @param db - Open Database instance.

@@ -39,6 +39,7 @@ import { OutboundPoller } from './teams/outbound-poller.js';
 import { createSlackBot } from './slack/bot.js';
 import { createMcpConnection } from './agent/mcp-connection.js';
 import { runSmartPath, type SmartPathMode } from './dispatcher/smart-path.js';
+import { runReconciler, type McpReader } from './git-state/reconciler.js';
 
 const log = createChildLogger({ module: 'main' });
 
@@ -62,6 +63,67 @@ async function main(): Promise<void> {
 
   // 4. Subsystems
   const bindings = new EnclaveBindingEngine(db);
+
+  // 4a. Startup reconciler — reconstruct missing DB rows from cluster annotations.
+  // Non-fatal: a failure here should not prevent the bot from starting.
+  // Runs before the Slack bot starts so initial queries have full history.
+  //
+  // Per D6 there is no service token. The reconciler is called with an empty
+  // MCP reader that delegates per-enclave wf_list calls through the owner's
+  // stored token (if available). Enclaves with no stored owner token are
+  // skipped gracefully — they will be reconciled on the next user interaction.
+  {
+    const enclaveNames = bindings.listEnclaves().map((b) => b.enclaveName);
+    // Build a thin MCP reader that uses the enclave owner's stored token.
+    // Per D6: no service identities. If the owner has no valid stored token
+    // (e.g. fresh cluster, all users re-auth needed), skip gracefully.
+    const startupMcpReader: McpReader = {
+      wfList: async (enclave: string) => {
+        const binding = bindings.lookupByEnclaveName(enclave);
+        if (!binding) return { workflows: [] };
+        const ownerToken = await getValidTokenForUser(binding.ownerSlackId);
+        if (!ownerToken) {
+          log.debug(
+            { enclave },
+            'reconciler: no valid owner token, skipping enclave',
+          );
+          return { workflows: [] };
+        }
+        const conn = await createMcpConnection(config.mcp.url, ownerToken);
+        try {
+          const result = await conn.client.callTool({
+            name: 'wf_list',
+            arguments: { enclave },
+          });
+          const content = result.content as
+            | Array<{ type: string; text?: string }>
+            | undefined;
+          const text = content?.[0]?.text;
+          if (text) {
+            try {
+              return JSON.parse(text) as Awaited<
+                ReturnType<McpReader['wfList']>
+              >;
+            } catch {
+              return { workflows: [] };
+            }
+          }
+          return { workflows: [] };
+        } finally {
+          await conn.close().catch(() => undefined);
+        }
+      },
+    };
+    try {
+      const r = await runReconciler(db, startupMcpReader, enclaveNames);
+      log.info(
+        { inserted: r.inserted, skipped: r.skipped },
+        'startup: reconciler complete',
+      );
+    } catch (err) {
+      log.warn({ err }, 'startup: reconciler failed (non-fatal, continuing)');
+    }
+  }
   const outbound = new OutboundTracker(db);
   const teams = new TeamLifecycleManager(config, db);
 
