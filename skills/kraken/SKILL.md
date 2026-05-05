@@ -171,9 +171,23 @@ format matters:
 
 ---
 
+## Version management
+
+Tentacles are versioned by deploy events — each deploy is a moment in
+time with a person, summary, and (internally) a git SHA. Marketing
+and sales users never see SHAs, version numbers, or git terminology.
+
+Read `references/git-state.md` when:
+- User asks what's changed, what versions exist, or what was deployed when
+- User wants to go back to a previous behavior, undo a change, or revert
+- User wants to revert AND modify in one shot
+
+---
+
 ## References
 
 - `references/slack-ux.md` — Slack formatting, tables, threads, heartbeats
 - `references/thread-model.md` — per-enclave thread context, mailbox, outbound
 - `references/permissions.md` — POSIX owner/group/mode model for enclaves
 - `references/enclave-personas.md` — enterprise team archetypes
+- `references/git-state.md` — version management UX: vocabulary contract, four conversation primitives, internal-op invocation rules
