@@ -1088,6 +1088,10 @@ export const GIT_STATE_SCENARIOS: ScenarioDef[] = [
 
 const FORBIDDEN_MARKDOWN_TABLE = /^\|.+\|.+\|.*$/m;
 const FORBIDDEN_SLACK_CHANNEL_ID = /\bC[A-Z0-9]{8,}\b/;
+// rc.11: tentacle CRUD scenarios assert no version numbers or git SHAs
+// leak in user-facing replies (vocabulary contract per FORBIDDEN_GIT_VOCABULARY)
+const FORBIDDEN_VERSION_NUMBER = /\bv\d+\.\d+\.\d+\b|\bversion\s+\d+\b/i;
+const FORBIDDEN_SHA = /\b[0-9a-f]{7,40}\b/;
 
 export const MANAGER_OUTPUT_SCENARIOS: ScenarioDef[] = [
   {
@@ -1168,6 +1172,82 @@ export const MANAGER_OUTPUT_SCENARIOS: ScenarioDef[] = [
     timeoutMs: 60_000,
   },
 ];
+
+// ---------------------------------------------------------------------------
+// F-CRUD. Tentacle full lifecycle (create + read + update + delete).
+//
+// These scenarios actually deploy + remove a tentacle, so they are gated
+// behind KRAKEN_E2E_ALLOW_DESTRUCTIVE=1 to keep default test runs from
+// churning the live cluster. See workspace CLAUDE.md F group docs.
+//
+// rc.11 spec:
+// docs/superpowers/specs/2026-05-06-rc11-token-and-session-state-design.md
+// ---------------------------------------------------------------------------
+
+const ALLOW_DESTRUCTIVE = process.env.KRAKEN_E2E_ALLOW_DESTRUCTIVE === '1';
+
+export const LIFECYCLE_SCENARIOS: ScenarioDef[] = ALLOW_DESTRUCTIVE
+  ? [
+      {
+        id: 'F-CREATE-1',
+        name: 'create a new echo-probe tentacle (build + deploy)',
+        channel: CHANNELS.enclave,
+        message:
+          '@Kraken Build a new tentacle called e2e-echo-probe-1 from the echo-probe scaffold.',
+        expectedPatterns: [/(commission|building|builder)/i, /(deploy|ready)/i],
+        forbiddenPatterns: [
+          FORBIDDEN_MARKDOWN_TABLE,
+          FORBIDDEN_SLACK_CHANNEL_ID,
+        ],
+        timeoutMs: 600_000,
+      },
+      {
+        id: 'F-READ-1',
+        name: 'read tentacle status by name (prose, no table)',
+        channel: CHANNELS.enclave,
+        message: '@Kraken What is the status of e2e-echo-probe-1?',
+        expectedPatterns: [
+          /e2e-echo-probe-1/i,
+          /(ready|deployed|active|running)/i,
+        ],
+        forbiddenPatterns: [
+          FORBIDDEN_MARKDOWN_TABLE,
+          FORBIDDEN_VERSION_NUMBER,
+          FORBIDDEN_SHA,
+        ],
+        timeoutMs: 60_000,
+      },
+      {
+        id: 'F-READ-2',
+        name: 'last change summary (plain English, no SHAs or version numbers)',
+        channel: CHANNELS.enclave,
+        message: '@Kraken What was the last change to e2e-echo-probe-1?',
+        expectedPatterns: [/(deploy|change|summary|created)/i],
+        forbiddenPatterns: [FORBIDDEN_SHA, FORBIDDEN_VERSION_NUMBER],
+        timeoutMs: 60_000,
+      },
+      {
+        id: 'F-UPDATE-1',
+        name: 'update tentacle (re-deploy)',
+        channel: CHANNELS.enclave,
+        message: '@Kraken Re-deploy e2e-echo-probe-1.',
+        expectedPatterns: [
+          /(re-?deploy|redeploy|deployed|building|deploying)/i,
+        ],
+        forbiddenPatterns: [FORBIDDEN_MARKDOWN_TABLE, FORBIDDEN_SHA],
+        timeoutMs: 600_000,
+      },
+      {
+        id: 'F-DELETE-1',
+        name: 'delete tentacle (verify removal)',
+        channel: CHANNELS.enclave,
+        message: '@Kraken Remove e2e-echo-probe-1.',
+        expectedPatterns: [/(removed|deleted|gone|done)/i],
+        forbiddenPatterns: [FORBIDDEN_MARKDOWN_TABLE],
+        timeoutMs: 300_000,
+      },
+    ]
+  : [];
 
 // ---------------------------------------------------------------------------
 // H. RBAC enforcement (requires KRAKEN_E2E_MEMBER_SECRET to be set)
@@ -1293,6 +1373,9 @@ export const ALL_SCENARIOS: ScenarioDef[] = [
   ...GIT_STATE_SCENARIOS,
   // N. Manager output hygiene — surfaced from live testing 2026-05-06
   ...MANAGER_OUTPUT_SCENARIOS,
+  // F-CRUD. Full tentacle lifecycle. Gated by KRAKEN_E2E_ALLOW_DESTRUCTIVE=1.
+  // Empty array when the env var isn't set, so default runs aren't affected.
+  ...LIFECYCLE_SCENARIOS,
 ];
 
 /**
