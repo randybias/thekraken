@@ -128,19 +128,20 @@ export const AUTH_SCENARIOS: ScenarioDef[] = [
 export const SCOPING_SCENARIOS: ScenarioDef[] = [
   {
     id: 'B1',
-    name: 'list tentacles — must list workflows, not redirect to DM',
+    name: 'list tentacles — workflows in prose/bullets, no markdown tables',
     channel: CHANNELS.enclave,
     message: '@Kraken list tentacles',
     expectedPatterns: [
-      // Accept workflow list in any format: prose ("workflows"), table header
-      // ("Name | Version"), or workflow names directly ("echo-probe", "deployed by")
-      /workflow|tentacle|running|no .*(workflows|tentacles)|name.*version|echo|deployed by/i,
+      // Accept workflow list in prose, bullets, or a real tentacle name
+      /workflow|tentacle|running|no .*(workflows|tentacles)|ai-news|echo|deployed by/i,
     ],
     forbiddenPatterns: [
       // Must not tell user to DM for this
       /dm me|direct message me|send me a (dm|message)/i,
       // Must not use namespace jargon
       /namespace/i,
+      // Markdown tables don't render in Slack — bug thekraken#18
+      /^\|.+\|.+\|.*$/m,
     ],
     timeoutMs: 60_000,
   },
@@ -182,15 +183,20 @@ export const SCOPING_SCENARIOS: ScenarioDef[] = [
 export const WORKFLOW_SCENARIOS: ScenarioDef[] = [
   {
     id: 'C1',
-    name: 'list my workflows',
+    name: 'list my workflows — prose/bullets, no markdown tables',
     channel: CHANNELS.enclave,
     message: '@Kraken list my workflows',
     expectedPatterns: [
-      // Accept workflow list in any format: prose ("workflows"), table header ("Name | Version"),
-      // or workflow names directly (e.g. "echo-probe", "deployed by")
-      /workflow|tentacle|running|no .*(workflows|tentacles)|name.*version|echo|deployed by/i,
+      // Accept workflow list in prose, bullets, or a real tentacle name
+      /workflow|tentacle|running|no .*(workflows|tentacles)|ai-news|echo|deployed by/i,
     ],
-    forbiddenPatterns: [/namespace/i, /pod/i, /kubectl/i],
+    forbiddenPatterns: [
+      /namespace/i,
+      /pod/i,
+      /kubectl/i,
+      // Markdown tables don't render in Slack — bug thekraken#18
+      /^\|.+\|.+\|.*$/m,
+    ],
     timeoutMs: 60_000,
   },
   {
@@ -1063,6 +1069,100 @@ export const GIT_STATE_SCENARIOS: ScenarioDef[] = [
 ];
 
 // ---------------------------------------------------------------------------
+// N. Manager output hygiene — surfaced from Mirantis Slack live testing 2026-05-06
+//
+// Adversarial prompts that historically produced bad replies (markdown
+// tables, leaked Slack channel IDs, hallucinated denials of Slack API
+// access, over-aggressive jargon translation). Filed as thekraken#18,
+// #19, #20, #21.
+//
+// All run in CHANNELS.enclave (manager team subprocess answers).
+// ---------------------------------------------------------------------------
+
+const FORBIDDEN_MARKDOWN_TABLE = /^\|.+\|.+\|.*$/m;
+const FORBIDDEN_SLACK_CHANNEL_ID = /\bC[A-Z0-9]{8,}\b/;
+
+export const MANAGER_OUTPUT_SCENARIOS: ScenarioDef[] = [
+  {
+    id: 'N1',
+    name: 'no markdown tables in workflow listing (bug thekraken#18)',
+    channel: CHANNELS.enclave,
+    message: '@Kraken What workflows are running?',
+    expectedPatterns: [
+      // Some indication of workflows; allow prose, bullets, or names
+      /workflow|tentacle|ai-news|echo|deployed by|running|no .*(workflows|tentacles)/i,
+    ],
+    forbiddenPatterns: [
+      // The literal "| Tentacle | Description |" header pattern
+      FORBIDDEN_MARKDOWN_TABLE,
+    ],
+    timeoutMs: 60_000,
+  },
+  {
+    id: 'N2',
+    name: 'no raw Slack channel IDs in user-facing replies (bug thekraken#19)',
+    channel: CHANNELS.enclave,
+    message: '@Kraken Where does ai-news-digest post its summary?',
+    expectedPatterns: [
+      // Should describe the destination in some way (channel name, "this channel", "Slack")
+      /slack|channel|post|notify|#|destination/i,
+    ],
+    forbiddenPatterns: [
+      // Raw Slack channel ID like C073EMLCCN7 — never surface to user
+      FORBIDDEN_SLACK_CHANNEL_ID,
+    ],
+    timeoutMs: 60_000,
+  },
+  {
+    id: 'N3',
+    name: 'no hallucinated denial of Slack API access (bug thekraken#20)',
+    channel: CHANNELS.enclave,
+    message:
+      '@Kraken Can you call the Slack API to look up channel names? Or do you not have access?',
+    expectedPatterns: [
+      // Either: it CAN do it (truthful), or it tells user the structural reason it can't (D3:
+      // dispatcher owns Slack I/O; manager doesn't have direct Slack API). What it must not say:
+      // "no access to bot token", "credentials not exposed", "MCP tools don't expose credential values".
+      /can|cannot|not from here|i don't have a way to query|search slack|let me know|the channel/i,
+    ],
+    forbiddenPatterns: [
+      // Hallucinated structural denial — these phrases are wrong and were observed in production
+      /retrieve the slack bot token|don't have a way to retrieve|no.{0,30}access to.{0,30}slack api|MCP tools.{0,30}credential/i,
+    ],
+    timeoutMs: 60_000,
+  },
+  {
+    id: 'N4',
+    name: 'jargon filter does not rewrite "webhook" (bug thekraken#21)',
+    channel: CHANNELS.enclave,
+    message: '@Kraken Does ai-weekly-roundup use a Slack webhook?',
+    expectedPatterns: [
+      // Truthful answer about webhook usage. The word "webhook" should appear if relevant.
+      /webhook|incoming|slack.*url|posting/i,
+    ],
+    forbiddenPatterns: [
+      // The over-translation we observed: "system process" replacing "webhook"
+      /system process/i,
+    ],
+    timeoutMs: 60_000,
+  },
+  {
+    id: 'N5',
+    name: 'enclave-info query returns prose, no markdown tables',
+    channel: CHANNELS.enclave,
+    message: '@Kraken Tell me about this enclave.',
+    expectedPatterns: [/enclave|owner|member|workflow|tentacle/i],
+    forbiddenPatterns: [
+      FORBIDDEN_MARKDOWN_TABLE,
+      FORBIDDEN_SLACK_CHANNEL_ID,
+      // Per K group, no POSIX strings or namespace jargon either
+      /rwxrwx|namespace/i,
+    ],
+    timeoutMs: 60_000,
+  },
+];
+
+// ---------------------------------------------------------------------------
 // H. RBAC enforcement (requires KRAKEN_E2E_MEMBER_SECRET to be set)
 //
 // These scenarios post as a second Slack user (the "member") and verify
@@ -1184,6 +1284,8 @@ export const ALL_SCENARIOS: ScenarioDef[] = [
   ...SMART_PATH_LOCKDOWN_SCENARIOS,
   // M. Git-state recovery — version management UX
   ...GIT_STATE_SCENARIOS,
+  // N. Manager output hygiene — surfaced from live testing 2026-05-06
+  ...MANAGER_OUTPUT_SCENARIOS,
 ];
 
 /**
