@@ -354,6 +354,31 @@ export async function getValidTokenForUser(
 let refreshTimer: ReturnType<typeof setInterval> | null = null;
 
 /**
+ * Status of the most recent token-refresh sweep. Exposed for the
+ * health endpoint to surface refresh-loop liveness.
+ *
+ * `lastSweepAt` is null until the first sweep completes.
+ */
+export interface RefreshLoopStatus {
+  lastSweepAt: number | null;
+  lastSweepRefreshed: number;
+  lastSweepFailed: number;
+  lastSweepDeleted: number;
+}
+
+let refreshLoopStatus: RefreshLoopStatus = {
+  lastSweepAt: null,
+  lastSweepRefreshed: 0,
+  lastSweepFailed: 0,
+  lastSweepDeleted: 0,
+};
+
+/** Read the most recent sweep outcome. Returns a defensive copy. */
+export function getRefreshLoopStatus(): RefreshLoopStatus {
+  return { ...refreshLoopStatus };
+}
+
+/**
  * Proactively refresh all user tokens that are expiring soon.
  * Runs on a 5-minute interval. Tokens within REFRESH_AHEAD_MS of expiry
  * are refreshed. Tokens past the 12-hour session window are deleted.
@@ -364,6 +389,7 @@ export async function refreshAllExpiring(): Promise<void> {
   const now = Date.now();
   let refreshed = 0;
   let expired = 0;
+  let failed = 0;
 
   for (const row of allTokens) {
     const updatedAt = new Date(row.updated_at).getTime();
@@ -380,7 +406,10 @@ export async function refreshAllExpiring(): Promise<void> {
         storeTokenForUser(row.slack_user_id, tokens);
         refreshed++;
       } catch (err) {
-        logger.warn(
+        failed++;
+        // rc.11: promoted from warn to error so default pod-log
+        // filters surface refresh failures.
+        logger.error(
           { slackUserId: row.slack_user_id, err },
           'Background token refresh failed',
         );
@@ -388,7 +417,19 @@ export async function refreshAllExpiring(): Promise<void> {
     }
   }
 
-  if (refreshed > 0 || expired > 0) {
+  refreshLoopStatus = {
+    lastSweepAt: Date.now(),
+    lastSweepRefreshed: refreshed,
+    lastSweepFailed: failed,
+    lastSweepDeleted: expired,
+  };
+
+  if (failed > 0) {
+    logger.error(
+      { refreshed, failed, expired, total: allTokens.length },
+      'Background token refresh sweep had failures',
+    );
+  } else if (refreshed > 0 || expired > 0) {
     logger.info(
       { refreshed, expired, total: allTokens.length },
       'Background token refresh sweep complete',
