@@ -1,28 +1,22 @@
 /**
- * The Kraken SQLite schema.
+ * The Kraken SQLite schema (kraken.db).
  *
  * Applied once on fresh install. Uses CREATE TABLE IF NOT EXISTS throughout.
- * The five tables represent operational state:
- *   - user_tokens: per-user OIDC tokens
+ * The four tables represent non-sensitive operational state:
  *   - enclave_bindings: Slack channel <-> enclave mapping (FK target)
  *   - outbound_messages: sent message dedup log (no FK — covers DMs too)
  *   - deployments: tentacle deploy history (FK -> enclave_bindings.enclave_name)
  *   - thread_sessions: per-thread pi agent sessions (FK -> enclave_bindings.enclave_name)
+ *
+ * NOTE: user_tokens has been moved to SECRETS_SCHEMA_V1 (kraken-secrets.db, mode 0600)
+ * so that subprocess agents reading kraken.db cannot reach OAuth tokens.
+ * See docs/superpowers/specs/2026-05-06-rc11-token-and-session-state-design.md.
  */
 
 export const SCHEMA_V1 = `
 -- The Kraken schema v1
 -- Applied once on fresh install.
-
-CREATE TABLE IF NOT EXISTS user_tokens (
-  slack_user_id TEXT PRIMARY KEY,
-  access_token TEXT NOT NULL,
-  refresh_token TEXT NOT NULL,
-  expires_at INTEGER NOT NULL,
-  keycloak_sub TEXT NOT NULL,
-  email TEXT NOT NULL,
-  updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
-);
+-- NOTE: user_tokens lives in kraken-secrets.db (SECRETS_SCHEMA_V1), not here.
 
 CREATE TABLE IF NOT EXISTS enclave_bindings (
   channel_id TEXT PRIMARY KEY,
@@ -94,6 +88,25 @@ CREATE INDEX IF NOT EXISTS idx_thread_sessions_user
 
 CREATE INDEX IF NOT EXISTS idx_thread_sessions_enclave
   ON thread_sessions(enclave_name);
+`;
+
+/**
+ * Schema for the secrets database (kraken-secrets.db).
+ *
+ * Opened with mode 0600. Holds OAuth access + refresh tokens. NOT
+ * readable by subprocess agents — split out for defense in depth
+ * (rc.11). See docs/superpowers/specs/2026-05-06-rc11-token-and-session-state-design.md.
+ */
+export const SECRETS_SCHEMA_V1 = `
+CREATE TABLE IF NOT EXISTS user_tokens (
+  slack_user_id TEXT PRIMARY KEY,
+  access_token TEXT NOT NULL,
+  refresh_token TEXT NOT NULL,
+  expires_at INTEGER NOT NULL,
+  keycloak_sub TEXT NOT NULL,
+  email TEXT NOT NULL,
+  updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+);
 `;
 
 /**
