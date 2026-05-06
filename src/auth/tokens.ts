@@ -1,6 +1,13 @@
 /**
- * Per-user OIDC token storage backed by SQLite user_tokens table.
- * The table is created by src/db/schema.ts on startup.
+ * Per-user OIDC token storage.
+ *
+ * Backed by the kraken-secrets.db SQLite file (mode 0600), separate
+ * from kraken.db so subprocess agents that read the main DB cannot
+ * reach OAuth tokens at the OS layer (rc.11 defense-in-depth split).
+ *
+ * The table is created by src/db/migrations.ts applySecretsMigrations()
+ * via initSecretsDatabase() on startup. Spec:
+ * docs/superpowers/specs/2026-05-06-rc11-token-and-session-state-design.md
  */
 import type Database from 'better-sqlite3';
 

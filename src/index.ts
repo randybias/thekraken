@@ -24,7 +24,7 @@
 import { loadConfig } from './config.js';
 import { initTelemetry, shutdownTelemetry } from './telemetry.js';
 import { createChildLogger } from './logger.js';
-import { initDatabase } from './db/index.js';
+import { initDatabase, initSecretsDatabase } from './db/index.js';
 import {
   extractEmailFromToken,
   getValidTokenForUser,
@@ -55,9 +55,11 @@ async function main(): Promise<void> {
   // 3. SQLite
   const db = initDatabase(config);
   log.info('Database initialized');
+  const secretsDb = initSecretsDatabase(config);
+  log.info('Secrets database initialized');
 
   // 3a. Auth: token store + background refresh loop
-  initTokenStore(db);
+  initTokenStore(secretsDb);
   startTokenRefreshLoop();
   log.info('Token store and refresh loop initialized');
 
