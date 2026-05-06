@@ -66,6 +66,29 @@ export const MEMBER_EMAIL = process.env['KRAKEN_E2E_MEMBER_EMAIL'] ?? '';
 
 export const DEFAULT_TIMEOUT_MS = 60_000; // 60s per scenario
 
+/**
+ * Global timeout multiplier for all scenario timeouts.
+ *
+ * Set KRAKEN_E2E_TIMEOUT_MULT to scale every scenario.timeoutMs (and the
+ * DEFAULT_TIMEOUT_MS fallback) by this factor. Useful when the upstream
+ * Anthropic API is slow — without this, every team-manager scenario
+ * times out at 60-90s while the LLM is still streaming.
+ *
+ * Default 1 (no scaling). Common values: 5 for slow-API days, 10 for
+ * extremely degraded LLM service.
+ */
+export const TIMEOUT_MULT = (() => {
+  const raw = process.env['KRAKEN_E2E_TIMEOUT_MULT'];
+  if (!raw) return 1;
+  const n = Number(raw);
+  return Number.isFinite(n) && n > 0 ? n : 1;
+})();
+
+/** Scale a per-scenario timeout by TIMEOUT_MULT. */
+export function scaledTimeout(timeoutMs: number | undefined): number {
+  return Math.round((timeoutMs ?? DEFAULT_TIMEOUT_MS) * TIMEOUT_MULT);
+}
+
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
@@ -422,10 +445,13 @@ async function getMcpCallForUser(): Promise<{
   // if the stored access_token is expired). Pipe ESM script to node
   // via kubectl exec -i to avoid shell-escaping headaches.
   const { execSync } = await import('node:child_process');
+  // rc.11+: user_tokens lives in kraken-secrets.db (mode 600), not
+  // kraken.db. Open the secrets DB so initTokenStore points at the
+  // table. See docs/superpowers/specs/2026-05-06-rc11-token-and-session-state-design.md.
   const tokenScript =
     "import('/app/dist/auth/tokens.js').then(async (t) => {" +
     "  const Database = (await import('better-sqlite3')).default;" +
-    "  const db = new Database('/app/data/kraken.db');" +
+    "  const db = new Database('/app/data/kraken-secrets.db');" +
     '  t.initTokenStore(db);' +
     "  const oidc = await import('/app/dist/auth/oidc.js');" +
     `  const tok = await oidc.getValidTokenForUser(${JSON.stringify(slackUserId)});` +
@@ -535,7 +561,7 @@ export async function runScenario(
       const firstReply = await postDriver.waitForKrakenReply(
         channelId,
         threadTs,
-        scenario.timeoutMs ?? DEFAULT_TIMEOUT_MS,
+        scaledTimeout(scenario.timeoutMs),
       );
       const subsequentReplies: string[] = [];
       for (const followUp of scenario.followUpMessages!) {
@@ -544,7 +570,7 @@ export async function runScenario(
         const followUpReply = await postDriver.waitForKrakenReply(
           channelId,
           threadTs,
-          scenario.timeoutMs ?? DEFAULT_TIMEOUT_MS,
+          scaledTimeout(scenario.timeoutMs),
         );
         subsequentReplies.push(followUpReply);
       }
@@ -566,14 +592,14 @@ export async function runScenario(
         replyText = await postDriver.waitForKrakenReply(
           channelId,
           threadTs,
-          scenario.timeoutMs ?? DEFAULT_TIMEOUT_MS,
+          scaledTimeout(scenario.timeoutMs),
         );
       } else {
         const replies = await postDriver.waitForKrakenReplies(
           channelId,
           threadTs,
           replyCount,
-          scenario.timeoutMs ?? DEFAULT_TIMEOUT_MS,
+          scaledTimeout(scenario.timeoutMs),
         );
         replyText = replies.join('\n\n---\n\n');
       }
@@ -674,7 +700,9 @@ export async function runScenario(
       }
       const { mcpCall } = mcpCallSetup;
       const pollMs = scenario.mcpAssertion.pollMs ?? 5_000;
-      const budgetMs = scenario.mcpAssertion.timeoutMs ?? 3 * 60 * 1000;
+      const budgetMs = scaledTimeout(
+        scenario.mcpAssertion.timeoutMs ?? 3 * 60 * 1000,
+      );
       const deadline = Date.now() + budgetMs;
       let lastErr: string | null = 'not evaluated';
       while (Date.now() < deadline) {
