@@ -21,7 +21,10 @@ import { describe, it, expect, afterEach } from 'vitest';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { createDatabase, createSecretsDatabase } from '../../src/db/migrations.js';
+import {
+  createDatabase,
+  createSecretsDatabase,
+} from '../../src/db/migrations.js';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -54,17 +57,19 @@ describe('startup with existing database', () => {
     // === First startup: write a user token to the secrets DB ===
     {
       const secretsDb = createSecretsDatabase(secretsDbPath);
-      secretsDb.prepare(
-        `INSERT INTO user_tokens (slack_user_id, access_token, refresh_token, expires_at, keycloak_sub, email)
+      secretsDb
+        .prepare(
+          `INSERT INTO user_tokens (slack_user_id, access_token, refresh_token, expires_at, keycloak_sub, email)
          VALUES (?, ?, ?, ?, ?, ?)`,
-      ).run(
-        'U_ALICE',
-        'at-alice-1',
-        'rt-alice-1',
-        '2026-12-31T00:00:00.000Z',
-        'sub-alice',
-        'alice@example.com',
-      );
+        )
+        .run(
+          'U_ALICE',
+          'at-alice-1',
+          'rt-alice-1',
+          '2026-12-31T00:00:00.000Z',
+          'sub-alice',
+          'alice@example.com',
+        );
       secretsDb.close();
     }
 
@@ -95,28 +100,32 @@ describe('startup with existing database', () => {
 
     {
       const secretsDb = createSecretsDatabase(secretsDbPath);
-      secretsDb.prepare(
-        `INSERT INTO user_tokens (slack_user_id, access_token, refresh_token, expires_at, keycloak_sub, email)
+      secretsDb
+        .prepare(
+          `INSERT INTO user_tokens (slack_user_id, access_token, refresh_token, expires_at, keycloak_sub, email)
          VALUES (?, ?, ?, ?, ?, ?)`,
-      ).run(
-        'U_ALICE',
-        'at-alice',
-        'rt-alice',
-        '2026-12-31T00:00:00.000Z',
-        'sub-alice',
-        'alice@example.com',
-      );
-      secretsDb.prepare(
-        `INSERT INTO user_tokens (slack_user_id, access_token, refresh_token, expires_at, keycloak_sub, email)
+        )
+        .run(
+          'U_ALICE',
+          'at-alice',
+          'rt-alice',
+          '2026-12-31T00:00:00.000Z',
+          'sub-alice',
+          'alice@example.com',
+        );
+      secretsDb
+        .prepare(
+          `INSERT INTO user_tokens (slack_user_id, access_token, refresh_token, expires_at, keycloak_sub, email)
          VALUES (?, ?, ?, ?, ?, ?)`,
-      ).run(
-        'U_BOB',
-        'at-bob',
-        'rt-bob',
-        '2026-12-31T00:00:00.000Z',
-        'sub-bob',
-        'bob@example.com',
-      );
+        )
+        .run(
+          'U_BOB',
+          'at-bob',
+          'rt-bob',
+          '2026-12-31T00:00:00.000Z',
+          'sub-bob',
+          'bob@example.com',
+        );
       secretsDb.close();
     }
 
@@ -208,17 +217,19 @@ describe('startup with existing database', () => {
     {
       const db = createDatabase(dbPath);
       const secretsDb = createSecretsDatabase(secretsDbPath);
-      secretsDb.prepare(
-        `INSERT INTO user_tokens (slack_user_id, access_token, refresh_token, expires_at, keycloak_sub, email)
+      secretsDb
+        .prepare(
+          `INSERT INTO user_tokens (slack_user_id, access_token, refresh_token, expires_at, keycloak_sub, email)
          VALUES (?, ?, ?, ?, ?, ?)`,
-      ).run(
-        'U_PERSIST',
-        'at-persist',
-        'rt-persist',
-        '2026-12-31T00:00:00.000Z',
-        'sub-persist',
-        'persist@example.com',
-      );
+        )
+        .run(
+          'U_PERSIST',
+          'at-persist',
+          'rt-persist',
+          '2026-12-31T00:00:00.000Z',
+          'sub-persist',
+          'persist@example.com',
+        );
       db.close();
       secretsDb.close();
     }
@@ -304,34 +315,38 @@ describe('startup with existing database', () => {
 
     {
       const secretsDb = createSecretsDatabase(secretsDbPath);
-      secretsDb.prepare(
-        `INSERT INTO user_tokens (slack_user_id, access_token, refresh_token, expires_at, keycloak_sub, email)
+      secretsDb
+        .prepare(
+          `INSERT INTO user_tokens (slack_user_id, access_token, refresh_token, expires_at, keycloak_sub, email)
          VALUES (?, ?, ?, ?, ?, ?)`,
-      ).run(
-        'U_PRE',
-        'at-pre',
-        'rt-pre',
-        '2026-12-31T00:00:00.000Z',
-        'sub-pre',
-        'pre@example.com',
-      );
+        )
+        .run(
+          'U_PRE',
+          'at-pre',
+          'rt-pre',
+          '2026-12-31T00:00:00.000Z',
+          'sub-pre',
+          'pre@example.com',
+        );
       secretsDb.close();
     }
 
     {
       const secretsDb = createSecretsDatabase(secretsDbPath);
       // Write new row after restart
-      secretsDb.prepare(
-        `INSERT INTO user_tokens (slack_user_id, access_token, refresh_token, expires_at, keycloak_sub, email)
+      secretsDb
+        .prepare(
+          `INSERT INTO user_tokens (slack_user_id, access_token, refresh_token, expires_at, keycloak_sub, email)
          VALUES (?, ?, ?, ?, ?, ?)`,
-      ).run(
-        'U_POST',
-        'at-post',
-        'rt-post',
-        '2026-12-31T00:00:00.000Z',
-        'sub-post',
-        'post@example.com',
-      );
+        )
+        .run(
+          'U_POST',
+          'at-post',
+          'rt-post',
+          '2026-12-31T00:00:00.000Z',
+          'sub-post',
+          'post@example.com',
+        );
 
       const rows = secretsDb
         .prepare(`SELECT slack_user_id FROM user_tokens ORDER BY slack_user_id`)

@@ -1,5 +1,8 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { createDatabase, createSecretsDatabase } from '../../src/db/migrations.js';
+import {
+  createDatabase,
+  createSecretsDatabase,
+} from '../../src/db/migrations.js';
 import type Database from 'better-sqlite3';
 
 let db: Database.Database;

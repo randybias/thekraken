@@ -70,9 +70,7 @@ describe('DM system prompt — no-confab clause', () => {
   });
 
   it('no-confab clause covers the "I don\'t have access to Slack" denial pattern', () => {
-    expect(prompt).toMatch(
-      /I don.t have access to Slack|structural denial/i,
-    );
+    expect(prompt).toMatch(/I don.t have access to Slack|structural denial/i);
   });
 });
 

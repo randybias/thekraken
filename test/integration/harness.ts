@@ -21,7 +21,10 @@ import { join } from 'node:path';
 import { mkdirSync, rmSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import Database from 'better-sqlite3';
-import { createDatabase, createSecretsDatabase } from '../../src/db/migrations.js';
+import {
+  createDatabase,
+  createSecretsDatabase,
+} from '../../src/db/migrations.js';
 import { initTokenStore, setUserToken } from '../../src/auth/tokens.js';
 import { EnclaveBindingEngine } from '../../src/enclave/binding.js';
 import { OutboundTracker } from '../../src/slack/outbound.js';

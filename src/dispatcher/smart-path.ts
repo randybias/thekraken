@@ -161,7 +161,9 @@ export async function runSmartPath(
 
   let activeToken = await resolveTokenForEntry();
   if (!activeToken) {
-    log.error('smart-path: no token available at entry — aborting with re-auth');
+    log.error(
+      'smart-path: no token available at entry — aborting with re-auth',
+    );
     return REAUTH_MESSAGE;
   }
 

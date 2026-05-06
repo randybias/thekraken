@@ -509,7 +509,10 @@ export async function runKeycloakPreflight(
 
   if (!res.ok) {
     const reason = `issuer returned ${res.status}`;
-    logger.error({ issuer, status: res.status }, `Keycloak preflight: ${reason}`);
+    logger.error(
+      { issuer, status: res.status },
+      `Keycloak preflight: ${reason}`,
+    );
     return { ok: false, reason };
   }
 

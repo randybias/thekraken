@@ -194,7 +194,6 @@ describe('filterJargon — webhook (NOT translated, bug thekraken#21)', () => {
   });
 });
 
-
 describe('filterJargon — ConfigMap / configmap', () => {
   it('replaces ConfigMap with configuration', () => {
     expect(filterJargon('Update the ConfigMap.')).toBe(

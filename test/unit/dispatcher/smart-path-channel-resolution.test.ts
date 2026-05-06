@@ -38,7 +38,9 @@ describe('smart-path channel-name resolution wiring', () => {
     db.prepare(
       `INSERT INTO enclave_bindings (channel_id, enclave_name, owner_slack_id) VALUES (?, ?, ?)`,
     ).run('C123', 'binding-name', 'U1');
-    expect(effectiveChannelName(db, 'C123', 'explicit-name')).toBe('explicit-name');
+    expect(effectiveChannelName(db, 'C123', 'explicit-name')).toBe(
+      'explicit-name',
+    );
   });
 
   it('falls back to resolved enclave name when ctx.channelName missing', () => {
@@ -50,10 +52,14 @@ describe('smart-path channel-name resolution wiring', () => {
   });
 
   it('returns undefined when no binding and no ctx.channelName', () => {
-    expect(effectiveChannelName(inMemDb(), 'CMISSING', undefined)).toBeUndefined();
+    expect(
+      effectiveChannelName(inMemDb(), 'CMISSING', undefined),
+    ).toBeUndefined();
   });
 
   it('returns undefined when neither channelId nor channelName present', () => {
-    expect(effectiveChannelName(inMemDb(), undefined, undefined)).toBeUndefined();
+    expect(
+      effectiveChannelName(inMemDb(), undefined, undefined),
+    ).toBeUndefined();
   });
 });

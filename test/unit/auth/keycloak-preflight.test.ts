@@ -30,16 +30,20 @@ describe('Keycloak preflight (rc.11)', () => {
   it('returns ok=false (not throwing) on unreachable issuer', async () => {
     globalThis.fetch = vi
       .fn()
-      .mockRejectedValue(new Error('ECONNREFUSED')) as unknown as typeof globalThis.fetch;
+      .mockRejectedValue(
+        new Error('ECONNREFUSED'),
+      ) as unknown as typeof globalThis.fetch;
     const result = await runKeycloakPreflight('https://nope');
     expect(result.ok).toBe(false);
     expect(result.reason).toMatch(/unreachable|ECONNREFUSED/i);
   });
 
   it('returns ok=false on non-2xx response', async () => {
-    globalThis.fetch = vi.fn().mockResolvedValue(
-      new Response('boom', { status: 500 }),
-    ) as unknown as typeof globalThis.fetch;
+    globalThis.fetch = vi
+      .fn()
+      .mockResolvedValue(
+        new Response('boom', { status: 500 }),
+      ) as unknown as typeof globalThis.fetch;
     const result = await runKeycloakPreflight('https://issuer');
     expect(result.ok).toBe(false);
     expect(result.reason).toMatch(/500/);

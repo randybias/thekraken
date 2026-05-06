@@ -4,7 +4,11 @@ import {
   refreshAllExpiring,
   getRefreshLoopStatus,
 } from '../../../src/auth/oidc.js';
-import { initTokenStore, setUserToken, deleteUserToken } from '../../../src/auth/tokens.js';
+import {
+  initTokenStore,
+  setUserToken,
+  deleteUserToken,
+} from '../../../src/auth/tokens.js';
 
 function makeInMemoryDb(): Database.Database {
   const db = new Database(':memory:');
@@ -75,7 +79,9 @@ describe('refresh loop status (rc.11)', () => {
     // Mock fetch to return a 400 — refreshToken throws, sweep counts a failure.
     globalThis.fetch = vi
       .fn()
-      .mockResolvedValue(new Response('bad', { status: 400 })) as unknown as typeof globalThis.fetch;
+      .mockResolvedValue(
+        new Response('bad', { status: 400 }),
+      ) as unknown as typeof globalThis.fetch;
 
     await refreshAllExpiring();
 

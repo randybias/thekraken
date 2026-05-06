@@ -199,7 +199,9 @@ async function main(): Promise<void> {
         // Resolve channel name from the active enclave binding when the
         // dispatcher hasn't already populated it. Avoids smart-path emitting
         // raw Slack channel IDs in replies (bug thekraken#19).
-        const resolved = ctx.channelId ? resolveChannel(db, ctx.channelId) : null;
+        const resolved = ctx.channelId
+          ? resolveChannel(db, ctx.channelId)
+          : null;
         const channelName = ctx.channelName ?? resolved?.enclaveName;
 
         const answer = await runSmartPath({

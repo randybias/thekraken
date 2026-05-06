@@ -191,9 +191,7 @@ const COMMANDS: Record<string, (args: string[]) => unknown> = {
   'recent-deployments': (args) => {
     const { positional, flags } = parseFlags(args);
     if (positional.length !== 1) {
-      fail(
-        'usage: recent-deployments <enclave> [--tentacle X] [--limit N]',
-      );
+      fail('usage: recent-deployments <enclave> [--tentacle X] [--limit N]');
     }
     return recentDeployments(positional[0] ?? '', {
       tentacle: flags['tentacle'],

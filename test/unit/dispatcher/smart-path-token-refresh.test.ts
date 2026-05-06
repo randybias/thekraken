@@ -47,7 +47,10 @@ beforeEach(() => {
 
 describe('smart-path token refresh on entry', () => {
   it('uses fresh token from getFreshToken when one is provided', async () => {
-    mockCreateMcp.mockResolvedValueOnce({ tools: [], close: () => Promise.resolve() });
+    mockCreateMcp.mockResolvedValueOnce({
+      tools: [],
+      close: () => Promise.resolve(),
+    });
     await runSmartPath({
       ...baseInput,
       getFreshToken: () => Promise.resolve('fresh-token'),
@@ -56,7 +59,10 @@ describe('smart-path token refresh on entry', () => {
   });
 
   it('falls back to userToken snapshot when getFreshToken returns null', async () => {
-    mockCreateMcp.mockResolvedValueOnce({ tools: [], close: () => Promise.resolve() });
+    mockCreateMcp.mockResolvedValueOnce({
+      tools: [],
+      close: () => Promise.resolve(),
+    });
     await runSmartPath({
       ...baseInput,
       getFreshToken: () => Promise.resolve(null),
@@ -82,7 +88,9 @@ describe('smart-path token refresh on entry', () => {
   });
 
   it('returns re-auth message on persistent 401', async () => {
-    mockCreateMcp.mockRejectedValue(Object.assign(new Error('401'), { code: 401 }));
+    mockCreateMcp.mockRejectedValue(
+      Object.assign(new Error('401'), { code: 401 }),
+    );
     const result = await runSmartPath({
       ...baseInput,
       getFreshToken: () => Promise.resolve('still-bad'),
@@ -91,12 +99,15 @@ describe('smart-path token refresh on entry', () => {
   });
 
   it('returns re-auth message when getFreshToken keeps returning null on retry', async () => {
-    mockCreateMcp.mockRejectedValueOnce(Object.assign(new Error('401'), { code: 401 }));
+    mockCreateMcp.mockRejectedValueOnce(
+      Object.assign(new Error('401'), { code: 401 }),
+    );
     let callCount = 0;
     const result = await runSmartPath({
       ...baseInput,
       // First call returns the snapshot fallback; on 401 retry, returns null
-      getFreshToken: () => Promise.resolve(callCount++ === 0 ? 'stale-token' : null),
+      getFreshToken: () =>
+        Promise.resolve(callCount++ === 0 ? 'stale-token' : null),
     });
     expect(result).toMatch(/session has expired|re-?authenticate/i);
   });

@@ -94,11 +94,7 @@ describe('midTurnRefreshTick', () => {
       writeFile,
     });
 
-    const [, , expiresIn] = writeFile.mock.calls[0] as [
-      string,
-      string,
-      number,
-    ];
+    const [, , expiresIn] = writeFile.mock.calls[0] as [string, string, number];
     expect(expiresIn).toBeGreaterThan(0);
   });
 

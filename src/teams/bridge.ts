@@ -1178,10 +1178,7 @@ export async function midTurnRefreshTick(
   const expiresIn = extractExpiresIn(fresh, log, enclaveName);
   const writer = writeFile ?? writeTokenFile;
   writer(teamDir, fresh, expiresIn);
-  log.debug(
-    { enclaveName, expiresIn },
-    'team-bridge: mid-turn token refresh',
-  );
+  log.debug({ enclaveName, expiresIn }, 'team-bridge: mid-turn token refresh');
 }
 
 /**

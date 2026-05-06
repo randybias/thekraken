@@ -108,10 +108,7 @@ describe('kraken-db CLI', () => {
       seedBindings(db);
       db.close();
 
-      const { stdout, status } = runCli(dir, [
-        'lookup-channel',
-        'C0AMY8XNBV2',
-      ]);
+      const { stdout, status } = runCli(dir, ['lookup-channel', 'C0AMY8XNBV2']);
       expect(status).toBe(0);
       const result = JSON.parse(stdout) as {
         enclaveName: string;
