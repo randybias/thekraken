@@ -467,3 +467,84 @@ export function stopTokenRefreshLoop(): void {
     refreshTimer = null;
   }
 }
+
+// ---------------------------------------------------------------------------
+// Keycloak preflight (rc.11)
+// ---------------------------------------------------------------------------
+
+export interface KeycloakPreflightResult {
+  ok: boolean;
+  reason?: string;
+}
+
+/**
+ * Validate the Keycloak realm at startup. Logs loudly on failure
+ * but never throws — Kraken always continues to start so the next
+ * Slack message can still be processed and the operator can see
+ * the failure in pod logs.
+ *
+ * Checks:
+ *   - issuer reachable + valid OIDC discovery JSON
+ *   - device_authorization_endpoint present (we use device auth)
+ *   - offline_access in scopes_supported (we request it)
+ *   - jwks_uri present
+ *
+ * Per design 2026-05-06: realm-side TTL settings cannot be checked
+ * without admin creds, so we observe access-token TTL implicitly via
+ * stored expires_in values elsewhere. This preflight only validates
+ * what the public discovery endpoint exposes.
+ */
+export async function runKeycloakPreflight(
+  issuer: string,
+): Promise<KeycloakPreflightResult> {
+  const url = `${issuer.replace(/\/$/, '')}/.well-known/openid-configuration`;
+  let res: Response;
+  try {
+    res = await fetch(url);
+  } catch (err) {
+    const reason = `issuer unreachable: ${(err as Error).message}`;
+    logger.error({ issuer, err }, `Keycloak preflight: ${reason}`);
+    return { ok: false, reason };
+  }
+
+  if (!res.ok) {
+    const reason = `issuer returned ${res.status}`;
+    logger.error({ issuer, status: res.status }, `Keycloak preflight: ${reason}`);
+    return { ok: false, reason };
+  }
+
+  let cfg: {
+    device_authorization_endpoint?: string;
+    scopes_supported?: string[];
+    jwks_uri?: string;
+  };
+  try {
+    cfg = (await res.json()) as typeof cfg;
+  } catch (err) {
+    const reason = 'invalid OIDC discovery JSON';
+    logger.error({ issuer, err }, `Keycloak preflight: ${reason}`);
+    return { ok: false, reason };
+  }
+
+  if (!cfg.device_authorization_endpoint) {
+    const reason = 'no device_authorization_endpoint in discovery';
+    logger.error({ issuer }, `Keycloak preflight: ${reason}`);
+    return { ok: false, reason };
+  }
+
+  if (!cfg.scopes_supported?.includes('offline_access')) {
+    const reason =
+      'offline_access not in scopes_supported (configure realm to include offline_access)';
+    logger.error({ issuer }, `Keycloak preflight: ${reason}`);
+    return { ok: false, reason };
+  }
+
+  if (!cfg.jwks_uri) {
+    const reason = 'no jwks_uri in discovery';
+    logger.error({ issuer }, `Keycloak preflight: ${reason}`);
+    return { ok: false, reason };
+  }
+
+  logger.info({ issuer }, 'Keycloak preflight passed');
+  return { ok: true };
+}

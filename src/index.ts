@@ -29,6 +29,7 @@ import {
   extractEmailFromToken,
   getValidTokenForUser,
   initTokenStore,
+  runKeycloakPreflight,
   startTokenRefreshLoop,
   stopTokenRefreshLoop,
 } from './auth/index.js';
@@ -63,6 +64,16 @@ async function main(): Promise<void> {
   initTokenStore(secretsDb);
   startTokenRefreshLoop();
   log.info('Token store and refresh loop initialized');
+
+  // 3b. rc.11: Keycloak preflight. Logs loudly on misconfig; never crashes.
+  // Awaited here so any misconfiguration is visible in startup logs before
+  // the bot declares itself ready. runKeycloakPreflight never throws, so
+  // it is safe to await — a slow or unreachable Keycloak adds at most one
+  // fetch timeout to startup, but the bot will still start.
+  await runKeycloakPreflight(config.oidc.issuer).catch((err) => {
+    log.error({ err }, 'Keycloak preflight crashed unexpectedly (continuing)');
+  });
+  log.info('Keycloak preflight complete');
 
   // 4. Subsystems
   const bindings = new EnclaveBindingEngine(db);
