@@ -852,7 +852,10 @@ export const SMART_PATH_LOCKDOWN_SCENARIOS: ScenarioDef[] = [
     forbiddenPatterns: [
       // No fabricated telemetry — these phrases should never appear in DM
       // because smart-path can't see workflow state in DM mode.
-      /uptime|days.*running|completed successfully|error rate.*0%|status.*green|run history|31 events|19\.7 days/i,
+      // Note: catch fabricated VALUES (numbers, specific status), not
+      // generic capability terms like "run history" which the manager
+      // legitimately uses when describing what it WOULD answer in-enclave.
+      /\d+\s*days?\s*(uptime|running|of activity)|completed successfully|error rate.*0%|status.*green|\d+\s*events|\d+(\.\d+)?\s*days|0%\s*error/i,
     ],
     timeoutMs: 60_000,
   },
