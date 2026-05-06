@@ -39,6 +39,7 @@ import { OutboundPoller } from './teams/outbound-poller.js';
 import { createSlackBot } from './slack/bot.js';
 import { createMcpConnection } from './agent/mcp-connection.js';
 import { runSmartPath, type SmartPathMode } from './dispatcher/smart-path.js';
+import { resolveChannel } from './dispatcher/channel-resolver.js';
 import { runReconciler, type McpReader } from './git-state/reconciler.js';
 
 const log = createChildLogger({ module: 'main' });
@@ -184,6 +185,12 @@ async function main(): Promise<void> {
       }
 
       try {
+        // Resolve channel name from the active enclave binding when the
+        // dispatcher hasn't already populated it. Avoids smart-path emitting
+        // raw Slack channel IDs in replies (bug thekraken#19).
+        const resolved = ctx.channelId ? resolveChannel(db, ctx.channelId) : null;
+        const channelName = ctx.channelName ?? resolved?.enclaveName;
+
         const answer = await runSmartPath({
           userMessage: ctx.text,
           userToken: ctx.userToken,
@@ -194,7 +201,7 @@ async function main(): Promise<void> {
           modelId: config.llm.defaultModel,
           mode: ctx.mode as SmartPathMode,
           channelId: ctx.channelId,
-          channelName: ctx.channelName,
+          channelName,
           priorTurns: ctx.priorTurns,
           // Allow smart-path to re-source a fresh OIDC token between turns.
           // getValidTokenForUser auto-refreshes via the stored refresh_token,
