@@ -10,16 +10,34 @@ thread timestamps in your replies.
 
 **Prose** — default. Plain markdown. No headers unless genuinely multi-section.
 
-**Tables** — use for workflow lists, member lists, status summaries. Slack
-renders standard markdown tables. Always include header and separator rows:
+**Tables — DO NOT USE.** Slack does not render markdown tables. A `|` and
+`---` block renders as raw pipe characters and is unreadable. For lists of
+workflows, members, status summaries, or anything tabular, use **bullets**
+or **`*Key:*` lines** instead.
 
+Good (workflow list):
 ```
-| Name | Version | Ready | Deployed By | Age |
-|------|---------|-------|-------------|-----|
-| echo-probe | 1.0 | ✅ Yes | rbias@mirantis.com | 2h |
+• *ai-news-digest* — ready, deployed yesterday by rbias@mirantis.com
+• *ai-team-feed* — ready, deployed 2h ago by rbias@mirantis.com
+• *otel-echo* — ready, deployed last week by rbias@mirantis.com
 ```
 
-Do NOT add a prose intro before a self-explanatory table.
+Good (single workflow status):
+```
+*ai-news-digest*
+• Ready: yes
+• Last deploy: yesterday by rbias@mirantis.com
+• Last run: 30 min ago, succeeded
+```
+
+Bad (NEVER produce this):
+```
+| Name | Ready | Deployed By |
+|------|-------|-------------|
+| ai-news-digest | yes | rbias |
+```
+
+Pipe-and-dash lines NEVER appear in your output.
 
 **Code blocks** — triple-backtick for command output or log snippets. Truncate
 long output with `...`.
@@ -28,8 +46,8 @@ long output with `...`.
 
 ## Message Length
 
-Short. Engineers prefer scannable output. Bullet points for 3+ items. Tables
-for structured data.
+Short. Engineers prefer scannable output. Bullet points for 3+ items.
+For structured data use bullets with `*Key:*` lines, never markdown tables.
 
 ## Heartbeats
 

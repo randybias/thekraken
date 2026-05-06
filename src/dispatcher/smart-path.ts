@@ -140,13 +140,76 @@ export async function runSmartPath(
         )
       : buildDmSystemPrompt(userEmail);
 
+  // Resolve a fresh token at entry. The caller's snapshot may be stale
+  // (Keycloak access-token TTL ~5 min vs slow Slack delivery + background
+  // refresh cadence). Falls back to the snapshot if getFreshToken errors
+  // or returns null but the snapshot itself is non-empty.
+  async function resolveTokenForEntry(): Promise<string | null> {
+    if (input.getFreshToken) {
+      try {
+        const fresh = await input.getFreshToken();
+        if (fresh) return fresh;
+      } catch (err) {
+        log.warn({ err }, 'smart-path: getFreshToken failed at entry');
+      }
+    }
+    return input.userToken || null;
+  }
+
+  const REAUTH_MESSAGE =
+    'Your session has expired. Please re-authenticate (DM me "login") and try again.';
+
+  let activeToken = await resolveTokenForEntry();
+  if (!activeToken) {
+    log.error(
+      'smart-path: no token available at entry — aborting with re-auth',
+    );
+    return REAUTH_MESSAGE;
+  }
+
   let mcp: McpConnection | null = null;
   try {
-    mcp = await createMcpConnection(input.mcpUrl, input.userToken);
+    mcp = await createMcpConnection(input.mcpUrl, activeToken);
   } catch (err) {
-    log.error({ err }, 'smart-path: MCP connection failed');
-    // Fall through to tool-less mode — we can still answer conversationally.
+    const status = (err as { code?: number }).code;
+    if (status === 401) {
+      log.warn(
+        { err },
+        'smart-path: 401 on initial MCP connect; retrying with fresh token',
+      );
+      const retryToken = input.getFreshToken
+        ? await input.getFreshToken().catch(() => null)
+        : null;
+      if (!retryToken || retryToken === activeToken) {
+        log.error(
+          { err },
+          'smart-path: persistent 401 — aborting with re-auth message',
+        );
+        return REAUTH_MESSAGE;
+      }
+      activeToken = retryToken;
+      try {
+        mcp = await createMcpConnection(input.mcpUrl, activeToken);
+      } catch (err2) {
+        log.error(
+          { err: err2 },
+          'smart-path: 401 persists after retry — aborting with re-auth message',
+        );
+        return REAUTH_MESSAGE;
+      }
+    } else {
+      log.error(
+        { err },
+        'smart-path: MCP connection failed (non-401); falling through to tool-less',
+      );
+      // Non-auth errors keep the existing behavior — better to answer
+      // conversationally than to drop the user.
+    }
   }
+
+  // Update the snapshot so the between-turns rotation compares against
+  // the token we actually used (or are about to use).
+  input.userToken = activeToken;
 
   const model = getModel('anthropic' as never, input.modelId as never);
   const messages: Message[] = [];
@@ -337,7 +400,7 @@ function stripBotMention(text: string, botUserId?: string): string {
   return s.trim();
 }
 
-function buildDmSystemPrompt(userEmail: string): string {
+export function buildDmSystemPrompt(userEmail: string): string {
   return [
     '# Role: The Kraken (DM mode)',
     '',
@@ -374,10 +437,16 @@ function buildDmSystemPrompt(userEmail: string): string {
     '## Style',
     '- First person. Concise. Engineers reading.',
     '- If you do not know, say so.',
+    '',
+    '## Honesty about capabilities',
+    'If you cannot do something, ask the user. NEVER claim a structural denial',
+    '— e.g. "I don\'t have access to Slack" or "I can\'t retrieve that" —',
+    'without first trying with the tools you have. If a tool call',
+    'fails, say what failed and ask the user how to proceed.',
   ].join('\n');
 }
 
-function buildProvisioningPrompt(
+export function buildProvisioningPrompt(
   userEmail: string,
   ownerSub: string,
   channelId: string,
@@ -421,6 +490,12 @@ function buildProvisioningPrompt(
     '- Do NOT ask for owner_email, owner_sub, channel_id, or platform — you already have those.',
     '- Only ask for name and description.',
     '- NEVER mention kubectl, namespace, or pod.',
+    '',
+    '## Honesty about capabilities',
+    'If you cannot do something, ask the user. NEVER claim a structural denial',
+    '— e.g. "I don\'t have access to Slack" or "I can\'t retrieve that" —',
+    'without first trying with the tools you have. If a tool call',
+    'fails, say what failed and ask the user how to proceed.',
   ].join('\n');
 }
 

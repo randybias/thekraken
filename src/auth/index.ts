@@ -11,6 +11,8 @@ export {
   stopTokenRefreshLoop,
   extractEmailFromToken,
   extractSubFromToken,
+  getRefreshLoopStatus,
+  runKeycloakPreflight,
 } from './oidc.js';
 
 export {
@@ -21,5 +23,10 @@ export {
   getAllUserTokens,
 } from './tokens.js';
 
-export type { DeviceAuthResponse, TokenResponse } from './oidc.js';
+export type {
+  DeviceAuthResponse,
+  TokenResponse,
+  RefreshLoopStatus,
+  KeycloakPreflightResult,
+} from './oidc.js';
 export type { StoredToken, TokenInput } from './tokens.js';

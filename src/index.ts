@@ -24,11 +24,12 @@
 import { loadConfig } from './config.js';
 import { initTelemetry, shutdownTelemetry } from './telemetry.js';
 import { createChildLogger } from './logger.js';
-import { initDatabase } from './db/index.js';
+import { initDatabase, initSecretsDatabase } from './db/index.js';
 import {
   extractEmailFromToken,
   getValidTokenForUser,
   initTokenStore,
+  runKeycloakPreflight,
   startTokenRefreshLoop,
   stopTokenRefreshLoop,
 } from './auth/index.js';
@@ -39,6 +40,7 @@ import { OutboundPoller } from './teams/outbound-poller.js';
 import { createSlackBot } from './slack/bot.js';
 import { createMcpConnection } from './agent/mcp-connection.js';
 import { runSmartPath, type SmartPathMode } from './dispatcher/smart-path.js';
+import { resolveChannel } from './dispatcher/channel-resolver.js';
 import { runReconciler, type McpReader } from './git-state/reconciler.js';
 
 const log = createChildLogger({ module: 'main' });
@@ -55,11 +57,23 @@ async function main(): Promise<void> {
   // 3. SQLite
   const db = initDatabase(config);
   log.info('Database initialized');
+  const secretsDb = initSecretsDatabase(config);
+  log.info('Secrets database initialized');
 
   // 3a. Auth: token store + background refresh loop
-  initTokenStore(db);
+  initTokenStore(secretsDb);
   startTokenRefreshLoop();
   log.info('Token store and refresh loop initialized');
+
+  // 3b. rc.11: Keycloak preflight. Logs loudly on misconfig; never crashes.
+  // Awaited here so any misconfiguration is visible in startup logs before
+  // the bot declares itself ready. runKeycloakPreflight never throws, so
+  // it is safe to await — a slow or unreachable Keycloak adds at most one
+  // fetch timeout to startup, but the bot will still start.
+  await runKeycloakPreflight(config.oidc.issuer).catch((err) => {
+    log.error({ err }, 'Keycloak preflight crashed unexpectedly (continuing)');
+  });
+  log.info('Keycloak preflight complete');
 
   // 4. Subsystems
   const bindings = new EnclaveBindingEngine(db);
@@ -182,6 +196,14 @@ async function main(): Promise<void> {
       }
 
       try {
+        // Resolve channel name from the active enclave binding when the
+        // dispatcher hasn't already populated it. Avoids smart-path emitting
+        // raw Slack channel IDs in replies (bug thekraken#19).
+        const resolved = ctx.channelId
+          ? resolveChannel(db, ctx.channelId)
+          : null;
+        const channelName = ctx.channelName ?? resolved?.enclaveName;
+
         const answer = await runSmartPath({
           userMessage: ctx.text,
           userToken: ctx.userToken,
@@ -192,7 +214,7 @@ async function main(): Promise<void> {
           modelId: config.llm.defaultModel,
           mode: ctx.mode as SmartPathMode,
           channelId: ctx.channelId,
-          channelName: ctx.channelName,
+          channelName,
           priorTurns: ctx.priorTurns,
           // Allow smart-path to re-source a fresh OIDC token between turns.
           // getValidTokenForUser auto-refreshes via the stored refresh_token,

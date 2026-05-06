@@ -30,7 +30,6 @@ export function filterJargon(text: string): string {
     .replace(/\b\d+\/\d+ replicas? ready\b/gi, '')
     .replace(/\breplicas?\b/gi, 'instances')
     .replace(/\bquota preset\b/gi, 'resource tier')
-    .replace(/\bwebhook\b/gi, 'system process')
     .replace(/\bConfigMap\b/gi, 'configuration')
     .replace(/\bconfigmap\b/gi, 'configuration')
     .replace(/\bSPIFFE\b/gi, 'security system')

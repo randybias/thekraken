@@ -21,7 +21,10 @@ import { join } from 'node:path';
 import { mkdirSync, rmSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import Database from 'better-sqlite3';
-import { createDatabase } from '../../src/db/migrations.js';
+import {
+  createDatabase,
+  createSecretsDatabase,
+} from '../../src/db/migrations.js';
 import { initTokenStore, setUserToken } from '../../src/auth/tokens.js';
 import { EnclaveBindingEngine } from '../../src/enclave/binding.js';
 import { OutboundTracker } from '../../src/slack/outbound.js';
@@ -146,8 +149,10 @@ export interface Harness {
   mockMcp: HarnessMcp;
   /** Teams accessor. */
   teams: HarnessTeams;
-  /** Raw DB for direct inspection. */
+  /** Raw DB for direct inspection (main DB — enclave_bindings, deployments, etc). */
   db: Database.Database;
+  /** Secrets DB for direct inspection (user_tokens). */
+  secretsDb: Database.Database;
   /** Shut down all subsystems and clean up temp dirs. */
   shutdown(): Promise<void>;
 }
@@ -398,9 +403,11 @@ export async function createHarness(
   const teamsDir = join(tmpBase, 'teams');
   mkdirSync(teamsDir, { recursive: true });
 
-  // --- Database (in-memory) ---
+  // --- Databases (in-memory) ---
+  // rc.11: user_tokens lives in a separate secrets DB. Tests need both.
   const db = createDatabase(':memory:');
-  initTokenStore(db);
+  const secretsDb = createSecretsDatabase(':memory:');
+  initTokenStore(secretsDb);
 
   // --- Pre-seed authenticated users ---
   const futureExpiry = Date.now() + 8 * 60 * 60 * 1000; // 8 hours from now
@@ -905,6 +912,7 @@ export async function createHarness(
     await poller.stop();
     await teamsManager.shutdownAll();
     db.close();
+    secretsDb.close();
     if (existsSync(tmpBase)) {
       rmSync(tmpBase, { recursive: true, force: true });
     }
@@ -919,6 +927,7 @@ export async function createHarness(
       activeTeams: () => teamsManager.getActiveTeamNames(),
     },
     db,
+    secretsDb,
     shutdown,
   };
 }

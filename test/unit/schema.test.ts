@@ -1,5 +1,8 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { createDatabase } from '../../src/db/migrations.js';
+import {
+  createDatabase,
+  createSecretsDatabase,
+} from '../../src/db/migrations.js';
 import type Database from 'better-sqlite3';
 
 let db: Database.Database;
@@ -9,40 +12,31 @@ beforeEach(() => {
 });
 
 describe('SQLite schema', () => {
-  it('creates all five tables', () => {
+  it('creates the non-sensitive tables in the main DB', () => {
     const tables = db
       .prepare(
         `SELECT name FROM sqlite_master WHERE type='table' ORDER BY name`,
       )
       .all() as Array<{ name: string }>;
     const names = tables.map((t) => t.name);
-    expect(names).toContain('user_tokens');
+    expect(names).not.toContain('user_tokens');
     expect(names).toContain('enclave_bindings');
     expect(names).toContain('outbound_messages');
     expect(names).toContain('deployments');
     expect(names).toContain('thread_sessions');
+    expect(names).toContain('change_summaries');
   });
 
-  it('inserts and reads user_tokens', () => {
-    db.prepare(
-      `INSERT INTO user_tokens (slack_user_id, access_token, refresh_token, expires_at, keycloak_sub, email)
-       VALUES (?, ?, ?, ?, ?, ?)`,
-    ).run(
-      'U123',
-      'at',
-      'rt',
-      '2026-01-01T00:00:00.000Z',
-      'sub-1',
-      'test@example.com',
-    );
-    const row = db
-      .prepare(`SELECT * FROM user_tokens WHERE slack_user_id = ?`)
-      .get('U123') as {
-      slack_user_id: string;
-      email: string;
-    };
-    expect(row).toBeTruthy();
-    expect(row.email).toBe('test@example.com');
+  it('secrets DB contains user_tokens', () => {
+    const sdb = createSecretsDatabase(':memory:');
+    const tables = sdb
+      .prepare(
+        `SELECT name FROM sqlite_master WHERE type='table' ORDER BY name`,
+      )
+      .all() as Array<{ name: string }>;
+    const names = tables.map((t) => t.name);
+    expect(names).toContain('user_tokens');
+    sdb.close();
   });
 
   it('inserts and reads enclave_bindings', () => {

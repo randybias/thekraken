@@ -354,6 +354,31 @@ export async function getValidTokenForUser(
 let refreshTimer: ReturnType<typeof setInterval> | null = null;
 
 /**
+ * Status of the most recent token-refresh sweep. Exposed for the
+ * health endpoint to surface refresh-loop liveness.
+ *
+ * `lastSweepAt` is null until the first sweep completes.
+ */
+export interface RefreshLoopStatus {
+  lastSweepAt: number | null;
+  lastSweepRefreshed: number;
+  lastSweepFailed: number;
+  lastSweepDeleted: number;
+}
+
+let refreshLoopStatus: RefreshLoopStatus = {
+  lastSweepAt: null,
+  lastSweepRefreshed: 0,
+  lastSweepFailed: 0,
+  lastSweepDeleted: 0,
+};
+
+/** Read the most recent sweep outcome. Returns a defensive copy. */
+export function getRefreshLoopStatus(): RefreshLoopStatus {
+  return { ...refreshLoopStatus };
+}
+
+/**
  * Proactively refresh all user tokens that are expiring soon.
  * Runs on a 5-minute interval. Tokens within REFRESH_AHEAD_MS of expiry
  * are refreshed. Tokens past the 12-hour session window are deleted.
@@ -364,6 +389,7 @@ export async function refreshAllExpiring(): Promise<void> {
   const now = Date.now();
   let refreshed = 0;
   let expired = 0;
+  let failed = 0;
 
   for (const row of allTokens) {
     const updatedAt = new Date(row.updated_at).getTime();
@@ -380,7 +406,10 @@ export async function refreshAllExpiring(): Promise<void> {
         storeTokenForUser(row.slack_user_id, tokens);
         refreshed++;
       } catch (err) {
-        logger.warn(
+        failed++;
+        // rc.11: promoted from warn to error so default pod-log
+        // filters surface refresh failures.
+        logger.error(
           { slackUserId: row.slack_user_id, err },
           'Background token refresh failed',
         );
@@ -388,7 +417,19 @@ export async function refreshAllExpiring(): Promise<void> {
     }
   }
 
-  if (refreshed > 0 || expired > 0) {
+  refreshLoopStatus = {
+    lastSweepAt: Date.now(),
+    lastSweepRefreshed: refreshed,
+    lastSweepFailed: failed,
+    lastSweepDeleted: expired,
+  };
+
+  if (failed > 0) {
+    logger.error(
+      { refreshed, failed, expired, total: allTokens.length },
+      'Background token refresh sweep had failures',
+    );
+  } else if (refreshed > 0 || expired > 0) {
     logger.info(
       { refreshed, expired, total: allTokens.length },
       'Background token refresh sweep complete',
@@ -425,4 +466,88 @@ export function stopTokenRefreshLoop(): void {
     clearInterval(refreshTimer);
     refreshTimer = null;
   }
+}
+
+// ---------------------------------------------------------------------------
+// Keycloak preflight (rc.11)
+// ---------------------------------------------------------------------------
+
+export interface KeycloakPreflightResult {
+  ok: boolean;
+  reason?: string;
+}
+
+/**
+ * Validate the Keycloak realm at startup. Logs loudly on failure
+ * but never throws — Kraken always continues to start so the next
+ * Slack message can still be processed and the operator can see
+ * the failure in pod logs.
+ *
+ * Checks:
+ *   - issuer reachable + valid OIDC discovery JSON
+ *   - device_authorization_endpoint present (we use device auth)
+ *   - offline_access in scopes_supported (we request it)
+ *   - jwks_uri present
+ *
+ * Per design 2026-05-06: realm-side TTL settings cannot be checked
+ * without admin creds, so we observe access-token TTL implicitly via
+ * stored expires_in values elsewhere. This preflight only validates
+ * what the public discovery endpoint exposes.
+ */
+export async function runKeycloakPreflight(
+  issuer: string,
+): Promise<KeycloakPreflightResult> {
+  const url = `${issuer.replace(/\/$/, '')}/.well-known/openid-configuration`;
+  let res: Response;
+  try {
+    res = await fetch(url);
+  } catch (err) {
+    const reason = `issuer unreachable: ${(err as Error).message}`;
+    logger.error({ issuer, err }, `Keycloak preflight: ${reason}`);
+    return { ok: false, reason };
+  }
+
+  if (!res.ok) {
+    const reason = `issuer returned ${res.status}`;
+    logger.error(
+      { issuer, status: res.status },
+      `Keycloak preflight: ${reason}`,
+    );
+    return { ok: false, reason };
+  }
+
+  let cfg: {
+    device_authorization_endpoint?: string;
+    scopes_supported?: string[];
+    jwks_uri?: string;
+  };
+  try {
+    cfg = (await res.json()) as typeof cfg;
+  } catch (err) {
+    const reason = 'invalid OIDC discovery JSON';
+    logger.error({ issuer, err }, `Keycloak preflight: ${reason}`);
+    return { ok: false, reason };
+  }
+
+  if (!cfg.device_authorization_endpoint) {
+    const reason = 'no device_authorization_endpoint in discovery';
+    logger.error({ issuer }, `Keycloak preflight: ${reason}`);
+    return { ok: false, reason };
+  }
+
+  if (!cfg.scopes_supported?.includes('offline_access')) {
+    const reason =
+      'offline_access not in scopes_supported (configure realm to include offline_access)';
+    logger.error({ issuer }, `Keycloak preflight: ${reason}`);
+    return { ok: false, reason };
+  }
+
+  if (!cfg.jwks_uri) {
+    const reason = 'no jwks_uri in discovery';
+    logger.error({ issuer }, `Keycloak preflight: ${reason}`);
+    return { ok: false, reason };
+  }
+
+  logger.info({ issuer }, 'Keycloak preflight passed');
+  return { ok: true };
 }

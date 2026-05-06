@@ -156,9 +156,10 @@ Read `references/mcp-tools-manager.md` for the full list. Key tools:
 The bridge posts the manager's last assistant text to Slack verbatim. Reply
 format matters:
 
-- **Workflow lists**: rendered as Slack-formatted markdown tables
-  (`| Name | Version | Ready | Deployed By | Age | Access |`). Do NOT
-  prefix with "Here are your workflows:" — the table is self-evident.
+- **Workflow lists**: rendered as bullet lines, not markdown tables. Slack
+  does not render `|...|---|` blocks. One bullet per workflow, with
+  `*Key:*` style metadata. Do NOT prefix with "Here are your workflows:"
+  — the list is self-evident. See `references/slack-ux.md`.
 - **Heartbeats**: the bridge emits these automatically on significant signals.
   Do not also send "I'll keep you updated" — the bridge handles cadence.
 - **Task completion broadcasts**: "Done! Task completed successfully." may
