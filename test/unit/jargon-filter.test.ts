@@ -186,13 +186,14 @@ describe('filterJargon — gVisor', () => {
   });
 });
 
-describe('filterJargon — webhook', () => {
-  it('replaces webhook with system process', () => {
+describe('filterJargon — webhook (NOT translated, bug thekraken#21)', () => {
+  it('leaves "webhook" alone — it is a legit user-facing term', () => {
     expect(filterJargon('A webhook triggered the run.')).toBe(
-      'A system process triggered the run.',
+      'A webhook triggered the run.',
     );
   });
 });
+
 
 describe('filterJargon — ConfigMap / configmap', () => {
   it('replaces ConfigMap with configuration', () => {
