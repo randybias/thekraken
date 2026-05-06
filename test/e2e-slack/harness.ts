@@ -365,9 +365,19 @@ export async function bootHarness(): Promise<HarnessBootResult> {
     );
   }
 
+  // DM channel: CHANNELS.dm is configured as a literal channel ID (D...) — no
+  // name resolution needed. Pass through directly so L-group scenarios can run.
+  const dmChannelId = CHANNELS.dm;
+  if (!dmChannelId) {
+    console.warn(
+      '[harness] CHANNELS.dm not configured — L-group (smart-path lockdown DM) scenarios will be skipped',
+    );
+  }
+
   const channelIds: Record<string, string> = {};
   if (enclaveChannelId) channelIds[CHANNELS.enclave] = enclaveChannelId;
   if (testChannelId) channelIds[CHANNELS.test] = testChannelId;
+  if (dmChannelId) channelIds[CHANNELS.dm] = dmChannelId;
 
   const ctx: HarnessContext = {
     driver,

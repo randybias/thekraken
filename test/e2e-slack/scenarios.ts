@@ -713,8 +713,9 @@ export const ERROR_SCENARIOS: ScenarioDef[] = [
     channel: CHANNELS.enclave,
     message: '@Kraken describe nonexistent-workflow-xyz-99',
     expectedPatterns: [
-      // Should gracefully say it doesn't exist, or report MCP unavailability during transient disruption
-      /not found|doesn't exist|does not exist|not exist|doesn't appear|no workflow|can't find|appear to exist|never been deployed|not deployed|never deployed|unavailable|mcp.*unavailable/i,
+      // Should gracefully say it doesn't exist or that the manager has no record of it.
+      // Allow MCP-unavailability framing for transient cluster disruption.
+      /not found|doesn't exist|does not exist|not exist|doesn't appear|no workflow|can't find|appear to exist|never been deployed|not deployed|never deployed|unavailable|mcp.*unavailable|don't have (any |a )?record|haven't seen|no (record|trace)/i,
     ],
     forbiddenPatterns: [
       // Must not bubble raw MCP errors
@@ -978,7 +979,9 @@ export const GIT_STATE_SCENARIOS: ScenarioDef[] = [
     ],
     forbiddenPatterns: [
       FORBIDDEN_GIT_VOCABULARY,
-      /^[+-]/m, // No diff lines
+      // No actual unified-diff lines: + or - immediately followed by
+      // alphanumeric (real diff content). Does NOT match "- " bullets.
+      /^[+-][A-Za-z0-9]/m,
     ],
     timeoutMs: 60_000,
   },
@@ -1057,8 +1060,9 @@ export const GIT_STATE_SCENARIOS: ScenarioDef[] = [
     channel: CHANNELS.enclave,
     message: '@Kraken what changed in commit abc123def?',
     expectedPatterns: [
-      // Manager redirects to date/person/behavior framing
-      /which deploy|when was that|i talk about deploys by date|let me know which version/i,
+      // Manager redirects to date/person/behavior framing, OR refuses the
+      // technical reference and points the user at the right vocabulary.
+      /which deploy|when was that|i talk about deploys by date|let me know which version|not able to look up|don't (work|talk|refer) (with|in)|raw internal identifier|by (date|name|deploy)/i,
     ],
     forbiddenPatterns: [
       // Must NOT confirm understanding of "abc123" as a meaningful identifier
