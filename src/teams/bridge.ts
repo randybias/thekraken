@@ -144,6 +144,8 @@ export class TeamBridge {
   /** C4: HeartbeatController emits friendly outbound messages on significant events. */
   private heartbeat: HeartbeatController;
   private pollTimer: NodeJS.Timeout | null = null;
+  private midTurnTimer: ReturnType<typeof setInterval> | null = null;
+  private midTurnRunning = false;
   private queue: MailboxRecord[] = [];
   private processing = false;
   private stopped = false;
@@ -291,9 +293,11 @@ export class TeamBridge {
       });
     }, MAILBOX_POLL_MS);
     this.pollTimer.unref?.();
+    this.startMidTurnRefresh();
   }
 
   async stop(): Promise<void> {
+    this.stopMidTurnRefresh();
     this.stopped = true;
     if (this.pollTimer) {
       clearInterval(this.pollTimer);
@@ -320,6 +324,43 @@ export class TeamBridge {
 
   isActive(): boolean {
     return !this.stopped && this.proc !== null;
+  }
+
+  /**
+   * 60-second non-overlapping timer that rewrites KRAKEN_TOKEN_FILE
+   * with a freshly-refreshed token while a mailbox record is active.
+   *
+   * The subprocess re-reads the file on every tntc/MCP call via:
+   *   export TNTC_ACCESS_TOKEN=$(cat "$KRAKEN_TOKEN_FILE" | jq -r .access_token)
+   * so a long-running turn outlives Keycloak's short access-token TTL
+   * without needing the subprocess itself to know how to refresh.
+   *
+   * Idempotent. No-op when no current record OR no getTokenForUser
+   * callback. Tick is skipped (not queued) if the previous tick is
+   * still running.
+   */
+  private startMidTurnRefresh(): void {
+    if (this.midTurnTimer) return;
+    this.midTurnTimer = setInterval(() => {
+      if (this.midTurnRunning) return;
+      this.midTurnRunning = true;
+      void midTurnRefreshTick({
+        enclaveName: this.opts.enclaveName,
+        teamDir: this.opts.teamDir,
+        currentRecord: this.currentRecord,
+        getTokenForUser: this.opts.getTokenForUser,
+      }).finally(() => {
+        this.midTurnRunning = false;
+      });
+    }, 60_000);
+    this.midTurnTimer.unref?.();
+  }
+
+  private stopMidTurnRefresh(): void {
+    if (this.midTurnTimer) {
+      clearInterval(this.midTurnTimer);
+      this.midTurnTimer = null;
+    }
   }
 
   /**
@@ -1090,6 +1131,58 @@ export class TeamBridge {
 // ---------------------------------------------------------------------------
 // Shared helpers
 // ---------------------------------------------------------------------------
+
+/**
+ * Dependencies for midTurnRefreshTick — extracted so the function can be
+ * unit-tested without constructing a full TeamBridge.
+ */
+export interface MidTurnRefreshDeps {
+  enclaveName: string;
+  teamDir: string;
+  currentRecord: { userSlackId: string } | null;
+  getTokenForUser?: (slackUserId: string) => Promise<string | null>;
+  /** Override for unit tests; defaults to the real writeTokenFile. */
+  writeFile?: (teamDir: string, token: string, expiresIn: number) => void;
+}
+
+/**
+ * Internal: the body of the mid-turn refresh tick. Exported only for
+ * unit testing. Not part of the bridge's public API.
+ *
+ * Fetches a fresh token via getTokenForUser and rewrites KRAKEN_TOKEN_FILE.
+ * No-op when currentRecord is null or getTokenForUser is not provided.
+ */
+export async function midTurnRefreshTick(
+  deps: MidTurnRefreshDeps,
+): Promise<void> {
+  const { enclaveName, teamDir, currentRecord, getTokenForUser, writeFile } =
+    deps;
+  if (!currentRecord) return;
+  if (!getTokenForUser) return;
+  const fresh = await getTokenForUser(currentRecord.userSlackId).catch(
+    (err: unknown) => {
+      log.warn(
+        { enclaveName, err },
+        'team-bridge: mid-turn getTokenForUser failed',
+      );
+      return null;
+    },
+  );
+  if (!fresh) {
+    log.warn(
+      { enclaveName, userId: currentRecord.userSlackId },
+      'team-bridge: mid-turn refresh got null token',
+    );
+    return;
+  }
+  const expiresIn = extractExpiresIn(fresh, log, enclaveName);
+  const writer = writeFile ?? writeTokenFile;
+  writer(teamDir, fresh, expiresIn);
+  log.debug(
+    { enclaveName, expiresIn },
+    'team-bridge: mid-turn token refresh',
+  );
+}
 
 /**
  * Extract expires_in from a JWT 'exp' claim.
