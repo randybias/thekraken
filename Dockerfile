@@ -17,6 +17,10 @@ COPY src/ ./src/
 COPY tsconfig.json ./
 RUN npm run build
 
+# rc.11: bake kraken-db CLI into image PATH for subprocess agents
+RUN ln -sf /app/dist/cli/kraken-db.js /usr/local/bin/kraken-db && \
+    chmod +x /app/dist/cli/kraken-db.js
+
 # Prune to production deps only (keeps compiled .node native modules)
 RUN npm prune --omit=dev
 

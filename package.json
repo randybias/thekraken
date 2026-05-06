@@ -4,6 +4,9 @@
   "description": "The Kraken — Pi-based enclave-centric Slack bot for Tentacular",
   "type": "module",
   "main": "dist/index.js",
+  "bin": {
+    "kraken-db": "./dist/cli/kraken-db.js"
+  },
   "engines": {
     "node": ">=22"
   },
