@@ -21,7 +21,7 @@ import { describe, it, expect, afterEach } from 'vitest';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { createDatabase } from '../../src/db/migrations.js';
+import { createDatabase, createSecretsDatabase } from '../../src/db/migrations.js';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -49,12 +49,12 @@ afterEach(() => {
 describe('startup with existing database', () => {
   it('user_tokens survive restart', () => {
     const dir = makeTempDir();
-    const dbPath = join(dir, 'kraken.db');
+    const secretsDbPath = join(dir, 'kraken-secrets.db');
 
-    // === First startup: write a user token ===
+    // === First startup: write a user token to the secrets DB ===
     {
-      const db = createDatabase(dbPath);
-      db.prepare(
+      const secretsDb = createSecretsDatabase(secretsDbPath);
+      secretsDb.prepare(
         `INSERT INTO user_tokens (slack_user_id, access_token, refresh_token, expires_at, keycloak_sub, email)
          VALUES (?, ?, ?, ?, ?, ?)`,
       ).run(
@@ -65,13 +65,13 @@ describe('startup with existing database', () => {
         'sub-alice',
         'alice@example.com',
       );
-      db.close();
+      secretsDb.close();
     }
 
-    // === Second startup: open existing DB ===
+    // === Second startup: reopen the secrets DB ===
     {
-      const db = createDatabase(dbPath);
-      const row = db
+      const secretsDb = createSecretsDatabase(secretsDbPath);
+      const row = secretsDb
         .prepare(`SELECT * FROM user_tokens WHERE slack_user_id = ?`)
         .get('U_ALICE') as {
         access_token: string;
@@ -85,17 +85,17 @@ describe('startup with existing database', () => {
       expect(row.refresh_token).toBe('rt-alice-1');
       expect(row.email).toBe('alice@example.com');
       expect(row.keycloak_sub).toBe('sub-alice');
-      db.close();
+      secretsDb.close();
     }
   });
 
   it('multiple user_tokens survive restart', () => {
     const dir = makeTempDir();
-    const dbPath = join(dir, 'kraken.db');
+    const secretsDbPath = join(dir, 'kraken-secrets.db');
 
     {
-      const db = createDatabase(dbPath);
-      db.prepare(
+      const secretsDb = createSecretsDatabase(secretsDbPath);
+      secretsDb.prepare(
         `INSERT INTO user_tokens (slack_user_id, access_token, refresh_token, expires_at, keycloak_sub, email)
          VALUES (?, ?, ?, ?, ?, ?)`,
       ).run(
@@ -106,7 +106,7 @@ describe('startup with existing database', () => {
         'sub-alice',
         'alice@example.com',
       );
-      db.prepare(
+      secretsDb.prepare(
         `INSERT INTO user_tokens (slack_user_id, access_token, refresh_token, expires_at, keycloak_sub, email)
          VALUES (?, ?, ?, ?, ?, ?)`,
       ).run(
@@ -117,19 +117,19 @@ describe('startup with existing database', () => {
         'sub-bob',
         'bob@example.com',
       );
-      db.close();
+      secretsDb.close();
     }
 
     {
-      const db = createDatabase(dbPath);
-      const rows = db
+      const secretsDb = createSecretsDatabase(secretsDbPath);
+      const rows = secretsDb
         .prepare(`SELECT slack_user_id FROM user_tokens ORDER BY slack_user_id`)
         .all() as Array<{ slack_user_id: string }>;
 
       expect(rows).toHaveLength(2);
       expect(rows[0]!.slack_user_id).toBe('U_ALICE');
       expect(rows[1]!.slack_user_id).toBe('U_BOB');
-      db.close();
+      secretsDb.close();
     }
   });
 
@@ -203,10 +203,12 @@ describe('startup with existing database', () => {
   it('schema is idempotent — reopening does not wipe existing data', () => {
     const dir = makeTempDir();
     const dbPath = join(dir, 'kraken.db');
+    const secretsDbPath = join(dir, 'kraken-secrets.db');
 
     {
       const db = createDatabase(dbPath);
-      db.prepare(
+      const secretsDb = createSecretsDatabase(secretsDbPath);
+      secretsDb.prepare(
         `INSERT INTO user_tokens (slack_user_id, access_token, refresh_token, expires_at, keycloak_sub, email)
          VALUES (?, ?, ?, ?, ?, ?)`,
       ).run(
@@ -218,18 +220,21 @@ describe('startup with existing database', () => {
         'persist@example.com',
       );
       db.close();
+      secretsDb.close();
     }
 
-    // Open three more times — each applies CREATE TABLE IF NOT EXISTS
+    // Open both three more times — each applies CREATE TABLE IF NOT EXISTS
     for (let i = 0; i < 3; i++) {
       const db = createDatabase(dbPath);
+      const secretsDb = createSecretsDatabase(secretsDbPath);
       const count = (
-        db.prepare(`SELECT COUNT(*) as n FROM user_tokens`).get() as {
+        secretsDb.prepare(`SELECT COUNT(*) as n FROM user_tokens`).get() as {
           n: number;
         }
       ).n;
       expect(count).toBe(1);
       db.close();
+      secretsDb.close();
     }
   });
 
@@ -295,11 +300,11 @@ describe('startup with existing database', () => {
 
   it('new data written after restart coexists with pre-restart data', () => {
     const dir = makeTempDir();
-    const dbPath = join(dir, 'kraken.db');
+    const secretsDbPath = join(dir, 'kraken-secrets.db');
 
     {
-      const db = createDatabase(dbPath);
-      db.prepare(
+      const secretsDb = createSecretsDatabase(secretsDbPath);
+      secretsDb.prepare(
         `INSERT INTO user_tokens (slack_user_id, access_token, refresh_token, expires_at, keycloak_sub, email)
          VALUES (?, ?, ?, ?, ?, ?)`,
       ).run(
@@ -310,13 +315,13 @@ describe('startup with existing database', () => {
         'sub-pre',
         'pre@example.com',
       );
-      db.close();
+      secretsDb.close();
     }
 
     {
-      const db = createDatabase(dbPath);
+      const secretsDb = createSecretsDatabase(secretsDbPath);
       // Write new row after restart
-      db.prepare(
+      secretsDb.prepare(
         `INSERT INTO user_tokens (slack_user_id, access_token, refresh_token, expires_at, keycloak_sub, email)
          VALUES (?, ?, ?, ?, ?, ?)`,
       ).run(
@@ -328,13 +333,13 @@ describe('startup with existing database', () => {
         'post@example.com',
       );
 
-      const rows = db
+      const rows = secretsDb
         .prepare(`SELECT slack_user_id FROM user_tokens ORDER BY slack_user_id`)
         .all() as Array<{ slack_user_id: string }>;
 
       expect(rows).toHaveLength(2);
       expect(rows.map((r) => r.slack_user_id)).toEqual(['U_POST', 'U_PRE']);
-      db.close();
+      secretsDb.close();
     }
   });
 });

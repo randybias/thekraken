@@ -85,7 +85,8 @@ describe('e2e: token expiry scenarios', () => {
       Date.now() - 13 * 60 * 60 * 1000,
     ).toISOString();
 
-    h.db
+    // rc.11: user_tokens lives in the secrets DB, not the main DB.
+    h.secretsDb
       .prepare(
         `INSERT OR REPLACE INTO user_tokens
            (slack_user_id, access_token, refresh_token, expires_at, keycloak_sub, email, updated_at)
@@ -115,8 +116,8 @@ describe('e2e: token expiry scenarios', () => {
     expect(h.mockSlack.ephemerals).toHaveLength(1);
     expect(h.mockSlack.ephemerals[0]!.user).toBe('U_SESSION_OLD');
 
-    // Verify: token was deleted from the DB (getValidTokenForUser deletes on session expiry)
-    const row = h.db
+    // Verify: token was deleted from the secrets DB (getValidTokenForUser deletes on session expiry)
+    const row = h.secretsDb
       .prepare('SELECT * FROM user_tokens WHERE slack_user_id = ?')
       .get('U_SESSION_OLD');
     expect(row).toBeUndefined();
