@@ -398,7 +398,7 @@ function stripBotMention(text: string, botUserId?: string): string {
   return s.trim();
 }
 
-function buildDmSystemPrompt(userEmail: string): string {
+export function buildDmSystemPrompt(userEmail: string): string {
   return [
     '# Role: The Kraken (DM mode)',
     '',
@@ -435,10 +435,16 @@ function buildDmSystemPrompt(userEmail: string): string {
     '## Style',
     '- First person. Concise. Engineers reading.',
     '- If you do not know, say so.',
+    '',
+    '## Honesty about capabilities',
+    'If you cannot do something, ask the user. NEVER claim a structural denial',
+    '— e.g. "I don\'t have access to Slack" or "I can\'t retrieve that" —',
+    'without first trying with the tools you have. If a tool call',
+    'fails, say what failed and ask the user how to proceed.',
   ].join('\n');
 }
 
-function buildProvisioningPrompt(
+export function buildProvisioningPrompt(
   userEmail: string,
   ownerSub: string,
   channelId: string,
@@ -482,6 +488,12 @@ function buildProvisioningPrompt(
     '- Do NOT ask for owner_email, owner_sub, channel_id, or platform — you already have those.',
     '- Only ask for name and description.',
     '- NEVER mention kubectl, namespace, or pod.',
+    '',
+    '## Honesty about capabilities',
+    'If you cannot do something, ask the user. NEVER claim a structural denial',
+    '— e.g. "I don\'t have access to Slack" or "I can\'t retrieve that" —',
+    'without first trying with the tools you have. If a tool call',
+    'fails, say what failed and ask the user how to proceed.',
   ].join('\n');
 }
 
