@@ -114,11 +114,10 @@ describe('OutboundPoller', () => {
     const f = createTeamFixture('test-enc');
     fixtures.push(f);
 
-    // Write a record BEFORE starting the poller
-    f.appendOutbound(makeOutboundRecord({ text: 'hello from team' }));
-
     poller = makePoller(f, ['test-enc']);
-    await poller.stop(); // immediate stop = drain
+    await poller.drainOnce(); // register reader at current EOF
+    f.appendOutbound(makeOutboundRecord({ text: 'hello from team' }));
+    await poller.stop(); // final drain — picks up new records
 
     expect(postedMessages).toHaveLength(1);
     expect(postedMessages[0]!.text).toBe('hello from team');
@@ -129,6 +128,8 @@ describe('OutboundPoller', () => {
     const f = createTeamFixture('heartbeat-enc');
     fixtures.push(f);
 
+    poller = makePoller(f, ['heartbeat-enc']);
+    await poller.drainOnce(); // register reader at current EOF
     f.appendOutbound(
       makeOutboundRecord({
         type: 'heartbeat',
@@ -136,8 +137,6 @@ describe('OutboundPoller', () => {
         mentionUser: 'U_ALICE',
       }),
     );
-
-    poller = makePoller(f, ['heartbeat-enc']);
     await poller.stop();
 
     expect(postedMessages).toHaveLength(1);
@@ -150,11 +149,11 @@ describe('OutboundPoller', () => {
     const f = createTeamFixture('thread-enc');
     fixtures.push(f);
 
+    poller = makePoller(f, ['thread-enc']);
+    await poller.drainOnce(); // register reader at current EOF
     f.appendOutbound(
       makeOutboundRecord({ channelId: 'C_CHAN', threadTs: '9999.123' }),
     );
-
-    poller = makePoller(f, ['thread-enc']);
     await poller.stop();
 
     expect(postedMessages[0]!.thread_ts).toBe('9999.123');
@@ -165,13 +164,6 @@ describe('OutboundPoller', () => {
     const f1 = createTeamFixture('enc-one');
     const f2 = createTeamFixture('enc-two');
     fixtures.push(f1, f2);
-
-    f1.appendOutbound(
-      makeOutboundRecord({ text: 'from enc-one', channelId: 'C_ONE' }),
-    );
-    f2.appendOutbound(
-      makeOutboundRecord({ text: 'from enc-two', channelId: 'C_TWO' }),
-    );
 
     // Create a merged teamsDir — both fixtures live in their own teamsDir.
     // We need enc-two's outbound.ndjson visible under f1's teamsDir.
@@ -197,6 +189,13 @@ describe('OutboundPoller', () => {
       getActiveTeams: () => ['enc-one', 'enc-two'],
     });
 
+    await poller.drainOnce(); // register readers at current EOF for both teams
+    f1.appendOutbound(
+      makeOutboundRecord({ text: 'from enc-one', channelId: 'C_ONE' }),
+    );
+    f2.appendOutbound(
+      makeOutboundRecord({ text: 'from enc-two', channelId: 'C_TWO' }),
+    );
     await poller.stop(); // drain
 
     const channels = postedMessages.map((m) => m.channel);
@@ -207,8 +206,6 @@ describe('OutboundPoller', () => {
   it('deduplicates records already in SQLite (pod restart)', async () => {
     const f = createTeamFixture('dedup-enc');
     fixtures.push(f);
-
-    f.appendOutbound(makeOutboundRecord({ text: 'first message' }));
 
     // Pre-populate SQLite to simulate a prior post
     const db = createDatabase(':memory:');
@@ -228,6 +225,8 @@ describe('OutboundPoller', () => {
       getActiveTeams: () => ['dedup-enc'],
     });
 
+    await poller.drainOnce(); // register reader at current EOF
+    f.appendOutbound(makeOutboundRecord({ text: 'first message' }));
     await poller.stop();
 
     // Should not post again — dedup says already posted
@@ -247,8 +246,9 @@ describe('OutboundPoller', () => {
       text: 'hi',
     });
 
-    f.appendOutbound(makeOutboundRecord({ text: 'hi' }));
     poller = makePoller(f, ['fmt-enc']);
+    await poller.drainOnce(); // register reader at current EOF
+    f.appendOutbound(makeOutboundRecord({ text: 'hi' }));
     await poller.stop();
 
     expect(postedMessages).toHaveLength(1);
@@ -276,6 +276,8 @@ describe('OutboundPoller', () => {
       overflow: [[overflowBlock]],
     });
 
+    poller = makePoller(f, ['overflow-enc']);
+    await poller.drainOnce(); // register reader at current EOF
     f.appendOutbound(
       makeOutboundRecord({
         text: 'long message',
@@ -283,8 +285,6 @@ describe('OutboundPoller', () => {
         threadTs: '1234.000',
       }),
     );
-
-    poller = makePoller(f, ['overflow-enc']);
     await poller.stop();
 
     // Main message + 1 overflow batch = 2 posts
@@ -301,13 +301,13 @@ describe('OutboundPoller', () => {
     const f = createTeamFixture('empty-text-enc');
     fixtures.push(f);
 
+    poller = makePoller(f, ['empty-text-enc']);
+    await poller.drainOnce(); // register reader at current EOF
     // Write one empty-text record and one valid record
     f.appendOutbound(makeOutboundRecord({ text: '', id: 'empty-1' }));
     f.appendOutbound(
       makeOutboundRecord({ text: 'real message', id: 'real-1' }),
     );
-
-    poller = makePoller(f, ['empty-text-enc']);
     await poller.stop();
 
     // Only the valid record should have been posted
@@ -319,9 +319,9 @@ describe('OutboundPoller', () => {
     const f = createTeamFixture('whitespace-enc');
     fixtures.push(f);
 
-    f.appendOutbound(makeOutboundRecord({ text: '   \n  ' }));
-
     poller = makePoller(f, ['whitespace-enc']);
+    await poller.drainOnce(); // register reader at current EOF
+    f.appendOutbound(makeOutboundRecord({ text: '   \n  ' }));
     await poller.stop();
 
     expect(postedMessages).toHaveLength(0);
@@ -344,6 +344,8 @@ describe('OutboundPoller', () => {
       message: 'hello',
     });
 
+    poller = makePoller(f, ['fallback-enc']);
+    await poller.drainOnce(); // register reader at current EOF
     // Write an outbound record that is missing channelId and threadTs
     f.appendOutbound({
       id: 'out-no-channel',
@@ -353,8 +355,6 @@ describe('OutboundPoller', () => {
       threadTs: '',
       text: 'agent reply without channel',
     });
-
-    poller = makePoller(f, ['fallback-enc']);
     await poller.stop();
 
     // Should have posted using the mailbox fallback values
@@ -369,6 +369,8 @@ describe('OutboundPoller', () => {
     fixtures.push(f);
 
     // No mailbox.ndjson written — fallback unavailable
+    poller = makePoller(f, ['no-fallback-enc']);
+    await poller.drainOnce(); // register reader at current EOF
     f.appendOutbound({
       id: 'out-orphan',
       timestamp: new Date().toISOString(),
@@ -377,8 +379,6 @@ describe('OutboundPoller', () => {
       threadTs: '',
       text: 'orphan message',
     });
-
-    poller = makePoller(f, ['no-fallback-enc']);
     await poller.stop();
 
     // Should have been skipped (no channel to post to)
@@ -390,9 +390,13 @@ describe('OutboundPoller', () => {
     fixtures.push(f);
 
     poller = makePoller(f, ['lifecycle-enc']);
+    // Register the reader at current EOF before writing any records, so the
+    // poller knows where "new" starts from.
+    await poller.drainOnce();
+
     poller.start();
 
-    // Write a record after start
+    // Write a record after reader registration
     f.appendOutbound(
       makeOutboundRecord({ text: 'async record', threadTs: '5555.000' }),
     );
@@ -409,5 +413,39 @@ describe('OutboundPoller', () => {
     // Should have been posted
     const texts = postedMessages.map((m) => m.text);
     expect(texts).toContain('async record');
+  });
+
+  it('does NOT replay pre-existing outbound records on first poll (thekraken#25)', async () => {
+    const f = createTeamFixture('stale-enc');
+    fixtures.push(f);
+
+    // Simulate stale records left on the PVC from a prior pod run.
+    f.appendOutbound(makeOutboundRecord({ text: 'stale 1' }));
+    f.appendOutbound(makeOutboundRecord({ text: 'stale 2' }));
+    f.appendOutbound(makeOutboundRecord({ text: 'stale 3' }));
+
+    poller = makePoller(f, ['stale-enc']);
+    // Single poll cycle — must NOT replay any of the pre-existing records.
+    await poller.stop();
+
+    expect(postedMessages).toHaveLength(0);
+  });
+
+  it('processes records appended AFTER reader registration', async () => {
+    const f = createTeamFixture('fresh-enc');
+    fixtures.push(f);
+
+    // Pre-existing records that should be skipped.
+    f.appendOutbound(makeOutboundRecord({ text: 'stale' }));
+
+    poller = makePoller(f, ['fresh-enc']);
+    await poller.drainOnce(); // register reader at current EOF
+
+    // New record appended after registration — should be picked up.
+    f.appendOutbound(makeOutboundRecord({ text: 'fresh' }));
+    await poller.stop();
+
+    expect(postedMessages).toHaveLength(1);
+    expect(postedMessages[0]!.text).toBe('fresh');
   });
 });

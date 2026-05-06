@@ -163,6 +163,19 @@ export class OutboundPoller {
   }
 
   /**
+   * Test seam: run a single poll cycle without scheduling.
+   *
+   * Production never calls this; the start()→interval→stop() flow handles
+   * polling. Tests use this to:
+   *   1. Register NdjsonReaders at current EOF (so subsequent appends are
+   *      visible).
+   *   2. Drain explicitly between record-write phases.
+   */
+  async drainOnce(): Promise<void> {
+    await this.poll();
+  }
+
+  /**
    * Notify the poller that a team has exited. The poller will drain its
    * outbound file one more time before removing the reader (Codex fix #3).
    */
@@ -192,7 +205,8 @@ export class OutboundPoller {
     const allTeams = new Set([...activeTeams, ...this.drainingTeams]);
 
     for (const enclaveName of allTeams) {
-      await this.pollTeam(enclaveName);
+      const isDraining = this.drainingTeams.has(enclaveName);
+      await this.pollTeam(enclaveName, isDraining);
     }
 
     // Draining teams got their final poll — remove them
@@ -206,17 +220,32 @@ export class OutboundPoller {
     }
   }
 
-  private async pollTeam(enclaveName: string): Promise<void> {
+  private async pollTeam(
+    enclaveName: string,
+    isDraining = false,
+  ): Promise<void> {
     const outboundPath = join(
       this.deps.config.teamsDir,
       enclaveName,
       'outbound.ndjson',
     );
 
-    // Get or create a reader for this team (persists offset across cycles)
+    // Get or create a reader for this team (persists offset across cycles).
+    // Active teams use startAtEnd: true on first creation — pod restarts must
+    // NOT replay pre-existing outbound records from prior pod runs
+    // (thekraken#25). The bridge uses the same pattern for mailbox + signals
+    // readers.
+    //
+    // Draining teams (notifyTeamExited) are different: the team wrote records
+    // and then exited within the same pod run. We want to pick up everything
+    // it wrote, so we start from offset 0 (or wherever any existing reader
+    // left off). If a reader already exists, isDraining has no effect.
     let reader = this.readers.get(enclaveName);
     if (!reader) {
-      reader = new NdjsonReader(outboundPath);
+      reader = new NdjsonReader(
+        outboundPath,
+        isDraining ? undefined : { startAtEnd: true },
+      );
       this.readers.set(enclaveName, reader);
     }
 
