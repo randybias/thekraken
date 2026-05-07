@@ -22,6 +22,7 @@ import { tmpdir } from 'node:os';
 import { appendNdjson, NdjsonReader } from '../../src/teams/ndjson.js';
 import { OutboundTracker } from '../../src/slack/outbound.js';
 import { createDatabase } from '../../src/db/migrations.js';
+import { initCursorStore } from '../../src/db/cursors.js';
 
 // ---------------------------------------------------------------------------
 // Fix #1: Per-record dedup — multiple messages in one thread
@@ -129,6 +130,11 @@ describe('Codex Fix #1: per-record content-hash dedup (thread-scoped)', () => {
 // ---------------------------------------------------------------------------
 
 describe('Codex Fix #2: poll mutex prevents overlapping cycles', () => {
+  beforeEach(() => {
+    // rc.13: OutboundPoller now calls getCursor — init the cursor store.
+    initCursorStore(createDatabase(':memory:'));
+  });
+
   it('safePoll skips if a previous poll is still in flight', async () => {
     // We test the mutex behavior by directly calling the poller's internals
     // through its public API. If we start() and fire two overlapping
@@ -189,6 +195,13 @@ describe('Codex Fix #2: poll mutex prevents overlapping cycles', () => {
 // ---------------------------------------------------------------------------
 
 describe('Codex Fix #3: post-exit team drain', () => {
+  beforeEach(() => {
+    // rc.13: OutboundPoller now calls getCursor — init the cursor store.
+    // The drain path (isDraining=true) doesn't call getCursor, but the
+    // store must be initialized for any active-team poll that might occur.
+    initCursorStore(createDatabase(':memory:'));
+  });
+
   it('notifyTeamExited causes one more poll of the exited team', async () => {
     const { OutboundPoller } =
       await import('../../src/teams/outbound-poller.js');

@@ -29,6 +29,7 @@ import type { KnownBlock } from '@slack/types';
 import type { KrakenConfig } from '../config.js';
 import type { TeamLifecycleManager } from './lifecycle.js';
 import { filterJargon, filterNarration } from '../extensions/jargon-filter.js';
+import { getCursor, setCursor } from '../db/cursors.js';
 
 const log = createChildLogger({ module: 'outbound-poller' });
 const tracer = trace.getTracer('thekraken.outbound-poller');
@@ -231,21 +232,30 @@ export class OutboundPoller {
     );
 
     // Get or create a reader for this team (persists offset across cycles).
-    // Active teams use startAtEnd: true on first creation — pod restarts must
-    // NOT replay pre-existing outbound records from prior pod runs
-    // (thekraken#25). The bridge uses the same pattern for mailbox + signals
-    // readers.
+    // Active teams use a SQLite-backed cursor so the poller resumes from the
+    // last posted byte offset on pod restart — no replay AND no loss
+    // (rc.13 / codex rescue finding #2). Records appended to outbound.ndjson
+    // while the pod was down get posted when the new pod's poller catches up.
     //
     // Draining teams (notifyTeamExited) are different: the team wrote records
     // and then exited within the same pod run. We want to pick up everything
-    // it wrote, so we start from offset 0 (or wherever any existing reader
-    // left off). If a reader already exists, isDraining has no effect.
+    // it wrote from offset 0 (or wherever any existing reader left off).
+    // If a reader already exists, isDraining has no effect.
     let reader = this.readers.get(enclaveName);
     if (!reader) {
-      reader = new NdjsonReader(
-        outboundPath,
-        isDraining ? undefined : { startAtEnd: true },
-      );
+      if (isDraining) {
+        reader = new NdjsonReader(outboundPath, undefined);
+      } else {
+        // rc.13: persistent cursor. On pod restart we resume from the last
+        // posted offset — no replay (rc.12 fixed) AND no loss (codex rescue
+        // finding #2). Records appended while the pod was down get posted
+        // when the new pod's poller catches up.
+        reader = new NdjsonReader(outboundPath, {
+          initialOffset: getCursor(enclaveName, 'outbound.ndjson'),
+          persistOffset: (off) =>
+            setCursor(enclaveName, 'outbound.ndjson', off),
+        });
+      }
       this.readers.set(enclaveName, reader);
     }
 

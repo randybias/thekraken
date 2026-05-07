@@ -15,6 +15,7 @@ import { createTeamFixture } from '../helpers/team-fixture.js';
 import { waitForRecord } from '../helpers/ndjson.js';
 import { OutboundPoller } from '../../src/teams/outbound-poller.js';
 import { createDatabase } from '../../src/db/migrations.js';
+import { initCursorStore } from '../../src/db/cursors.js';
 import { OutboundTracker } from '../../src/slack/outbound.js';
 import type { KrakenConfig } from '../../src/config.js';
 import * as formatter from '../../src/slack/formatter.js';
@@ -79,6 +80,8 @@ describe('OutboundPoller', () => {
 
   beforeEach(() => {
     postedMessages = [];
+    // rc.13: initialize the cursor store so pollTeam's getCursor calls succeed.
+    initCursorStore(createDatabase(':memory:'));
   });
 
   afterEach(async () => {
@@ -415,33 +418,44 @@ describe('OutboundPoller', () => {
     expect(texts).toContain('async record');
   });
 
-  it('does NOT replay pre-existing outbound records on first poll (thekraken#25)', async () => {
+  it('processes pre-existing records from offset 0 when no prior cursor exists (rc.13)', async () => {
+    // rc.13 replaces startAtEnd:true with a SQLite-backed cursor. When there is
+    // no prior cursor (fresh pod boot, no prior DB state), the reader starts at
+    // offset 0 and picks up all records in the file. This is intentional —
+    // outbound records that were never processed (e.g. written during pod
+    // downtime) get delivered on the next boot.
+    //
+    // Replay protection is now provided by the OutboundTracker content-hash
+    // dedup (Codex fix #1) rather than startAtEnd. Records that were already
+    // posted in a prior pod run will have a SQLite entry and be skipped.
     const f = createTeamFixture('stale-enc');
     fixtures.push(f);
 
-    // Simulate stale records left on the PVC from a prior pod run.
-    f.appendOutbound(makeOutboundRecord({ text: 'stale 1' }));
-    f.appendOutbound(makeOutboundRecord({ text: 'stale 2' }));
-    f.appendOutbound(makeOutboundRecord({ text: 'stale 3' }));
+    // Write records to the file with no prior cursor (simulates fresh boot).
+    f.appendOutbound(makeOutboundRecord({ text: 'record 1' }));
+    f.appendOutbound(makeOutboundRecord({ text: 'record 2' }));
+    f.appendOutbound(makeOutboundRecord({ text: 'record 3' }));
 
     poller = makePoller(f, ['stale-enc']);
-    // Single poll cycle — must NOT replay any of the pre-existing records.
+    // Single poll cycle — with no prior cursor, all records are read.
     await poller.stop();
 
-    expect(postedMessages).toHaveLength(0);
+    expect(postedMessages).toHaveLength(3);
   });
 
-  it('processes records appended AFTER reader registration', async () => {
+  it('processes records appended AFTER the first poll cycle', async () => {
+    // rc.13: cursors start at 0 (no startAtEnd). Records in the file at
+    // first-poll time are picked up (this is intentional — they may have
+    // been written while the process was down and the cursor DB was empty).
+    // Records appended after the first poll are also picked up on the next
+    // poll cycle.
     const f = createTeamFixture('fresh-enc');
     fixtures.push(f);
 
-    // Pre-existing records that should be skipped.
-    f.appendOutbound(makeOutboundRecord({ text: 'stale' }));
-
     poller = makePoller(f, ['fresh-enc']);
-    await poller.drainOnce(); // register reader at current EOF
+    await poller.drainOnce(); // first cycle — file is empty, cursor = 0
 
-    // New record appended after registration — should be picked up.
+    // New record appended after first poll — should be picked up.
     f.appendOutbound(makeOutboundRecord({ text: 'fresh' }));
     await poller.stop();
 
