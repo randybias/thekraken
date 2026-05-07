@@ -500,13 +500,17 @@ export function stopTokenRefreshLoop(): void {
 }
 
 // ---------------------------------------------------------------------------
-// Keycloak preflight (rc.11)
+// Keycloak preflight (rc.11, hardened rc.13)
 // ---------------------------------------------------------------------------
 
 export interface KeycloakPreflightResult {
   ok: boolean;
   reason?: string;
 }
+
+// rc.13: all preflight fetches use a hard timeout so startup never hangs
+// indefinitely on a slow or unreachable Keycloak. Codex rescue finding #2.
+const FETCH_TIMEOUT_MS = 5_000;
 
 /**
  * Validate the Keycloak realm at startup. Logs loudly on failure
@@ -515,10 +519,10 @@ export interface KeycloakPreflightResult {
  * the failure in pod logs.
  *
  * Checks:
- *   - issuer reachable + valid OIDC discovery JSON
+ *   - issuer reachable + valid OIDC discovery JSON (with 5s timeout)
  *   - device_authorization_endpoint present (we use device auth)
  *   - offline_access in scopes_supported (we request it)
- *   - jwks_uri present
+ *   - jwks_uri present AND reachable (2xx required) — Codex rescue finding #1
  *
  * Per design 2026-05-06: realm-side TTL settings cannot be checked
  * without admin creds, so we observe access-token TTL implicitly via
@@ -531,7 +535,7 @@ export async function runKeycloakPreflight(
   const url = `${issuer.replace(/\/$/, '')}/.well-known/openid-configuration`;
   let res: Response;
   try {
-    res = await fetch(url);
+    res = await fetch(url, { signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) });
   } catch (err) {
     const reason = `issuer unreachable: ${(err as Error).message}`;
     logger.error({ issuer, err }, `Keycloak preflight: ${reason}`);
@@ -576,6 +580,30 @@ export async function runKeycloakPreflight(
   if (!cfg.jwks_uri) {
     const reason = 'no jwks_uri in discovery';
     logger.error({ issuer }, `Keycloak preflight: ${reason}`);
+    return { ok: false, reason };
+  }
+
+  // rc.13: validate JWKS endpoint actually reachable. A discovery doc
+  // that points at a broken JWKS endpoint is now reported as failure,
+  // not success. Codex rescue finding #1.
+  try {
+    const jwksRes = await fetch(cfg.jwks_uri, {
+      signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+    });
+    if (!jwksRes.ok) {
+      const reason = `jwks_uri unreachable: HTTP ${jwksRes.status}`;
+      logger.error(
+        { issuer, jwks_uri: cfg.jwks_uri },
+        `Keycloak preflight: ${reason}`,
+      );
+      return { ok: false, reason };
+    }
+  } catch (err) {
+    const reason = `jwks_uri unreachable: ${(err as Error).message}`;
+    logger.error(
+      { issuer, jwks_uri: cfg.jwks_uri, err },
+      `Keycloak preflight: ${reason}`,
+    );
     return { ok: false, reason };
   }
 
