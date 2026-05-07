@@ -20,9 +20,7 @@ describe('Keycloak preflight hardening (rc.13)', () => {
         // Slow endpoint that respects abort
         await new Promise((resolve, reject) => {
           const signal = init?.signal as AbortSignal | undefined;
-          signal?.addEventListener('abort', () =>
-            reject(new Error('aborted')),
-          );
+          signal?.addEventListener('abort', () => reject(new Error('aborted')));
           setTimeout(resolve, 30_000);
         });
         throw new Error('should have aborted');
@@ -95,10 +93,10 @@ describe('Keycloak preflight hardening (rc.13)', () => {
         );
       }
       // jwks reachable
-      return new Response(
-        JSON.stringify({ keys: [] }),
-        { status: 200, headers: { 'content-type': 'application/json' } },
-      );
+      return new Response(JSON.stringify({ keys: [] }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      });
     }) as unknown as typeof globalThis.fetch;
 
     const result = await runKeycloakPreflight('https://issuer');

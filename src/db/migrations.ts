@@ -5,7 +5,12 @@
  * PRAGMA foreign_keys = ON enforced here.
  */
 import Database from 'better-sqlite3';
-import { SCHEMA_V1, SCHEMA_V2, SCHEMA_V3, SECRETS_SCHEMA_V1 } from './schema.js';
+import {
+  SCHEMA_V1,
+  SCHEMA_V2,
+  SCHEMA_V3,
+  SECRETS_SCHEMA_V1,
+} from './schema.js';
 
 /**
  * Apply the initial schema to a database connection.

@@ -194,7 +194,7 @@ export function buildManagerPrompt(
     '',
     '## Posting to other Slack channels or threads',
     'You may post into a different Slack channel or thread by appending a',
-    'JSON record to $KRAKEN_TEAM_DIR/outbound.ndjson. The dispatcher\'s',
+    "JSON record to $KRAKEN_TEAM_DIR/outbound.ndjson. The dispatcher's",
     'outbound poller picks it up and posts to Slack.',
     '',
     'Use `jq` to construct the JSON safely — it correctly escapes quotes,',

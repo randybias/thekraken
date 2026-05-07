@@ -33,14 +33,18 @@ describe('writeTokenFile atomicity (rc.13)', () => {
 
   it('writes token.json with the access_token field', () => {
     writeTokenFile(dir, 'a-token', 300);
-    const json = JSON.parse(readFileSync(join(dir, 'token.json'), 'utf8')) as Record<string, unknown>;
+    const json = JSON.parse(
+      readFileSync(join(dir, 'token.json'), 'utf8'),
+    ) as Record<string, unknown>;
     expect(json['access_token']).toBe('a-token');
   });
 
   it('overwrites previous content atomically (no partial state)', () => {
     writeTokenFile(dir, 'first', 100);
     writeTokenFile(dir, 'second', 200);
-    const json = JSON.parse(readFileSync(join(dir, 'token.json'), 'utf8')) as Record<string, unknown>;
+    const json = JSON.parse(
+      readFileSync(join(dir, 'token.json'), 'utf8'),
+    ) as Record<string, unknown>;
     expect(json['access_token']).toBe('second');
   });
 
@@ -68,11 +72,15 @@ describe('writeTokenFile atomicity (rc.13)', () => {
     const before = Math.floor(Date.now() / 1000);
     writeTokenFile(dir, 'tok', 3600);
     const after = Math.floor(Date.now() / 1000);
-    const json = JSON.parse(readFileSync(join(dir, 'token.json'), 'utf8')) as Record<string, unknown>;
+    const json = JSON.parse(
+      readFileSync(join(dir, 'token.json'), 'utf8'),
+    ) as Record<string, unknown>;
     expect(typeof json['expires_at']).toBe('number');
     expect(json['expires_at'] as number).toBeGreaterThanOrEqual(before + 3600);
     expect(json['expires_at'] as number).toBeLessThanOrEqual(after + 3600 + 2);
     expect(typeof json['updated_at']).toBe('string');
-    expect(new Date(json['updated_at'] as string).getFullYear()).toBeGreaterThan(2024);
+    expect(
+      new Date(json['updated_at'] as string).getFullYear(),
+    ).toBeGreaterThan(2024);
   });
 });
