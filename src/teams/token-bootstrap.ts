@@ -21,10 +21,23 @@
  * KRAKEN_TOKEN_FILE env var is set in subprocess env (lifecycle.ts C3).
  * TNTC_ACCESS_TOKEN is NOT in the spawn env (B2, lifecycle.ts).
  * Subprocesses must read the token from KRAKEN_TOKEN_FILE on each call.
+ *
+ * rc.13: writeTokenFile uses atomic write semantics (write tmp, fsync,
+ * rename) so concurrent readers see either the old intact file or the new
+ * intact file, never a half-written or empty token.json. Codex rescue
+ * finding #4.
  */
 
-import { writeFileSync } from 'node:fs';
+import {
+  closeSync,
+  fsyncSync,
+  openSync,
+  renameSync,
+  unlinkSync,
+  writeFileSync,
+} from 'node:fs';
 import { join } from 'node:path';
+import { randomUUID } from 'node:crypto';
 
 /** Name of the token file within the team directory. */
 export const TOKEN_FILE_NAME = 'token.json';
@@ -41,6 +54,12 @@ export interface TokenFileContents {
 /**
  * Write a fresh token.json to the team directory.
  *
+ * Uses atomic write semantics: writes to a temp file, fsyncs, then renames
+ * over token.json. POSIX rename() is atomic — concurrent readers (including
+ * the pi-coding-agent subprocess reading via 'cat $KRAKEN_TOKEN_FILE | jq
+ * -r .access_token' on every tntc/MCP call) see either the old file
+ * (intact) or the new file (intact), never a partial write.
+ *
  * Creates or overwrites token.json with mode 0o600.
  *
  * @param teamDir - Absolute path to the team directory (e.g. /app/data/teams/myenclave).
@@ -54,16 +73,34 @@ export function writeTokenFile(
   expiresIn: number,
 ): string {
   const tokenPath = join(teamDir, TOKEN_FILE_NAME);
+  const tmpPath = `${tokenPath}.${randomUUID().slice(0, 8)}.tmp`;
+
   const now = Math.floor(Date.now() / 1000);
   const contents: TokenFileContents = {
     access_token: accessToken,
     expires_at: now + expiresIn,
     updated_at: new Date().toISOString(),
   };
-  writeFileSync(tokenPath, JSON.stringify(contents, null, 2) + '\n', {
-    encoding: 'utf8',
-    mode: 0o600,
-    flag: 'w',
-  });
+  const payload = JSON.stringify(contents, null, 2) + '\n';
+
+  try {
+    writeFileSync(tmpPath, payload, { encoding: 'utf8', mode: 0o600 });
+    const fd = openSync(tmpPath, 'r');
+    try {
+      fsyncSync(fd);
+    } finally {
+      closeSync(fd);
+    }
+    renameSync(tmpPath, tokenPath);
+  } catch (err) {
+    // Clean up the tmp file on failure to avoid leaking *.tmp files.
+    try {
+      unlinkSync(tmpPath);
+    } catch {
+      // tmp may not exist if writeFileSync threw early
+    }
+    throw err;
+  }
+
   return tokenPath;
 }

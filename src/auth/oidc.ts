@@ -373,9 +373,37 @@ let refreshLoopStatus: RefreshLoopStatus = {
   lastSweepDeleted: 0,
 };
 
+/**
+ * Guard that prevents concurrent refresh sweeps. Set to true while
+ * refreshAllExpiring is executing; reset in `finally` so errors don't
+ * permanently block future sweeps.
+ */
+let refreshSweepInFlight = false;
+
 /** Read the most recent sweep outcome. Returns a defensive copy. */
 export function getRefreshLoopStatus(): RefreshLoopStatus {
   return { ...refreshLoopStatus };
+}
+
+/**
+ * Reset the in-flight sweep guard for test isolation.
+ * Not exported from the package barrel — test-only.
+ */
+export function _resetRefreshSweepInFlightForTesting(): void {
+  refreshSweepInFlight = false;
+}
+
+/**
+ * Reset the refresh loop status for test isolation.
+ * Not exported from the package barrel — test-only.
+ */
+export function _resetRefreshLoopStatusForTesting(): void {
+  refreshLoopStatus = {
+    lastSweepAt: null,
+    lastSweepRefreshed: 0,
+    lastSweepFailed: 0,
+    lastSweepDeleted: 0,
+  };
 }
 
 /**
@@ -383,57 +411,73 @@ export function getRefreshLoopStatus(): RefreshLoopStatus {
  * Runs on a 5-minute interval. Tokens within REFRESH_AHEAD_MS of expiry
  * are refreshed. Tokens past the 12-hour session window are deleted.
  * Errors are logged but never thrown — this is a best-effort background task.
+ *
+ * If a prior sweep is still in flight (slow Anthropic API + many users),
+ * the second invocation short-circuits to prevent double-refresh of the
+ * same row (the rotated refresh_token would cause a 400 on the second call)
+ * and concurrent writes to refreshLoopStatus.
  */
 export async function refreshAllExpiring(): Promise<void> {
-  const allTokens = getAllUserTokens();
-  const now = Date.now();
-  let refreshed = 0;
-  let expired = 0;
-  let failed = 0;
+  if (refreshSweepInFlight) {
+    logger.debug(
+      'Background token refresh sweep skipped — previous still in flight',
+    );
+    return;
+  }
+  refreshSweepInFlight = true;
+  try {
+    const allTokens = getAllUserTokens();
+    const now = Date.now();
+    let refreshed = 0;
+    let expired = 0;
+    let failed = 0;
 
-  for (const row of allTokens) {
-    const updatedAt = new Date(row.updated_at).getTime();
-    if (now - updatedAt > SESSION_WINDOW_MS) {
-      deleteUserToken(row.slack_user_id);
-      expired++;
-      continue;
-    }
+    for (const row of allTokens) {
+      const updatedAt = new Date(row.updated_at).getTime();
+      if (now - updatedAt > SESSION_WINDOW_MS) {
+        deleteUserToken(row.slack_user_id);
+        expired++;
+        continue;
+      }
 
-    const timeUntilExpiry = row.expires_at - now;
-    if (timeUntilExpiry < REFRESH_AHEAD_MS) {
-      try {
-        const tokens = await refreshToken(row.refresh_token);
-        storeTokenForUser(row.slack_user_id, tokens);
-        refreshed++;
-      } catch (err) {
-        failed++;
-        // rc.11: promoted from warn to error so default pod-log
-        // filters surface refresh failures.
-        logger.error(
-          { slackUserId: row.slack_user_id, err },
-          'Background token refresh failed',
-        );
+      const timeUntilExpiry = row.expires_at - now;
+      if (timeUntilExpiry < REFRESH_AHEAD_MS) {
+        try {
+          const tokens = await refreshToken(row.refresh_token);
+          storeTokenForUser(row.slack_user_id, tokens);
+          refreshed++;
+        } catch (err) {
+          failed++;
+          // rc.11: promoted from warn to error so default pod-log
+          // filters surface refresh failures.
+          logger.error(
+            { slackUserId: row.slack_user_id, err },
+            'Background token refresh failed',
+          );
+        }
       }
     }
-  }
 
-  refreshLoopStatus = {
-    lastSweepAt: Date.now(),
-    lastSweepRefreshed: refreshed,
-    lastSweepFailed: failed,
-    lastSweepDeleted: expired,
-  };
+    refreshLoopStatus = {
+      lastSweepAt: Date.now(),
+      lastSweepRefreshed: refreshed,
+      lastSweepFailed: failed,
+      lastSweepDeleted: expired,
+    };
 
-  if (failed > 0) {
-    logger.error(
-      { refreshed, failed, expired, total: allTokens.length },
-      'Background token refresh sweep had failures',
-    );
-  } else if (refreshed > 0 || expired > 0) {
-    logger.info(
-      { refreshed, expired, total: allTokens.length },
-      'Background token refresh sweep complete',
-    );
+    if (failed > 0) {
+      logger.error(
+        { refreshed, failed, expired, total: allTokens.length },
+        'Background token refresh sweep had failures',
+      );
+    } else if (refreshed > 0 || expired > 0) {
+      logger.info(
+        { refreshed, expired, total: allTokens.length },
+        'Background token refresh sweep complete',
+      );
+    }
+  } finally {
+    refreshSweepInFlight = false;
   }
 }
 
@@ -469,13 +513,17 @@ export function stopTokenRefreshLoop(): void {
 }
 
 // ---------------------------------------------------------------------------
-// Keycloak preflight (rc.11)
+// Keycloak preflight (rc.11, hardened rc.13)
 // ---------------------------------------------------------------------------
 
 export interface KeycloakPreflightResult {
   ok: boolean;
   reason?: string;
 }
+
+// rc.13: all preflight fetches use a hard timeout so startup never hangs
+// indefinitely on a slow or unreachable Keycloak. Codex rescue finding #2.
+const FETCH_TIMEOUT_MS = 5_000;
 
 /**
  * Validate the Keycloak realm at startup. Logs loudly on failure
@@ -484,10 +532,10 @@ export interface KeycloakPreflightResult {
  * the failure in pod logs.
  *
  * Checks:
- *   - issuer reachable + valid OIDC discovery JSON
+ *   - issuer reachable + valid OIDC discovery JSON (with 5s timeout)
  *   - device_authorization_endpoint present (we use device auth)
  *   - offline_access in scopes_supported (we request it)
- *   - jwks_uri present
+ *   - jwks_uri present AND reachable (2xx required) — Codex rescue finding #1
  *
  * Per design 2026-05-06: realm-side TTL settings cannot be checked
  * without admin creds, so we observe access-token TTL implicitly via
@@ -500,7 +548,7 @@ export async function runKeycloakPreflight(
   const url = `${issuer.replace(/\/$/, '')}/.well-known/openid-configuration`;
   let res: Response;
   try {
-    res = await fetch(url);
+    res = await fetch(url, { signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) });
   } catch (err) {
     const reason = `issuer unreachable: ${(err as Error).message}`;
     logger.error({ issuer, err }, `Keycloak preflight: ${reason}`);
@@ -545,6 +593,30 @@ export async function runKeycloakPreflight(
   if (!cfg.jwks_uri) {
     const reason = 'no jwks_uri in discovery';
     logger.error({ issuer }, `Keycloak preflight: ${reason}`);
+    return { ok: false, reason };
+  }
+
+  // rc.13: validate JWKS endpoint actually reachable. A discovery doc
+  // that points at a broken JWKS endpoint is now reported as failure,
+  // not success. Codex rescue finding #1.
+  try {
+    const jwksRes = await fetch(cfg.jwks_uri, {
+      signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+    });
+    if (!jwksRes.ok) {
+      const reason = `jwks_uri unreachable: HTTP ${jwksRes.status}`;
+      logger.error(
+        { issuer, jwks_uri: cfg.jwks_uri },
+        `Keycloak preflight: ${reason}`,
+      );
+      return { ok: false, reason };
+    }
+  } catch (err) {
+    const reason = `jwks_uri unreachable: ${(err as Error).message}`;
+    logger.error(
+      { issuer, jwks_uri: cfg.jwks_uri, err },
+      `Keycloak preflight: ${reason}`,
+    );
     return { ok: false, reason };
   }
 

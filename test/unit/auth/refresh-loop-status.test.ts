@@ -3,6 +3,8 @@ import Database from 'better-sqlite3';
 import {
   refreshAllExpiring,
   getRefreshLoopStatus,
+  _resetRefreshLoopStatusForTesting,
+  _resetRefreshSweepInFlightForTesting,
 } from '../../../src/auth/oidc.js';
 import {
   initTokenStore,
@@ -37,6 +39,8 @@ describe('refresh loop status (rc.11)', () => {
   beforeEach(() => {
     const db = makeInMemoryDb();
     initTokenStore(db);
+    _resetRefreshLoopStatusForTesting();
+    _resetRefreshSweepInFlightForTesting();
     origFetch = globalThis.fetch;
     origIssuer = process.env.OIDC_ISSUER;
     origClientId = process.env.OIDC_CLIENT_ID;

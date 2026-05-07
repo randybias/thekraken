@@ -26,6 +26,7 @@ import {
   createSecretsDatabase,
 } from '../../src/db/migrations.js';
 import { initTokenStore, setUserToken } from '../../src/auth/tokens.js';
+import { initCursorStore } from '../../src/db/cursors.js';
 import { EnclaveBindingEngine } from '../../src/enclave/binding.js';
 import { OutboundTracker } from '../../src/slack/outbound.js';
 import { TeamLifecycleManager } from '../../src/teams/lifecycle.js';
@@ -408,6 +409,8 @@ export async function createHarness(
   const db = createDatabase(':memory:');
   const secretsDb = createSecretsDatabase(':memory:');
   initTokenStore(secretsDb);
+  // rc.13: OutboundPoller now uses persistent cursors via getCursor/setCursor.
+  initCursorStore(db);
 
   // --- Pre-seed authenticated users ---
   const futureExpiry = Date.now() + 8 * 60 * 60 * 1000; // 8 hours from now

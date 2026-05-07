@@ -128,22 +128,9 @@ export async function runSmartPath(
     return "Yes, I'm here. How can I help?";
   }
 
-  const userEmail = extractEmailFromToken(input.userToken) ?? 'unknown';
-  const userSub = extractSubFromToken(input.userToken) ?? 'unknown';
-  const systemPrompt =
-    input.mode === 'provision'
-      ? buildProvisioningPrompt(
-          userEmail,
-          userSub,
-          input.channelId ?? '',
-          input.channelName ?? 'unknown-channel',
-        )
-      : buildDmSystemPrompt(userEmail);
-
-  // Resolve a fresh token at entry. The caller's snapshot may be stale
-  // (Keycloak access-token TTL ~5 min vs slow Slack delivery + background
-  // refresh cadence). Falls back to the snapshot if getFreshToken errors
-  // or returns null but the snapshot itself is non-empty.
+  // rc.13: resolve fresh token BEFORE extracting identity claims so
+  // provisioning prompts carry the correct owner_email / owner_sub.
+  // Codex rescue finding #6.
   async function resolveTokenForEntry(): Promise<string | null> {
     if (input.getFreshToken) {
       try {
@@ -167,6 +154,19 @@ export async function runSmartPath(
     return REAUTH_MESSAGE;
   }
 
+  // Identity claims now come from the FRESH token, not the snapshot.
+  const userEmail = extractEmailFromToken(activeToken) ?? 'unknown';
+  const userSub = extractSubFromToken(activeToken) ?? 'unknown';
+  const systemPrompt =
+    input.mode === 'provision'
+      ? buildProvisioningPrompt(
+          userEmail,
+          userSub,
+          input.channelId ?? '',
+          input.channelName ?? 'unknown-channel',
+        )
+      : buildDmSystemPrompt(userEmail);
+
   let mcp: McpConnection | null = null;
   try {
     mcp = await createMcpConnection(input.mcpUrl, activeToken);
@@ -180,10 +180,10 @@ export async function runSmartPath(
       const retryToken = input.getFreshToken
         ? await input.getFreshToken().catch(() => null)
         : null;
-      if (!retryToken || retryToken === activeToken) {
+      if (!retryToken) {
         log.error(
           { err },
-          'smart-path: persistent 401 — aborting with re-auth message',
+          'smart-path: no retry token available — aborting with re-auth message',
         );
         return REAUTH_MESSAGE;
       }
@@ -191,11 +191,22 @@ export async function runSmartPath(
       try {
         mcp = await createMcpConnection(input.mcpUrl, activeToken);
       } catch (err2) {
+        // rc.13: classify the second failure separately. Only return
+        // re-auth on 401; other errors (transient 503, ECONNREFUSED,
+        // etc.) fall through to tool-less conversational mode.
+        // Codex rescue finding #5.
+        const retryStatus = (err2 as { code?: number }).code;
+        if (retryStatus === 401) {
+          log.error(
+            { err: err2 },
+            'smart-path: 401 persists after retry — aborting with re-auth',
+          );
+          return REAUTH_MESSAGE;
+        }
         log.error(
           { err: err2 },
-          'smart-path: 401 persists after retry — aborting with re-auth message',
+          'smart-path: non-401 after refresh; falling through to tool-less',
         );
-        return REAUTH_MESSAGE;
       }
     } else {
       log.error(

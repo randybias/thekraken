@@ -65,12 +65,30 @@ export class NdjsonReader {
   private offset = 0;
   /** Accumulated partial line from the last read (no trailing \n yet). */
   private buffer = '';
+  /** Optional callback fired after each readNew() advances the offset. */
+  private readonly persistOffset?: (offset: number) => void;
 
   constructor(
     private readonly path: string,
-    opts?: { startAtEnd?: boolean },
+    opts?: {
+      startAtEnd?: boolean;
+      /**
+       * Initial offset to start reading from. Used to resume from a
+       * persisted cursor on pod restart. Takes precedence over
+       * startAtEnd when both are provided.
+       */
+      initialOffset?: number;
+      /**
+       * Optional callback fired AFTER each successful readNew() with
+       * the new offset. Use to persist the cursor to durable storage
+       * (e.g. SQLite via setCursor).
+       */
+      persistOffset?: (offset: number) => void;
+    },
   ) {
-    if (opts?.startAtEnd) {
+    if (opts?.initialOffset !== undefined) {
+      this.offset = opts.initialOffset;
+    } else if (opts?.startAtEnd) {
       // Skip everything already in the file. On pod restart, old
       // mailbox records are stale — their threads are dead. Only
       // records appended AFTER this reader was created will be seen.
@@ -80,6 +98,7 @@ export class NdjsonReader {
         // File doesn't exist yet — offset stays 0.
       }
     }
+    this.persistOffset = opts?.persistOffset;
   }
 
   /**
@@ -111,6 +130,7 @@ export class NdjsonReader {
       const buf = Buffer.alloc(toRead);
       readSync(fd, buf, 0, toRead, this.offset);
       this.offset = size;
+      this.persistOffset?.(this.offset);
 
       const text = this.buffer + buf.toString('utf8');
       const lines = text.split('\n');

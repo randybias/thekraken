@@ -25,6 +25,7 @@ import { loadConfig } from './config.js';
 import { initTelemetry, shutdownTelemetry } from './telemetry.js';
 import { createChildLogger } from './logger.js';
 import { initDatabase, initSecretsDatabase } from './db/index.js';
+import { initCursorStore } from './db/cursors.js';
 import {
   extractEmailFromToken,
   getValidTokenForUser,
@@ -57,6 +58,8 @@ async function main(): Promise<void> {
   // 3. SQLite
   const db = initDatabase(config);
   log.info('Database initialized');
+  initCursorStore(db);
+  log.info('Cursor store initialized');
   const secretsDb = initSecretsDatabase(config);
   log.info('Secrets database initialized');
 
@@ -411,6 +414,7 @@ async function main(): Promise<void> {
       await teams.shutdownAll();
       await shutdownTelemetry();
       db.close();
+      secretsDb.close();
       log.info('Shutdown complete');
     } catch (err) {
       log.error({ err }, 'Error during shutdown');

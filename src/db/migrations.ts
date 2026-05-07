@@ -5,7 +5,12 @@
  * PRAGMA foreign_keys = ON enforced here.
  */
 import Database from 'better-sqlite3';
-import { SCHEMA_V1, SCHEMA_V2, SECRETS_SCHEMA_V1 } from './schema.js';
+import {
+  SCHEMA_V1,
+  SCHEMA_V2,
+  SCHEMA_V3,
+  SECRETS_SCHEMA_V1,
+} from './schema.js';
 
 /**
  * Apply the initial schema to a database connection.
@@ -22,6 +27,9 @@ export function applyMigrations(db: Database.Database): void {
   db.exec(SCHEMA_V1);
   // V2: change_summaries cache table (G4 — git-state recovery).
   db.exec(SCHEMA_V2);
+  // V3: ndjson_cursors for persistent reader offsets (rc.13 — replaces
+  // startAtEnd-based readers; codex rescue findings #1, #2).
+  db.exec(SCHEMA_V3);
   // rc.11: user_tokens migrated out to kraken-secrets.db. Drop the legacy
   // table from the non-sensitive DB on first boot. Idempotent; users
   // re-auth naturally per design (no data migration). Spec:
