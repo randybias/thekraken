@@ -17,6 +17,7 @@
     "test": "vitest run",
     "test:scenarios": "vitest run test/scenarios/",
     "test:e2e-slack": "tsx test/e2e-slack/run-all.ts",
+    "e2e-chroma:login": "tsx test/e2e-chroma/interactive-login.ts",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit",
     "lint": "eslint src/",

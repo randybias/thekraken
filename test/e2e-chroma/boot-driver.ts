@@ -24,6 +24,8 @@ export interface BootedBrowser {
 export interface BootBrowserOpts {
   cookiesPath?: string;
   unauthenticated?: boolean;
+  /** Override headless mode; default is true (headless). */
+  headless?: boolean;
 }
 
 export async function bootBrowser(
@@ -32,7 +34,9 @@ export async function bootBrowser(
   // Dynamic import so this module loads in environments without
   // Playwright (e.g., unit tests that mock the runner).
   const { chromium } = await import('playwright');
-  const browser = await chromium.launch({ headless: true });
+  const headless =
+    opts.headless ?? process.env.KRAKEN_E2E_CHROMA_HEADED !== '1';
+  const browser = await chromium.launch({ headless });
   const context = await browser.newContext();
 
   if (!opts.unauthenticated) {
