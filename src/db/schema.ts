@@ -125,3 +125,28 @@ CREATE TABLE IF NOT EXISTS change_summaries (
   PRIMARY KEY (sha_a, sha_b)
 );
 `;
+
+/**
+ * Schema v3: NDJSON byte-offset cursors (rc.13).
+ *
+ * Persists the read offset for each NDJSON file the dispatcher consumes,
+ * keyed by (enclave_name, filename). On pod restart, readers resume from
+ * the stored offset — no data loss (prior pod crashed mid-record), no
+ * replay (we don't re-process bytes already past the cursor).
+ *
+ * filename is the basename of the file relative to the team dir, e.g.
+ * 'mailbox.ndjson', 'outbound.ndjson', 'signals-out.ndjson',
+ * 'signals-in.ndjson'.
+ *
+ * Replaces the rc.11/rc.12 startAtEnd-on-construction pattern (which
+ * caused data loss per codex rescue findings #1 and #2).
+ */
+export const SCHEMA_V3 = `
+CREATE TABLE IF NOT EXISTS ndjson_cursors (
+  enclave_name TEXT NOT NULL,
+  filename TEXT NOT NULL,
+  byte_offset INTEGER NOT NULL DEFAULT 0,
+  updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+  PRIMARY KEY (enclave_name, filename)
+);
+`;
