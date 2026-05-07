@@ -24,6 +24,11 @@ import {
   getSecret,
   type SlackDriver,
 } from './slack-driver.js';
+import {
+  createChromaDriver,
+  type ChromaDriver,
+} from '../e2e-chroma/chroma-driver.js';
+import { bootBrowser } from '../e2e-chroma/boot-driver.js';
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -112,6 +117,8 @@ export interface HarnessContext {
   botUserId: string;
   /** Channel IDs (resolved from names at harness boot). */
   channelIds: Record<string, string>;
+  /** Optional shared Chroma driver. Null when Chroma is disabled. */
+  chromaDriver?: ChromaDriver;
 }
 
 // ---------------------------------------------------------------------------
@@ -278,6 +285,8 @@ export async function bootHarness(): Promise<HarnessBootResult> {
         [CHANNELS.enclave]: 'C_MOCK_ENCLAVE',
         [CHANNELS.test]: 'C_MOCK_TEST',
       },
+      // No Chroma driver in dry-run mode — chromaAssertion blocks are skipped
+      chromaDriver: undefined,
     };
     return { ctx };
   }
@@ -402,11 +411,40 @@ export async function bootHarness(): Promise<HarnessBootResult> {
   if (testChannelId) channelIds[CHANNELS.test] = testChannelId;
   if (dmChannelId) channelIds[CHANNELS.dm] = dmChannelId;
 
+  // Boot a shared ChromaDriver when Chroma is not explicitly disabled.
+  // If boot fails (no cookies, Playwright not installed, network), log a
+  // warning and continue — chromaAssertion blocks will be silently skipped.
+  let chromaDriver: ChromaDriver | undefined;
+  if (process.env['KRAKEN_E2E_DISABLE_CHROMA'] !== '1') {
+    try {
+      const baseUrl =
+        process.env['KRAKEN_E2E_CHROMA_BASE_URL'] ??
+        'https://chroma.westeurope-dev1.ospo-dev.miralabs.dev';
+      const booted = await bootBrowser({});
+      chromaDriver = createChromaDriver({
+        baseUrl,
+        contextFactory: async () => ({
+          browser: booted.browser,
+          context: booted.context,
+          page: booted.page,
+        }),
+      });
+      console.log('[harness] Chroma driver booted');
+    } catch (chromaErr: unknown) {
+      const chromaMsg =
+        chromaErr instanceof Error ? chromaErr.message : String(chromaErr);
+      console.warn(
+        `[harness] Chroma driver boot failed — chromaAssertion blocks will be skipped: ${chromaMsg}`,
+      );
+    }
+  }
+
   const ctx: HarnessContext = {
     driver,
     memberDriver,
     botUserId,
     channelIds,
+    chromaDriver,
   };
 
   return { ctx };
@@ -734,6 +772,72 @@ export async function runScenario(
           durationMs: Date.now() - start,
           notes: `MCP assertion failed: ${lastErr}`,
           replyText,
+        };
+      }
+    }
+
+    // Optional post-reply Chroma assertion — verifies that the Chroma UI
+    // reflects the expected state. Skipped in dry-run mode and when
+    // KRAKEN_E2E_DISABLE_CHROMA=1 or when no chromaDriver is available.
+    if (
+      scenario.chromaAssertion &&
+      ctx.chromaDriver &&
+      process.env['KRAKEN_E2E_DRY_RUN'] !== '1'
+    ) {
+      const driver = ctx.chromaDriver;
+      const path = scenario.chromaAssertion.path.replace(
+        '<TEST_ENCLAVE>',
+        TEST_ENCLAVE,
+      );
+      const pollMs = scenario.chromaAssertion.pollMs ?? 5_000;
+      const budgetMs = scaledTimeout(
+        scenario.chromaAssertion.timeoutMs ?? 60_000,
+      );
+      const deadline = Date.now() + budgetMs;
+      let lastErr: string | null = 'not evaluated';
+      while (Date.now() < deadline) {
+        try {
+          await driver.goto(path);
+          const text = await driver.pageText();
+          let allMatched = true;
+          if (scenario.chromaAssertion.expectText) {
+            for (const p of scenario.chromaAssertion.expectText) {
+              const matched =
+                p instanceof RegExp ? p.test(text) : text.includes(p);
+              if (!matched) {
+                lastErr = `expected ${p} not in page`;
+                allMatched = false;
+                break;
+              }
+            }
+          }
+          if (allMatched && scenario.chromaAssertion.forbiddenText) {
+            for (const p of scenario.chromaAssertion.forbiddenText) {
+              const matched =
+                p instanceof RegExp ? p.test(text) : text.includes(p);
+              if (matched) {
+                lastErr = `forbidden ${p} in page`;
+                allMatched = false;
+                break;
+              }
+            }
+          }
+          if (allMatched) {
+            lastErr = null;
+            break;
+          }
+        } catch (err) {
+          lastErr = (err as Error).message;
+        }
+        await new Promise((r) => setTimeout(r, pollMs));
+      }
+      if (lastErr) {
+        return {
+          id: scenario.id,
+          name: scenario.name,
+          status: 'FAIL',
+          durationMs: Date.now() - start,
+          notes: `chromaAssertion: ${lastErr}`,
         };
       }
     }
