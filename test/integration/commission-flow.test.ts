@@ -36,6 +36,8 @@ import {
 } from '../../src/teams/signals.js';
 import type { DevTeamSpawnOptions } from '../../src/teams/bridge.js';
 import type { MailboxRecord } from '../../src/teams/lifecycle.js';
+import { createDatabase } from '../../src/db/migrations.js';
+import { initCursorStore } from '../../src/db/cursors.js';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -264,6 +266,11 @@ describe('commission_dev_team: signal partitioning and direction validation', ()
 
 describe('commission_dev_team: mock spawn factory (bridge dispatch logic)', () => {
   const fixtures: ReturnType<typeof createTeamFixture>[] = [];
+
+  beforeEach(() => {
+    // TeamBridge constructor calls getCursor(); cursor store must be initialized.
+    initCursorStore(createDatabase(':memory:'));
+  });
 
   afterEach(() => {
     for (const f of fixtures.splice(0)) f.cleanup();

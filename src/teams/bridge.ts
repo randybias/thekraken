@@ -33,6 +33,7 @@ import { existsSync, mkdirSync, chmodSync, readFileSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import { createChildLogger, type Logger } from '../logger.js';
 import { appendNdjson, NdjsonReader } from './ndjson.js';
+import { getCursor, setCursor } from '../db/cursors.js';
 import { writeTokenFile } from './token-bootstrap.js';
 import { HeartbeatController, isSignificantSignal } from './heartbeat.js';
 import {
@@ -176,17 +177,26 @@ export class TeamBridge {
     this.signalsOutPath = join(opts.teamDir, SIGNALS_OUT_FILE);
     this.signalsInPath = join(opts.teamDir, SIGNALS_IN_FILE);
 
-    // Start at the end of any existing mailbox. On pod restart, old
-    // records are stale (their threads are dead, pi context is gone).
-    // We only want records appended AFTER this bridge starts.
-    this.reader = new NdjsonReader(this.mailboxPath, { startAtEnd: true });
-    // signals-out: manager→bridge; start at end (only new commission/terminate matter).
-    this.signalsOutReader = new NdjsonReader(this.signalsOutPath, {
-      startAtEnd: true,
+    // Resume from the last persisted cursor so records written while the pod
+    // was down are not silently dropped. Cursors are keyed by (enclave, file)
+    // and stored in the main SQLite DB (initCursorStore must be called before
+    // constructing a TeamBridge — done in src/index.ts startup).
+    const enclave = opts.enclaveName;
+    this.reader = new NdjsonReader(this.mailboxPath, {
+      initialOffset: getCursor(enclave, 'mailbox.ndjson'),
+      persistOffset: (off) => setCursor(enclave, 'mailbox.ndjson', off),
     });
-    // signals-in: dev-team→manager; start at end (only new progress matters).
+    // signals-out: manager→bridge; resume from cursor (commission/terminate signals
+    // written while the pod was down must be processed on restart).
+    this.signalsOutReader = new NdjsonReader(this.signalsOutPath, {
+      initialOffset: getCursor(enclave, 'signals-out.ndjson'),
+      persistOffset: (off) => setCursor(enclave, 'signals-out.ndjson', off),
+    });
+    // signals-in: dev-team→manager; resume from cursor (progress records written
+    // while the pod was down must be seen by the manager on restart).
     this.signalsInReader = new NdjsonReader(this.signalsInPath, {
-      startAtEnd: true,
+      initialOffset: getCursor(enclave, 'signals-in.ndjson'),
+      persistOffset: (off) => setCursor(enclave, 'signals-in.ndjson', off),
     });
     // C4: Heartbeat controller emits to outbound.ndjson on the manager's behalf.
     this.heartbeat = new HeartbeatController({
