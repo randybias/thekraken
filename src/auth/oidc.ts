@@ -394,6 +394,19 @@ export function _resetRefreshSweepInFlightForTesting(): void {
 }
 
 /**
+ * Reset the refresh loop status for test isolation.
+ * Not exported from the package barrel — test-only.
+ */
+export function _resetRefreshLoopStatusForTesting(): void {
+  refreshLoopStatus = {
+    lastSweepAt: null,
+    lastSweepRefreshed: 0,
+    lastSweepFailed: 0,
+    lastSweepDeleted: 0,
+  };
+}
+
+/**
  * Proactively refresh all user tokens that are expiring soon.
  * Runs on a 5-minute interval. Tokens within REFRESH_AHEAD_MS of expiry
  * are refreshed. Tokens past the 12-hour session window are deleted.

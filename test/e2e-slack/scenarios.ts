@@ -307,7 +307,7 @@ export const COMMAND_SCENARIOS: ScenarioDef[] = [
     message: '@Kraken set mode banana',
     expectedPatterns: [
       // Should either list valid modes or reject the bogus one
-      /invalid|valid|preset|private|team|shared|open|must be|not.*recognized|isn't.*recognized|recognized|recognize|isn't a concept|don't (have|know|understand)|didn't understand|can't set|not.*mode|not a thing|type help/i,
+      /invalid|valid|preset|private|team|shared|open|recognize|unknown|don't know|not\s+supported/i,
     ],
     forbiddenPatterns: [],
     timeoutMs: 30_000,

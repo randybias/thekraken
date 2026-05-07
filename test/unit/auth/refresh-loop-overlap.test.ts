@@ -1,5 +1,9 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { refreshAllExpiring, _resetRefreshSweepInFlightForTesting } from '../../../src/auth/oidc.js';
+import {
+  refreshAllExpiring,
+  _resetRefreshLoopStatusForTesting,
+  _resetRefreshSweepInFlightForTesting,
+} from '../../../src/auth/oidc.js';
 import { initSecretsDatabase } from '../../../src/db/index.js';
 import {
   initTokenStore,
@@ -28,6 +32,7 @@ describe('refreshAllExpiring overlap guard (rc.13)', () => {
   beforeEach(() => {
     dir = mkdtempSync(join(tmpdir(), 'overlap-'));
     initTokenStore(initSecretsDatabase(makeConfig(dir)));
+    _resetRefreshLoopStatusForTesting();
     _resetRefreshSweepInFlightForTesting();
     origFetch = globalThis.fetch;
     origIssuer = process.env.OIDC_ISSUER;

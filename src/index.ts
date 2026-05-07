@@ -414,6 +414,7 @@ async function main(): Promise<void> {
       await teams.shutdownAll();
       await shutdownTelemetry();
       db.close();
+      secretsDb.close();
       log.info('Shutdown complete');
     } catch (err) {
       log.error({ err }, 'Error during shutdown');
