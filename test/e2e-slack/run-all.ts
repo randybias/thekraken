@@ -40,6 +40,8 @@
 
 import { bootHarness, runScenario, type ScenarioResult } from './harness.js';
 import { ALL_SCENARIOS, findScenario } from './scenarios.js';
+import { loadChromaScenarios } from '../e2e-chroma/load-chroma-scenarios.js';
+import { runChromaScenario } from '../e2e-chroma/chroma-runner.js';
 
 // ---------------------------------------------------------------------------
 // CLI argument parsing
@@ -206,6 +208,31 @@ async function main(): Promise<void> {
     // Inter-scenario pause to avoid Slack rate limiting
     if (scenarios.indexOf(scenario) < scenarios.length - 1) {
       await new Promise<void>((r) => setTimeout(r, 2000));
+    }
+  }
+
+  // Chroma scenarios (Pattern C — standalone Chroma, no Slack)
+  // Skipped when running a single Slack scenario or when explicitly disabled.
+  const isSingleSlackScenario = scenarioId !== undefined;
+  if (
+    !isSingleSlackScenario &&
+    process.env['KRAKEN_E2E_DISABLE_CHROMA'] !== '1'
+  ) {
+    const chromaScenarios = await loadChromaScenarios();
+    if (chromaScenarios.length > 0) {
+      console.log('');
+      console.log(`Running ${chromaScenarios.length} Chroma scenario(s)...`);
+      console.log('');
+      for (const cs of chromaScenarios) {
+        process.stdout.write(`  ${cs.id.padEnd(16)} ${cs.name}... `);
+        const r = await runChromaScenario(cs);
+        results.push(r);
+        const duration = `${(r.durationMs / 1000).toFixed(1)}s`;
+        console.log(`${r.status} (${duration})`);
+        if (r.notes) {
+          console.log(`    ${r.notes}`);
+        }
+      }
     }
   }
 
