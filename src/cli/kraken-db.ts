@@ -23,7 +23,19 @@ function openMainDb(): Database.Database | null {
     return new Database(dbPath, { readonly: true, fileMustExist: true });
   } catch (err) {
     const code = (err as NodeJS.ErrnoException).code;
-    if (code === 'SQLITE_CANTOPEN' || code === 'ENOENT') return null;
+    if (code === 'SQLITE_CANTOPEN' || code === 'ENOENT') {
+      // rc.13: by default, missing DB is an error. A broken volume
+      // mount or wrong KRAKEN_DATA_DIR shouldn't look like "no data."
+      // Set KRAKEN_DB_ALLOW_MISSING=1 to opt into silent empty.
+      // Codex rescue finding #8.
+      if (process.env['KRAKEN_DB_ALLOW_MISSING'] === '1') {
+        return null;
+      }
+      process.stderr.write(
+        `kraken-db: ${dbPath} not found. Set KRAKEN_DB_ALLOW_MISSING=1 to treat as empty.\n`,
+      );
+      process.exit(2);
+    }
     throw err;
   }
 }
@@ -66,7 +78,8 @@ function lookupChannel(channelId: string): unknown {
     const row = db
       .prepare(
         `SELECT channel_id, enclave_name, owner_slack_id, status, created_at
-         FROM enclave_bindings WHERE channel_id = ?`,
+         FROM enclave_bindings
+         WHERE channel_id = ? AND status = 'active'`,
       )
       .get(channelId) as Record<string, unknown> | undefined;
     if (!row) return null;
@@ -88,9 +101,13 @@ function listEnclaves(userId?: string): unknown {
   try {
     const sql = userId
       ? `SELECT channel_id, enclave_name, owner_slack_id, status, created_at
-         FROM enclave_bindings WHERE owner_slack_id = ? ORDER BY enclave_name`
+         FROM enclave_bindings
+         WHERE owner_slack_id = ? AND status = 'active'
+         ORDER BY enclave_name`
       : `SELECT channel_id, enclave_name, owner_slack_id, status, created_at
-         FROM enclave_bindings ORDER BY enclave_name`;
+         FROM enclave_bindings
+         WHERE status = 'active'
+         ORDER BY enclave_name`;
     const rows = (
       userId ? db.prepare(sql).all(userId) : db.prepare(sql).all()
     ) as Array<Record<string, unknown>>;

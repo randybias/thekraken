@@ -18,10 +18,14 @@ interface CliResult {
   status: number;
 }
 
-function runCli(dir: string, args: string[]): CliResult {
+function runCli(
+  dir: string,
+  args: string[],
+  envOverrides: Record<string, string> = {},
+): CliResult {
   try {
     const stdout = execFileSync('npx', ['tsx', CLI, ...args], {
-      env: { ...process.env, KRAKEN_DATA_DIR: dir },
+      env: { ...process.env, KRAKEN_DATA_DIR: dir, ...envOverrides },
       encoding: 'utf8',
     });
     return { stdout, status: 0 };
@@ -128,18 +132,42 @@ describe('kraken-db CLI', () => {
       expect(JSON.parse(stdout)).toBeNull();
     });
 
-    it('returns null when DB does not exist', () => {
+    it('exits non-zero (2) when DB is missing by default', () => {
       const empty = mkdtempSync(join(tmpdir(), 'kraken-empty-'));
       try {
-        const { stdout, status } = runCli(empty, [
-          'lookup-channel',
-          'C0AMY8XNBV2',
-        ]);
+        const { status } = runCli(empty, ['lookup-channel', 'C0AMY8XNBV2']);
+        expect(status).toBe(2);
+      } finally {
+        rmSync(empty, { recursive: true, force: true });
+      }
+    });
+
+    it('returns null when DB is missing AND KRAKEN_DB_ALLOW_MISSING=1', () => {
+      const empty = mkdtempSync(join(tmpdir(), 'kraken-empty-'));
+      try {
+        const { stdout, status } = runCli(
+          empty,
+          ['lookup-channel', 'C0AMY8XNBV2'],
+          { KRAKEN_DB_ALLOW_MISSING: '1' },
+        );
         expect(status).toBe(0);
         expect(JSON.parse(stdout)).toBeNull();
       } finally {
         rmSync(empty, { recursive: true, force: true });
       }
+    });
+
+    it('returns null for inactive binding', () => {
+      const db = seedKrakenDb(dir);
+      db.prepare(
+        `INSERT INTO enclave_bindings (channel_id, enclave_name, owner_slack_id, status)
+         VALUES (?, ?, ?, 'inactive')`,
+      ).run('C_INACTIVE', 'old-enclave', 'U_OLD');
+      db.close();
+
+      const { stdout, status } = runCli(dir, ['lookup-channel', 'C_INACTIVE']);
+      expect(status).toBe(0);
+      expect(JSON.parse(stdout)).toBeNull();
     });
   });
 
@@ -173,6 +201,40 @@ describe('kraken-db CLI', () => {
       const result = JSON.parse(stdout) as Array<{ enclaveName: string }>;
       expect(result).toHaveLength(1);
       expect(result[0]!.enclaveName).toBe('tentacular-agensys');
+    });
+
+    it('omits inactive bindings', () => {
+      const db = seedKrakenDb(dir);
+      db.prepare(
+        `INSERT INTO enclave_bindings (channel_id, enclave_name, owner_slack_id, status)
+         VALUES (?, ?, ?, 'active')`,
+      ).run('C_ACTIVE', 'live-enclave', 'U1');
+      db.prepare(
+        `INSERT INTO enclave_bindings (channel_id, enclave_name, owner_slack_id, status)
+         VALUES (?, ?, ?, 'inactive')`,
+      ).run('C_INACTIVE', 'dead-enclave', 'U1');
+      db.close();
+
+      const { stdout } = runCli(dir, ['list-enclaves']);
+      const result = JSON.parse(stdout) as Array<{ enclaveName: string }>;
+      expect(result.map((r) => r.enclaveName)).toEqual(['live-enclave']);
+    });
+
+    it('--user filters active for that user only', () => {
+      const db = seedKrakenDb(dir);
+      db.prepare(
+        `INSERT INTO enclave_bindings (channel_id, enclave_name, owner_slack_id, status)
+         VALUES (?, ?, ?, 'active')`,
+      ).run('C_LIVE', 'u1-active', 'U1');
+      db.prepare(
+        `INSERT INTO enclave_bindings (channel_id, enclave_name, owner_slack_id, status)
+         VALUES (?, ?, ?, 'inactive')`,
+      ).run('C_DEAD', 'u1-inactive', 'U1');
+      db.close();
+
+      const { stdout } = runCli(dir, ['list-enclaves', '--user', 'U1']);
+      const result = JSON.parse(stdout) as Array<{ enclaveName: string }>;
+      expect(result.map((r) => r.enclaveName)).toEqual(['u1-active']);
     });
   });
 
@@ -242,6 +304,9 @@ describe('kraken-db CLI', () => {
     });
 
     it('returns null when no deploy exists for the pair', () => {
+      const db = seedKrakenDb(dir);
+      db.close();
+
       const { stdout } = runCli(dir, ['change-summary', 'unknown', 'unknown']);
       expect(JSON.parse(stdout)).toBeNull();
     });
