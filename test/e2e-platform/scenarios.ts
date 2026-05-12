@@ -64,8 +64,8 @@ export const LIFECYCLE_SCENARIOS: LifecycleScenarioDef[] = [
       },
       {
         kind: 'chroma',
-        path: `/enclaves/<TEST_ENCLAVE>`,
-        expectText: [/<TEST_ENCLAVE>/i],
+        path: `/enclaves/${TEST_ENCLAVE}`,
+        expectText: [new RegExp(TEST_ENCLAVE, 'i')],
         timeoutMs: 60_000,
         pollMs: 5_000,
       },
@@ -80,7 +80,7 @@ export const LIFECYCLE_SCENARIOS: LifecycleScenarioDef[] = [
       },
       {
         kind: 'chroma',
-        path: `/enclaves/<TEST_ENCLAVE>/tentacles/hello-world`,
+        path: `/enclaves/${TEST_ENCLAVE}/tentacles/hello-world`,
         expectText: [/hello-world/i, /(ready|running|deployed)/i],
         timeoutMs: 600_000,
         pollMs: 10_000,
@@ -94,7 +94,7 @@ export const LIFECYCLE_SCENARIOS: LifecycleScenarioDef[] = [
       },
       {
         kind: 'chroma',
-        path: `/enclaves/<TEST_ENCLAVE>/tentacles/hello-world/runs`,
+        path: `/enclaves/${TEST_ENCLAVE}/tentacles/hello-world/runs`,
         expectText: [/hello-world/i],
         timeoutMs: 120_000,
         pollMs: 10_000,

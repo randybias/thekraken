@@ -816,10 +816,13 @@ async function runScenarioOnce(
       process.env['KRAKEN_E2E_DRY_RUN'] !== '1'
     ) {
       const driver = ctx.chromaDriver;
-      const path = scenario.chromaAssertion.path.replace(
-        '<TEST_ENCLAVE>',
-        TEST_ENCLAVE,
-      );
+      const subst = (s: string) => s.replace(/<TEST_ENCLAVE>/g, TEST_ENCLAVE);
+      const substPattern = (p: string | RegExp): string | RegExp =>
+        typeof p === 'string' ? subst(p) : new RegExp(subst(p.source), p.flags);
+      const path = subst(scenario.chromaAssertion.path);
+      const expectText = scenario.chromaAssertion.expectText?.map(substPattern);
+      const forbiddenText =
+        scenario.chromaAssertion.forbiddenText?.map(substPattern);
       const pollMs = scenario.chromaAssertion.pollMs ?? 5_000;
       const budgetMs = scaledTimeout(
         scenario.chromaAssertion.timeoutMs ?? 60_000,
@@ -831,8 +834,8 @@ async function runScenarioOnce(
           await driver.goto(path);
           const text = await driver.pageText();
           let allMatched = true;
-          if (scenario.chromaAssertion.expectText) {
-            for (const p of scenario.chromaAssertion.expectText) {
+          if (expectText) {
+            for (const p of expectText) {
               const matched =
                 p instanceof RegExp ? p.test(text) : text.includes(p);
               if (!matched) {
@@ -842,8 +845,8 @@ async function runScenarioOnce(
               }
             }
           }
-          if (allMatched && scenario.chromaAssertion.forbiddenText) {
-            for (const p of scenario.chromaAssertion.forbiddenText) {
+          if (allMatched && forbiddenText) {
+            for (const p of forbiddenText) {
               const matched =
                 p instanceof RegExp ? p.test(text) : text.includes(p);
               if (matched) {
