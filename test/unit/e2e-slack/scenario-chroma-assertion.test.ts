@@ -54,7 +54,7 @@ describe('ScenarioDef.chromaAssertion (chroma E2E platform tests)', () => {
     const f1 = TENTACLE_SCENARIOS.find((s) => s.id === 'F1');
     expect(f1).toBeDefined();
     expect(f1?.chromaAssertion?.path).toBe(
-      '/enclaves/<TEST_ENCLAVE>/tentacles/hello-world',
+      '/enclaves/<TEST_ENCLAVE>/workflows/hello-world',
     );
   });
 

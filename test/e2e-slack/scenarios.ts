@@ -626,7 +626,7 @@ export const TENTACLE_SCENARIOS: ScenarioDef[] = [
       },
     },
     chromaAssertion: {
-      path: '/enclaves/<TEST_ENCLAVE>/tentacles/hello-world',
+      path: '/enclaves/<TEST_ENCLAVE>/workflows/hello-world',
       expectText: [/hello-world/i, /(ready|running|deployed)/i],
       timeoutMs: 600_000,
       pollMs: 10_000,

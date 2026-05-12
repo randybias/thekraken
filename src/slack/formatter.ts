@@ -465,7 +465,7 @@ function buildWideTableBlocks(
 // ---------------------------------------------------------------------------
 
 function generatePlainText(markdown: string): string {
-  return markdown
+  return stripMarkdownTables(markdown)
     .replace(/```[\s\S]*?```/g, '[code block]')
     .replace(/^#{1,6}\s+/gm, '')
     .replace(/\*\*([^*]+)\*\*/g, '$1')
@@ -478,6 +478,63 @@ function generatePlainText(markdown: string): string {
     .replace(/^(---+|\*\*\*+|___+)\s*$/gm, '---')
     .replace(/\n{3,}/g, '\n\n')
     .trim();
+}
+
+/**
+ * Rewrite Markdown pipe tables into prose "key: value" lines.
+ *
+ * Slack does not render pipe tables, and our forbidden-pattern E2E
+ * tests reject the literal `|...|...|` shape in the text fallback.
+ * Even when the system prompt prohibits tables, the manager LLM
+ * occasionally emits one — this filter catches that as a last line
+ * of defense.
+ *
+ * The rewriter handles the canonical Markdown table shape:
+ *   | header1 | header2 |
+ *   |---------|---------|
+ *   | row1a   | row1b   |
+ *
+ * 2-column tables become "header1: row1a, header2: row1b" per row.
+ * 3+-column tables become bulleted "- header_n: cell_n" groups.
+ */
+export function stripMarkdownTables(markdown: string): string {
+  const lines = markdown.split('\n');
+  const out: string[] = [];
+  let i = 0;
+  while (i < lines.length) {
+    const line = lines[i] ?? '';
+    const next = lines[i + 1] ?? '';
+    const looksLikeRow = (s: string): boolean => /^\s*\|.+\|\s*$/.test(s);
+    const looksLikeSeparator = (s: string): boolean =>
+      /^\s*\|?\s*:?-+:?\s*(\|\s*:?-+:?\s*)+\|?\s*$/.test(s);
+    if (looksLikeRow(line) && looksLikeSeparator(next)) {
+      const headers = line
+        .trim()
+        .replace(/^\||\|$/g, '')
+        .split('|')
+        .map((c) => c.trim());
+      i += 2;
+      while (i < lines.length && looksLikeRow(lines[i] ?? '')) {
+        const row = (lines[i] ?? '')
+          .trim()
+          .replace(/^\||\|$/g, '')
+          .split('|')
+          .map((c) => c.trim());
+        if (headers.length === 2) {
+          out.push(`${headers[0]}: ${row[0]}, ${headers[1]}: ${row[1]}`);
+        } else {
+          for (let j = 0; j < row.length; j++) {
+            out.push(`- ${headers[j] ?? `col${j + 1}`}: ${row[j] ?? ''}`);
+          }
+        }
+        i++;
+      }
+      continue;
+    }
+    out.push(line);
+    i++;
+  }
+  return out.join('\n');
 }
 
 // ---------------------------------------------------------------------------

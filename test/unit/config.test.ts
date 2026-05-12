@@ -94,7 +94,8 @@ describe('loadConfig', () => {
     expect(config.slack.botToken).toBe('xoxb-test');
     expect(config.slack.mode).toBe('http');
     expect(config.oidc.issuer).toBe('https://keycloak.example.com/realms/test');
-    expect(config.mcp.url).toBe('http://tentacular-mcp:8080');
+    // Config appends /mcp suffix when missing — MCP SDK endpoint is at /mcp.
+    expect(config.mcp.url).toBe('http://tentacular-mcp:8080/mcp');
     expect(config.mcp.port).toBe(8080);
     expect(config.cluster.name).toBe('eastus');
     expect(config.gitState.repoUrl).toBe(
