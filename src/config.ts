@@ -227,7 +227,15 @@ export function loadConfig(): KrakenConfig {
   const oidcClientSecret = required('OIDC_CLIENT_SECRET');
 
   // MCP
-  const mcpUrl = required('TENTACULAR_MCP_URL');
+  // Normalize: the MCP server exposes its JSON-RPC endpoint at /mcp.
+  // Operators sometimes set TENTACULAR_MCP_URL to the bare service URL
+  // without the path (e.g. http://...:8080), which silently breaks every
+  // MCP call with 404. Append /mcp if it's missing so config drift can't
+  // re-introduce that bug.
+  const mcpUrlRaw = required('TENTACULAR_MCP_URL');
+  const mcpUrl = /\/mcp\/?$/.test(mcpUrlRaw)
+    ? mcpUrlRaw.replace(/\/$/, '')
+    : mcpUrlRaw.replace(/\/$/, '') + '/mcp';
 
   // Cluster
   const clusterName = required('TENTACULAR_CLUSTER');

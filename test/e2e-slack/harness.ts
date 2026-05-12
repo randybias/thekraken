@@ -304,6 +304,21 @@ export interface HarnessBootResult {
 export async function bootHarness(): Promise<HarnessBootResult> {
   const isDryRun = process.env['KRAKEN_E2E_DRY_RUN'] === '1';
 
+  // Pre-flight: verify KUBECONFIG + cluster reachability, optionally
+  // wipe stale team state. Skipped in dry-run mode.
+  // See test/e2e-slack/preflight.ts for what this catches.
+  if (!isDryRun) {
+    const { runPreflight } = await import('./preflight.js');
+    const pre = runPreflight();
+    for (const w of pre.warnings) console.warn(`[preflight] WARN: ${w}`);
+    if (!pre.ok) {
+      return {
+        ctx: null,
+        skipReason: `pre-flight failed: ${pre.errors.join('; ')}`,
+      };
+    }
+  }
+
   if (isDryRun) {
     const mockDriver = createMockDriver('U_MOCK_KRAKEN');
     const ctx: HarnessContext = {
