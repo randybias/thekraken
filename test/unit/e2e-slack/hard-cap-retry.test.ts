@@ -1,8 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import {
-  HARD_CAP_MS,
-  SCENARIO_RETRIES,
-} from '../../e2e-slack/harness.js';
+import { HARD_CAP_MS, SCENARIO_RETRIES } from '../../e2e-slack/harness.js';
 
 describe('hard cap + retry env config', () => {
   let origCap: string | undefined;
