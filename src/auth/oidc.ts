@@ -341,10 +341,24 @@ export async function getValidTokenForUser(
     storeTokenForUser(slackUserId, tokens);
     return tokens.access_token;
   } catch (err) {
-    logger.warn(
-      { slackUserId, err },
-      'Token refresh failed — user must re-authenticate',
-    );
+    // rc.14: if Keycloak says the grant is permanently dead, delete
+    // the row so the next user message routes straight to device-auth
+    // instead of looping through smart-path → MCP 401 → "session expired".
+    const msg = err instanceof Error ? err.message : String(err);
+    const permanentlyDead =
+      /invalid_grant|token is not active|session not active|expired/i.test(msg);
+    if (permanentlyDead) {
+      logger.warn(
+        { slackUserId, reason: msg },
+        'Refresh token permanently dead — deleting; user must re-authenticate',
+      );
+      deleteUserToken(slackUserId);
+    } else {
+      logger.warn(
+        { slackUserId, err },
+        'Token refresh failed — user must re-authenticate',
+      );
+    }
     return null;
   }
 }
@@ -448,12 +462,32 @@ export async function refreshAllExpiring(): Promise<void> {
           refreshed++;
         } catch (err) {
           failed++;
-          // rc.11: promoted from warn to error so default pod-log
-          // filters surface refresh failures.
-          logger.error(
-            { slackUserId: row.slack_user_id, err },
-            'Background token refresh failed',
-          );
+          // rc.14: if Keycloak says the grant is permanently dead
+          // (invalid_grant / token not active / session expired),
+          // delete the row instead of banging on it every 5 minutes
+          // forever. The user must re-authenticate; retrying does not
+          // change Keycloak's verdict.
+          const msg = err instanceof Error ? err.message : String(err);
+          const permanentlyDead =
+            /invalid_grant|token is not active|session not active|expired/i.test(
+              msg,
+            );
+          if (permanentlyDead) {
+            deleteUserToken(row.slack_user_id);
+            expired++;
+            failed--; // re-classify: this row is gone, not retry-failed
+            logger.warn(
+              { slackUserId: row.slack_user_id, reason: msg },
+              'Refresh token permanently dead — deleted; user must re-authenticate',
+            );
+          } else {
+            // rc.11: promoted from warn to error so default pod-log
+            // filters surface refresh failures.
+            logger.error(
+              { slackUserId: row.slack_user_id, err },
+              'Background token refresh failed',
+            );
+          }
         }
       }
     }

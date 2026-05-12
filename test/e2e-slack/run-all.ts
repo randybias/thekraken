@@ -38,8 +38,17 @@
  *   - Do NOT add production channels to CHANNELS in harness.ts
  */
 
-import { bootHarness, runScenario, type ScenarioResult } from './harness.js';
+import {
+  bootHarness,
+  runScenario,
+  scaledTimeout,
+  type ScenarioResult,
+} from './harness.js';
 import { ALL_SCENARIOS, findScenario } from './scenarios.js';
+import { loadChromaScenarios } from '../e2e-chroma/load-chroma-scenarios.js';
+import { runChromaScenario } from '../e2e-chroma/chroma-runner.js';
+import { LIFECYCLE_SCENARIOS } from '../e2e-platform/scenarios.js';
+import { runLifecycleScenario } from '../e2e-platform/lifecycle-runner.js';
 
 // ---------------------------------------------------------------------------
 // CLI argument parsing
@@ -206,6 +215,57 @@ async function main(): Promise<void> {
     // Inter-scenario pause to avoid Slack rate limiting
     if (scenarios.indexOf(scenario) < scenarios.length - 1) {
       await new Promise<void>((r) => setTimeout(r, 2000));
+    }
+  }
+
+  // Chroma scenarios (Pattern C — standalone Chroma, no Slack)
+  // Skipped when running a single Slack scenario or when explicitly disabled.
+  const isSingleSlackScenario = scenarioId !== undefined;
+  if (
+    !isSingleSlackScenario &&
+    process.env['KRAKEN_E2E_DISABLE_CHROMA'] !== '1'
+  ) {
+    const chromaScenarios = await loadChromaScenarios();
+    if (chromaScenarios.length > 0) {
+      console.log('');
+      console.log(`Running ${chromaScenarios.length} Chroma scenario(s)...`);
+      console.log('');
+      for (const cs of chromaScenarios) {
+        process.stdout.write(`  ${cs.id.padEnd(16)} ${cs.name}... `);
+        const r = await runChromaScenario(cs);
+        results.push(r);
+        const duration = `${(r.durationMs / 1000).toFixed(1)}s`;
+        console.log(`${r.status} (${duration})`);
+        if (r.notes) {
+          console.log(`    ${r.notes}`);
+        }
+      }
+    }
+  }
+
+  // Lifecycle scenarios (Pattern A — interleaved Slack + Chroma, gated by env var)
+  if (!isSingleSlackScenario) {
+    if (LIFECYCLE_SCENARIOS.length > 0) {
+      console.log('');
+      console.log(
+        `Running ${LIFECYCLE_SCENARIOS.length} lifecycle scenario(s)...`,
+      );
+      console.log('');
+      for (const ls of LIFECYCLE_SCENARIOS) {
+        process.stdout.write(`  ${ls.id.padEnd(20)} ${ls.name}... `);
+        const r = await runLifecycleScenario(ls, {
+          slackDriver: ctx.driver,
+          chromaDriver: ctx.chromaDriver,
+          channels: ctx.channelIds,
+          scaledTimeout,
+        });
+        results.push(r);
+        const duration = `${(r.durationMs / 1000).toFixed(1)}s`;
+        console.log(`${r.status} (${duration})`);
+        if (r.notes) {
+          console.log(`    ${r.notes}`);
+        }
+      }
     }
   }
 

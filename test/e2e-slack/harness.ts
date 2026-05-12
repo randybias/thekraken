@@ -24,6 +24,11 @@ import {
   getSecret,
   type SlackDriver,
 } from './slack-driver.js';
+import {
+  createChromaDriver,
+  type ChromaDriver,
+} from '../e2e-chroma/chroma-driver.js';
+import { bootBrowser } from '../e2e-chroma/boot-driver.js';
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -84,6 +89,34 @@ export const TIMEOUT_MULT = (() => {
   return Number.isFinite(n) && n > 0 ? n : 1;
 })();
 
+/**
+ * Hard cap per scenario (ms). After this much wall-clock time
+ * elapsed, the scenario is aborted, marked FAIL, and the runner
+ * continues. Independent of timeoutMs (which is per-await budget).
+ *
+ * Default 10 minutes — enough for a slow LLM turn but short enough
+ * to prevent one stuck scenario from blocking the rest of the suite.
+ * Override with KRAKEN_E2E_HARD_CAP_MS.
+ */
+export const HARD_CAP_MS = (() => {
+  const raw = process.env['KRAKEN_E2E_HARD_CAP_MS'];
+  if (!raw) return 10 * 60 * 1000;
+  const n = Number(raw);
+  return Number.isFinite(n) && n > 0 ? n : 10 * 60 * 1000;
+})();
+
+/**
+ * Number of retries per scenario on FAIL/ERROR (not on PASS or SKIP).
+ * Default 1 — try once, retry once on failure, total max 2 attempts.
+ * Override with KRAKEN_E2E_RETRIES.
+ */
+export const SCENARIO_RETRIES = (() => {
+  const raw = process.env['KRAKEN_E2E_RETRIES'];
+  if (!raw) return 1;
+  const n = Number(raw);
+  return Number.isFinite(n) && n >= 0 ? n : 1;
+})();
+
 /** Scale a per-scenario timeout by TIMEOUT_MULT. */
 export function scaledTimeout(timeoutMs: number | undefined): number {
   return Math.round((timeoutMs ?? DEFAULT_TIMEOUT_MS) * TIMEOUT_MULT);
@@ -112,6 +145,8 @@ export interface HarnessContext {
   botUserId: string;
   /** Channel IDs (resolved from names at harness boot). */
   channelIds: Record<string, string>;
+  /** Optional shared Chroma driver. Null when Chroma is disabled. */
+  chromaDriver?: ChromaDriver;
 }
 
 // ---------------------------------------------------------------------------
@@ -278,6 +313,8 @@ export async function bootHarness(): Promise<HarnessBootResult> {
         [CHANNELS.enclave]: 'C_MOCK_ENCLAVE',
         [CHANNELS.test]: 'C_MOCK_TEST',
       },
+      // No Chroma driver in dry-run mode — chromaAssertion blocks are skipped
+      chromaDriver: undefined,
     };
     return { ctx };
   }
@@ -402,11 +439,40 @@ export async function bootHarness(): Promise<HarnessBootResult> {
   if (testChannelId) channelIds[CHANNELS.test] = testChannelId;
   if (dmChannelId) channelIds[CHANNELS.dm] = dmChannelId;
 
+  // Boot a shared ChromaDriver when Chroma is not explicitly disabled.
+  // If boot fails (no cookies, Playwright not installed, network), log a
+  // warning and continue — chromaAssertion blocks will be silently skipped.
+  let chromaDriver: ChromaDriver | undefined;
+  if (process.env['KRAKEN_E2E_DISABLE_CHROMA'] !== '1') {
+    try {
+      const baseUrl =
+        process.env['KRAKEN_E2E_CHROMA_BASE_URL'] ??
+        'https://chroma.westeurope-dev1.ospo-dev.miralabs.dev';
+      const booted = await bootBrowser({});
+      chromaDriver = createChromaDriver({
+        baseUrl,
+        contextFactory: async () => ({
+          browser: booted.browser,
+          context: booted.context,
+          page: booted.page,
+        }),
+      });
+      console.log('[harness] Chroma driver booted');
+    } catch (chromaErr: unknown) {
+      const chromaMsg =
+        chromaErr instanceof Error ? chromaErr.message : String(chromaErr);
+      console.warn(
+        `[harness] Chroma driver boot failed — chromaAssertion blocks will be skipped: ${chromaMsg}`,
+      );
+    }
+  }
+
   const ctx: HarnessContext = {
     driver,
     memberDriver,
     botUserId,
     channelIds,
+    chromaDriver,
   };
 
   return { ctx };
@@ -498,10 +564,13 @@ async function getMcpCallForUser(): Promise<{
 }
 
 /**
- * Run a single scenario definition against the harness context.
+ * Run a single scenario attempt against the harness context.
  * Returns a ScenarioResult with PASS/FAIL/SKIP/ERROR status.
+ *
+ * Internal implementation — call runScenario() instead, which adds
+ * the hard-cap timer and retry logic.
  */
-export async function runScenario(
+async function runScenarioOnce(
   ctx: HarnessContext,
   scenario: import('./scenarios.js').ScenarioDef,
 ): Promise<ScenarioResult> {
@@ -738,6 +807,75 @@ export async function runScenario(
       }
     }
 
+    // Optional post-reply Chroma assertion — verifies that the Chroma UI
+    // reflects the expected state. Skipped in dry-run mode and when
+    // KRAKEN_E2E_DISABLE_CHROMA=1 or when no chromaDriver is available.
+    if (
+      scenario.chromaAssertion &&
+      ctx.chromaDriver &&
+      process.env['KRAKEN_E2E_DRY_RUN'] !== '1'
+    ) {
+      const driver = ctx.chromaDriver;
+      const subst = (s: string) => s.replace(/<TEST_ENCLAVE>/g, TEST_ENCLAVE);
+      const substPattern = (p: string | RegExp): string | RegExp =>
+        typeof p === 'string' ? subst(p) : new RegExp(subst(p.source), p.flags);
+      const path = subst(scenario.chromaAssertion.path);
+      const expectText = scenario.chromaAssertion.expectText?.map(substPattern);
+      const forbiddenText =
+        scenario.chromaAssertion.forbiddenText?.map(substPattern);
+      const pollMs = scenario.chromaAssertion.pollMs ?? 5_000;
+      const budgetMs = scaledTimeout(
+        scenario.chromaAssertion.timeoutMs ?? 60_000,
+      );
+      const deadline = Date.now() + budgetMs;
+      let lastErr: string | null = 'not evaluated';
+      while (Date.now() < deadline) {
+        try {
+          await driver.goto(path);
+          const text = await driver.pageText();
+          let allMatched = true;
+          if (expectText) {
+            for (const p of expectText) {
+              const matched =
+                p instanceof RegExp ? p.test(text) : text.includes(p);
+              if (!matched) {
+                lastErr = `expected ${p} not in page`;
+                allMatched = false;
+                break;
+              }
+            }
+          }
+          if (allMatched && forbiddenText) {
+            for (const p of forbiddenText) {
+              const matched =
+                p instanceof RegExp ? p.test(text) : text.includes(p);
+              if (matched) {
+                lastErr = `forbidden ${p} in page`;
+                allMatched = false;
+                break;
+              }
+            }
+          }
+          if (allMatched) {
+            lastErr = null;
+            break;
+          }
+        } catch (err) {
+          lastErr = (err as Error).message;
+        }
+        await new Promise((r) => setTimeout(r, pollMs));
+      }
+      if (lastErr) {
+        return {
+          id: scenario.id,
+          name: scenario.name,
+          status: 'FAIL',
+          durationMs: Date.now() - start,
+          notes: `chromaAssertion: ${lastErr}`,
+        };
+      }
+    }
+
     return {
       id: scenario.id,
       name: scenario.name,
@@ -756,4 +894,92 @@ export async function runScenario(
       notes: msg,
     };
   }
+}
+
+// ---------------------------------------------------------------------------
+// Public runScenario — hard cap + retry wrapper
+// ---------------------------------------------------------------------------
+
+/**
+ * Run a scenario with a wall-clock hard cap and optional retry logic.
+ *
+ * - If the scenario exceeds HARD_CAP_MS total wall-clock time, it is marked
+ *   FAIL with notes "hard-cap exceeded (Ns)" and the suite continues. The
+ *   underlying runScenarioOnce is not cancelled — its in-flight Slack/Chroma
+ *   waits continue in the background until they resolve naturally. Cancelling
+ *   mid-flight could leave the team subprocess in a confused state.
+ *
+ * - If the result is FAIL or ERROR, the scenario is retried up to
+ *   SCENARIO_RETRIES additional times. PASS and SKIP are never retried.
+ *
+ * - The final notes are prefixed with "(after N retries)" when retries were
+ *   consumed and the scenario still failed.
+ */
+export async function runScenario(
+  ctx: HarnessContext,
+  scenario: import('./scenarios.js').ScenarioDef,
+): Promise<ScenarioResult> {
+  let lastResult: ScenarioResult | null = null;
+  const totalAttempts = SCENARIO_RETRIES + 1;
+
+  for (let attempt = 1; attempt <= totalAttempts; attempt++) {
+    const attemptStart = Date.now();
+    let timer: ReturnType<typeof setTimeout> | undefined;
+
+    const result: ScenarioResult = await new Promise((resolve) => {
+      timer = setTimeout(() => {
+        resolve({
+          id: scenario.id,
+          name: scenario.name,
+          status: 'FAIL',
+          durationMs: Date.now() - attemptStart,
+          notes: `hard-cap exceeded (${HARD_CAP_MS / 1000}s)`,
+        });
+      }, HARD_CAP_MS);
+
+      runScenarioOnce(ctx, scenario)
+        .then(resolve)
+        .catch((err: unknown) => {
+          resolve({
+            id: scenario.id,
+            name: scenario.name,
+            status: 'ERROR',
+            durationMs: Date.now() - attemptStart,
+            notes: (err as Error).message,
+          });
+        });
+    });
+    if (timer !== undefined) clearTimeout(timer);
+
+    lastResult = result;
+
+    // Don't retry on PASS or SKIP
+    if (result.status === 'PASS' || result.status === 'SKIP') {
+      break;
+    }
+
+    if (attempt < totalAttempts) {
+      console.log(
+        `  ${scenario.id}   retry ${attempt}/${SCENARIO_RETRIES} after ${result.status} (${result.notes})`,
+      );
+    }
+  }
+
+  // Annotate final notes when retries were consumed and scenario still failed
+  if (lastResult && totalAttempts > 1) {
+    const retried = totalAttempts - 1;
+    if (lastResult.status === 'FAIL' || lastResult.status === 'ERROR') {
+      lastResult.notes = `(after ${retried} retr${retried === 1 ? 'y' : 'ies'}) ${lastResult.notes}`;
+    }
+  }
+
+  return (
+    lastResult ?? {
+      id: scenario.id,
+      name: scenario.name,
+      status: 'ERROR',
+      durationMs: 0,
+      notes: 'no attempts ran',
+    }
+  );
 }

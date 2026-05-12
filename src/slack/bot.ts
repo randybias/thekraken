@@ -37,6 +37,7 @@ import { authCard } from './cards.js';
 import { filterJargon } from '../jargon-filter.js';
 import { randomUUID } from 'node:crypto';
 import {
+  deleteUserToken,
   extractEmailFromToken,
   getValidTokenForUser,
   initiateDeviceAuth,
@@ -693,6 +694,25 @@ function registerEventHandlers(
       if (threadTs) span.setAttribute('slack.thread_ts', threadTs);
 
       try {
+        // Literal "login" / "/login" intercept: always force a fresh
+        // device auth flow, even when an existing token is present.
+        // Without this, a stale-but-not-yet-pruned token sends the user
+        // through smart-path which 401s and replies "DM me 'login'" —
+        // creating an infinite loop where login fails to log in.
+        const trimmed = text.trim().toLowerCase();
+        if (trimmed === 'login' || trimmed === '/login') {
+          deleteUserToken(userId);
+          const userToken = await checkAuthOrPrompt(userId, channelId, client);
+          if (userToken !== null) {
+            await say({
+              text: "You're authenticated. How can I help?",
+              thread_ts: threadTs ?? (event as { ts: string }).ts,
+            });
+          }
+          span.setStatus({ code: SpanStatusCode.OK });
+          return;
+        }
+
         // Auth gate (Task 6): verify user has a valid OIDC token before routing.
         const userToken = await checkAuthOrPrompt(userId, channelId, client);
         if (userToken === null) return;

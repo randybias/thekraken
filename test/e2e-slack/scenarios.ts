@@ -100,6 +100,19 @@ export interface ScenarioDef {
   clusterAssertion?: {
     check: () => Promise<string | null>;
   };
+  /**
+   * Optional Chroma assertion: after the Slack reply check passes,
+   * navigate to a Chroma URL and verify the page reflects the result.
+   * Mirrors mcpAssertion shape. Substitution: <TEST_ENCLAVE> in `path`
+   * is replaced with the active test enclave.
+   */
+  chromaAssertion?: {
+    path: string;
+    expectText?: Array<string | RegExp>;
+    forbiddenText?: Array<string | RegExp>;
+    timeoutMs?: number;
+    pollMs?: number;
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -474,6 +487,12 @@ export const PROVISIONING_SCENARIOS: ScenarioDef[] = [
     ],
     forbiddenPatterns: [],
     timeoutMs: 150_000,
+    chromaAssertion: {
+      path: '/enclaves/<TEST_ENCLAVE>',
+      expectText: [/<TEST_ENCLAVE>/i],
+      timeoutMs: 60_000,
+      pollMs: 5_000,
+    },
   },
   {
     id: 'E5',
@@ -487,6 +506,11 @@ export const PROVISIONING_SCENARIOS: ScenarioDef[] = [
     ],
     forbiddenPatterns: [],
     timeoutMs: 45_000,
+    chromaAssertion: {
+      path: '/',
+      forbiddenText: [/<TEST_ENCLAVE>/i],
+      timeoutMs: 60_000,
+    },
   },
 ];
 
@@ -601,6 +625,12 @@ export const TENTACLE_SCENARIOS: ScenarioDef[] = [
         return `hello-world not found in ns/${candidates.join(', ')}`;
       },
     },
+    chromaAssertion: {
+      path: '/enclaves/<TEST_ENCLAVE>/tentacles/hello-world',
+      expectText: [/hello-world/i, /(ready|running|deployed)/i],
+      timeoutMs: 600_000,
+      pollMs: 10_000,
+    },
   },
   {
     id: 'F2',
@@ -699,6 +729,11 @@ export const TENTACLE_SCENARIOS: ScenarioDef[] = [
     ],
     forbiddenPatterns: [/kubectl/i],
     timeoutMs: 60_000,
+    chromaAssertion: {
+      path: '/enclaves/<TEST_ENCLAVE>/tentacles',
+      forbiddenText: [/hello-world/i],
+      timeoutMs: 60_000,
+    },
   },
 ];
 
