@@ -1,14 +1,26 @@
 import { describe, it, expect } from 'vitest';
+import { existsSync } from 'node:fs';
+import { resolve, dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { loadChromaScenarios } from '../../e2e-chroma/load-chroma-scenarios.js';
 
+// The sibling tentacular-chroma checkout is only present in developer
+// workspaces (and in repos that explicitly check it out alongside).
+// In thekraken's own CI it is absent, so the sibling-dependent assertions
+// must be skipped instead of failed.
+const HERE = dirname(fileURLToPath(import.meta.url));
+const SIBLING = resolve(HERE, '../../../../tentacular-chroma');
+const HAS_SIBLING = existsSync(SIBLING);
+
 describe('loadChromaScenarios', () => {
-  it('returns CHROMA_SCENARIOS array when sibling checkout has the file', async () => {
-    const scenarios = await loadChromaScenarios();
-    expect(Array.isArray(scenarios)).toBe(true);
-    // Sibling tentacular-chroma is checked out at ../tentacular-chroma
-    // and exports CHROMA-SMOKE-1 (created in Task 4).
-    expect(scenarios.find((s) => s.id === 'CHROMA-SMOKE-1')).toBeDefined();
-  });
+  it.skipIf(!HAS_SIBLING)(
+    'returns CHROMA_SCENARIOS array when sibling checkout has the file',
+    async () => {
+      const scenarios = await loadChromaScenarios();
+      expect(Array.isArray(scenarios)).toBe(true);
+      expect(scenarios.find((s) => s.id === 'CHROMA-SMOKE-1')).toBeDefined();
+    },
+  );
 
   it('returns empty array when siblingPath does not exist', async () => {
     const scenarios = await loadChromaScenarios({
@@ -17,10 +29,11 @@ describe('loadChromaScenarios', () => {
     expect(scenarios).toEqual([]);
   });
 
-  it('default siblingPath resolves to ../tentacular-chroma relative to this module', async () => {
-    // Implicit test: previous test relies on default resolution. If it
-    // works, the path is correct.
-    const scenarios = await loadChromaScenarios();
-    expect(scenarios.length).toBeGreaterThan(0);
-  });
+  it.skipIf(!HAS_SIBLING)(
+    'default siblingPath resolves to ../tentacular-chroma relative to this module',
+    async () => {
+      const scenarios = await loadChromaScenarios();
+      expect(scenarios.length).toBeGreaterThan(0);
+    },
+  );
 });
