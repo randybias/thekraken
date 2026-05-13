@@ -94,15 +94,21 @@ export const TIMEOUT_MULT = (() => {
  * elapsed, the scenario is aborted, marked FAIL, and the runner
  * continues. Independent of timeoutMs (which is per-await budget).
  *
- * Default 10 minutes — enough for a slow LLM turn but short enough
- * to prevent one stuck scenario from blocking the rest of the suite.
+ * Default 25 minutes. Build/deploy scenarios (F1, PLAT-LIFECYCLE-1)
+ * routinely take 12-15 minutes end-to-end — most of that time is the
+ * cluster pulling the engine image on a cold node, not Kraken or pi
+ * doing anything. 10 minutes was too tight; the test would mark FAIL
+ * before the build had a chance to actually land. 25 minutes gives
+ * head-room for cold-cache cluster days; the per-scenario timeoutMs
+ * still acts as the inner bound for fast-reply scenarios.
+ *
  * Override with KRAKEN_E2E_HARD_CAP_MS.
  */
 export const HARD_CAP_MS = (() => {
   const raw = process.env['KRAKEN_E2E_HARD_CAP_MS'];
-  if (!raw) return 10 * 60 * 1000;
+  if (!raw) return 25 * 60 * 1000;
   const n = Number(raw);
-  return Number.isFinite(n) && n > 0 ? n : 10 * 60 * 1000;
+  return Number.isFinite(n) && n > 0 ? n : 25 * 60 * 1000;
 })();
 
 /**

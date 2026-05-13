@@ -1097,8 +1097,18 @@ const FORBIDDEN_VERSION_NUMBER = /\bv\d+\.\d+\.\d+\b|\bversion\s+\d+\b/i;
 // commission messages (e.g. "task ec367f47"). Without the negative
 // lookbehind the scenario flags legitimate "(task xxxxxxxx)" handles
 // the user genuinely wants to see.
+// Match git SHA leakage but exclude:
+//   1. Task UUIDs the manager surfaces in commission messages, including
+//      the full UUID form ("task 6d521e98-82a3-428e-a2ef-1fae9d9a0caf").
+//      A negative lookbehind for "task " catches the head of the UUID;
+//      a negative lookbehind/ahead for hex-hyphen-hex catches the middle
+//      and tail segments.
+//   2. Hex chunks that are part of a longer UUID-like structure (preceded
+//      or followed by `-[0-9a-f]+`).
+// Real git SHAs are not embedded between hyphens, so the hyphen guards
+// don't suppress real leakage.
 const FORBIDDEN_SHA =
-  /(?<!\btask\s)(?<!\btask\s\()(?<!\btask\s`)\b[0-9a-f]{7,40}\b/i;
+  /(?<!\btask\s)(?<!\btask\s\()(?<!\btask\s`)(?<![0-9a-f]-)\b[0-9a-f]{7,40}\b(?!-[0-9a-f])/i;
 
 export const MANAGER_OUTPUT_SCENARIOS: ScenarioDef[] = [
   {
