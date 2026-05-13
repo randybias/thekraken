@@ -17,8 +17,12 @@ describe('hard cap + retry env config', () => {
     else process.env['KRAKEN_E2E_RETRIES'] = origRetries;
   });
 
-  it('HARD_CAP_MS defaults to 10 minutes', () => {
-    expect(HARD_CAP_MS).toBe(10 * 60 * 1000);
+  it('HARD_CAP_MS defaults to 25 minutes', () => {
+    // Bumped in rc.21: tentacle build/deploy on a cold-cache cluster
+    // takes 12-15 min, dominated by engine image pull. The 10-min default
+    // marked F1/PLAT-LIFECYCLE FAIL before the build had a chance to
+    // verify. 25-min default lets the cluster actually finish.
+    expect(HARD_CAP_MS).toBe(25 * 60 * 1000);
   });
 
   it('SCENARIO_RETRIES defaults to 1', () => {
