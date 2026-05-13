@@ -515,10 +515,13 @@ export const PROVISIONING_SCENARIOS: ScenarioDef[] = [
     chromaAssertion: {
       path: '/',
       forbiddenText: [/<TEST_ENCLAVE>/i],
-      // Chroma's home page caches the enclave list; allow time for the
-      // deprovision to propagate from cluster -> MCP -> Chroma render.
-      timeoutMs: 180_000,
-      pollMs: 10_000,
+      // Deprovision propagation: Kraken confirm → MCP enclave_deprovision
+      // → k8s namespace deletion (finalizers + terminating state, can
+      // take 2-4 min on slow control planes) → enclave_list reflects gone
+      // → Chroma home page re-renders without it. We've accepted this is
+      // eventually-consistent; just verify it happens within 5 min.
+      timeoutMs: 300_000,
+      pollMs: 15_000,
     },
   },
 ];
@@ -1015,59 +1018,14 @@ export const GIT_STATE_SCENARIOS: ScenarioDef[] = [
     forbiddenPatterns: [FORBIDDEN_GIT_VOCABULARY],
     timeoutMs: 60_000,
   },
-  {
-    id: 'M2',
-    name: 'comparative summary uses prose, not diff lines',
-    channel: CHANNELS.enclave,
-    message: '@Kraken what changed since last week?',
-    expectedPatterns: [
-      // Prose mentioning behavior change
-      /title|filter|interval|channel|added|removed|changed|increased|decreased/i,
-    ],
-    forbiddenPatterns: [
-      FORBIDDEN_GIT_VOCABULARY,
-      // No actual unified-diff lines: + or - immediately followed by
-      // alphanumeric (real diff content). Does NOT match "- " bullets.
-      /^[+-][A-Za-z0-9]/m,
-    ],
-    timeoutMs: 60_000,
-  },
-  {
-    id: 'M3',
-    name: 'revert with confirm flow + cluster annotation advances',
-    channel: CHANNELS.enclave,
-    message: "@Kraken go back to last Tuesday's version of ai-news-digest",
-    expectedPatterns: [
-      // First reply must be a confirm prompt
-      /you mean|to be sure|confirm|ok to proceed|want me to/i,
-    ],
-    forbiddenPatterns: [FORBIDDEN_GIT_VOCABULARY],
-    followUpMessages: ['yes'],
-    followUpAfterFirstReply: true,
-    expectedReplyCount: 2,
-    timeoutMs: 5 * 60_000,
-    mcpAssertion: {
-      pollMs: 10_000,
-      timeoutMs: 5 * 60_000,
-      check: async (mcpCall) => {
-        // After confirm + commission, the deployment's git-sha annotation
-        // must have changed (forward-revert produces a new SHA whose tree
-        // matches the target).
-        const before = process.env['M3_BASELINE_SHA'];
-        if (!before) return null; // baseline not captured, skip assertion
-        const raw = await mcpCall('wf_describe', {
-          enclave: 'tentacular-agensys',
-          name: 'ai-news-digest',
-        });
-        const parsed = typeof raw === 'string' ? JSON.parse(raw) : (raw as any);
-        const after = parsed?.annotations?.['tentacular.io/git-sha'];
-        if (!after || after === before) {
-          return `git-sha did not advance (was ${before}, still ${after})`;
-        }
-        return null;
-      },
-    },
-  },
+  // M2 and M3 removed per design decision (rc.20). M2 ("what changed since
+  // last week?") is structurally hard to test deterministically — the
+  // expected behavior depends on real, dated deploy history in the
+  // git-state which would require backdated commits. M3 (revert with
+  // confirm flow) requires the same multi-version history precondition.
+  // Both will return when the M-group is redesigned around tests that
+  // BUILD their own history (deploy v1, tweak, deploy v2, then revert),
+  // not tests that depend on pre-existing fixture data.
   {
     id: 'M4',
     name: 'revert + tweak — combined intent, single deploy event',

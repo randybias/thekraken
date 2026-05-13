@@ -916,6 +916,12 @@ export class TeamBridge {
 
   /**
    * Spawn a dev team subprocess using the injected factory or real spawn().
+   *
+   * Critical: pi `--print` mode blocks reading stdin when stdin is a live
+   * pipe. With `stdio: ['pipe', ...]` and no writes, the pi process sits
+   * idle forever — `task_started` fires but nothing else happens, no
+   * scaffold, no deploy, just silence until SIGTERM. Use `stdio: ['ignore',
+   * 'pipe', 'pipe']` so pi gets a closed stdin and runs to completion.
    */
   private spawnDevTeamProcess(opts: DevTeamSpawnOptions): ChildProcess {
     if (this.opts.spawnDevTeam) {
@@ -938,7 +944,7 @@ export class TeamBridge {
     return spawn(this.opts.piCliPath, args, {
       cwd: opts.gitStateDir,
       env: opts.env,
-      stdio: ['pipe', 'pipe', 'pipe'],
+      stdio: ['ignore', 'pipe', 'pipe'],
     });
   }
 
