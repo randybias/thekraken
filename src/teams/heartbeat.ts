@@ -82,9 +82,15 @@ export class HeartbeatController {
   onSignal(signal: SignalRecord, tentacleName?: string): void {
     if (!isSignificantSignal(signal)) return;
 
+    // Terminal signals (task_completed, task_failed) MUST always emit.
+    // Skipping them because of the heartbeat-floor would drop the actual
+    // result message the user is waiting for. Only progressive signals
+    // (task_started, progress_update) are subject to the floor.
+    const isTerminal =
+      signal.type === 'task_completed' || signal.type === 'task_failed';
     const now = Date.now();
     const elapsed = now - this.lastHeartbeatAt;
-    if (elapsed < this.floorMs) return;
+    if (!isTerminal && elapsed < this.floorMs) return;
 
     const text = this.buildHeartbeatText(signal, tentacleName);
     this.lastHeartbeatAt = now;

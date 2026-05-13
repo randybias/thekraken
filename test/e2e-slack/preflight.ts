@@ -126,6 +126,31 @@ function wipeTeams(teams: string[]): void {
 }
 
 /**
+ * Wipe ALL rows from the ndjson_cursors table. Necessary even when
+ * no team dirs exist, because a stale cursor row pointing past the
+ * end of a freshly-recreated mailbox.ndjson makes the bridge reader
+ * silently skip every incoming message.
+ */
+function wipeAllCursors(): void {
+  const script =
+    "const D=require('better-sqlite3');" +
+    "const db=new D('/app/data/kraken.db');" +
+    "const r=db.prepare('DELETE FROM ndjson_cursors').run();" +
+    'process.stdout.write(String(r.changes));' +
+    'db.close();';
+  const r = tryKubectl(
+    `exec -n ${KRAKEN_NS} deploy/thekraken -- node -e "${script}"`,
+  );
+  if (r.ok) {
+    console.log(`[preflight] wiped ${r.out.trim()} cursor rows`);
+  } else {
+    console.warn(
+      `[preflight] cursor wipe failed (non-fatal): ${r.err.slice(0, 200)}`,
+    );
+  }
+}
+
+/**
  * Reset the enclaves that the E2E suite uses to a clean slate:
  *
  *   1. Delete the test enclave's k8s namespace (e.g. e2e-test or
@@ -176,27 +201,36 @@ function resetTargetEnclaves(): void {
     }
   }
 
-  // 2. Remove transient tentacles from the persistent enclave. The names
-  // here mirror what F-group scenarios deploy. Add new transient names
-  // here when adding more deploy-style scenarios.
-  const transientNames = ['hello-world'];
-  // Also remove any e2e-echo-probe-* deployments left from F-CRUD.
-  const allDeploys = tryKubectl(
-    `-n ${persistEnclave} get deploy -o name 2>/dev/null`,
-  );
-  if (allDeploys.ok) {
-    const echoes = allDeploys.out
+  // 2. Strict reset: delete ALL tentacle workloads from EVERY enclave
+  // namespace before the run. Per operator policy, the cluster must have
+  // NO tentacles of any kind prior to E2E execution — tests build what
+  // they need from scratch. This includes the persistent enclave's
+  // workloads (which is destructive in the development workspace but
+  // intentional — git-state preserves the source-of-record).
+  const allNs = tryKubectl(`get ns -o name`);
+  if (allNs.ok) {
+    const enclaveNamespaces = allNs.out
       .split('\n')
-      .map((s) => s.replace(/^deployment\.apps\//, '').trim())
-      .filter((s) => /^e2e-echo-probe(-\d+)?$/.test(s));
-    transientNames.push(...echoes);
-  }
-  for (const t of transientNames) {
-    const r = tryKubectl(
-      `-n ${persistEnclave} delete deploy,job,cronjob ${t} --wait=false --ignore-not-found`,
-    );
-    if (r.ok && r.out.trim())
-      console.log(`[preflight] cleaned ${persistEnclave}/${t}`);
+      .map((s) => s.replace(/^namespace\//, '').trim())
+      .filter(
+        (n) =>
+          // Match Tentacular enclave namespaces: known persistent + any
+          // matching the test enclave prefix. Don't touch system / observability /
+          // kraken / mcp namespaces.
+          n === persistEnclave ||
+          n === testEnclave ||
+          n.startsWith(`${testEnclave}-`),
+      );
+    for (const ns of enclaveNamespaces) {
+      const r = tryKubectl(
+        `-n ${ns} delete deploy,job,cronjob,statefulset --all --wait=false --ignore-not-found`,
+      );
+      if (r.ok && r.out.trim()) {
+        console.log(
+          `[preflight] wiped tentacle workloads in ${ns}: ${r.out.trim().split('\n').length} object(s)`,
+        );
+      }
+    }
   }
 
   // 3. Prune enclave_bindings rows pointing at namespaces that no longer
@@ -256,25 +290,36 @@ export function runPreflight(): PreflightResult {
   console.log(`[preflight] ${cluster.reason}`);
 
   // Team-state hygiene.
+  // FRESH_TEAMS mode unconditionally wipes any present team dirs AND
+  // all ndjson_cursors rows. The cursor wipe must run independent of
+  // team-dir presence: stale cursor rows (left over from a previous
+  // run whose team dir is already gone) point at byte offsets larger
+  // than the freshly-recreated mailbox.ndjson, causing the bridge
+  // reader to skip past every incoming message. The team-bridge
+  // never processes mailbox records and the suite appears auth-broken
+  // when in fact the reader is just past EOF.
   const teams = listTeamDirs();
-  if (teams.length > 0) {
-    if (process.env['KRAKEN_E2E_FRESH_TEAMS'] === '1') {
-      try {
+  if (process.env['KRAKEN_E2E_FRESH_TEAMS'] === '1') {
+    try {
+      if (teams.length > 0) {
         wipeTeams(teams);
-        console.log(`[preflight] wiped ${teams.length} stale team dirs`);
-      } catch (err) {
-        result.ok = false;
-        result.errors.push((err as Error).message);
-        return result;
+        console.log(`[preflight] wiped ${teams.length} stale team dir(s)`);
+      } else {
+        console.log('[preflight] no team dirs to wipe');
       }
-    } else {
-      result.warnings.push(
-        `${teams.length} team dir(s) present: ${teams.join(', ')}. ` +
-          'Accumulated mailbox context can cause the team LLM to ' +
-          'mimic past failure patterns. Set KRAKEN_E2E_FRESH_TEAMS=1 ' +
-          'to wipe before the run.',
-      );
+      wipeAllCursors();
+    } catch (err) {
+      result.ok = false;
+      result.errors.push((err as Error).message);
+      return result;
     }
+  } else if (teams.length > 0) {
+    result.warnings.push(
+      `${teams.length} team dir(s) present: ${teams.join(', ')}. ` +
+        'Accumulated mailbox context can cause the team LLM to ' +
+        'mimic past failure patterns. Set KRAKEN_E2E_FRESH_TEAMS=1 ' +
+        'to wipe before the run.',
+    );
   } else {
     console.log('[preflight] team dirs clean');
   }
