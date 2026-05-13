@@ -57,14 +57,19 @@ const log = createChildLogger({ module: 'team-bridge' });
 /**
  * Max time to wait for the agent to finish one prompt.
  *
- * Tentacle build/deploy via a dev-team subprocess can legitimately take
- * 10-15 minutes (scaffold fetch from GitHub, npm install, tntc deploy
- * with kubectl apply + ready wait). The manager's per-turn cap must be
- * wider than that or it drops the user reply mid-build. 20 min gives
- * head-room for slow CI days; the team-wide idle timeout (30 min in
- * lifecycle.ts) still caps total inactivity.
+ * Held at 10 minutes deliberately. A longer cap (tried 20 min in rc.18)
+ * actively HURT throughput: while the manager waited for one long build
+ * to finish, every subsequent inbound message stayed queued and timed
+ * out at the test runner's per-scenario hard cap. The downstream
+ * F-group scenarios got 0 replies because the bridge held one turn
+ * open. With the 10-min cap, a slow build FAILs fast, the manager turn
+ * ends, and the bridge drains the queue.
+ *
+ * The proper fix is concurrent per-thread processing — one turn per
+ * Slack thread instead of one turn per enclave. That's a multi-RC
+ * architectural change. Until then, keep this cap tight.
  */
-const IDLE_TIMEOUT_MS = 20 * 60 * 1000; // 20 minutes
+const IDLE_TIMEOUT_MS = 10 * 60 * 1000; // 10 minutes
 
 /** Poll the mailbox every 1s. */
 const MAILBOX_POLL_MS = 1_000;
