@@ -505,11 +505,20 @@ export const PROVISIONING_SCENARIOS: ScenarioDef[] = [
       /deprovision|remove|confirm|not an enclave|owner|decommission|commissioned|dev team|still working|working|getting started/i,
     ],
     forbiddenPatterns: [],
-    timeoutMs: 45_000,
+    // Kraken (correctly) asks for confirmation before deprovision. Send "yes"
+    // to confirm so the deprovision actually happens before chromaAssertion
+    // checks that the enclave is gone from Chroma's home page.
+    followUpMessages: ['yes'],
+    followUpAfterFirstReply: true,
+    expectedReplyCount: 2,
+    timeoutMs: 90_000,
     chromaAssertion: {
       path: '/',
       forbiddenText: [/<TEST_ENCLAVE>/i],
-      timeoutMs: 60_000,
+      // Chroma's home page caches the enclave list; allow time for the
+      // deprovision to propagate from cluster -> MCP -> Chroma render.
+      timeoutMs: 180_000,
+      pollMs: 10_000,
     },
   },
 ];
@@ -1126,7 +1135,12 @@ const FORBIDDEN_SLACK_CHANNEL_ID = /\bC[A-Z0-9]{8,}\b/;
 // rc.11: tentacle CRUD scenarios assert no version numbers or git SHAs
 // leak in user-facing replies (vocabulary contract per FORBIDDEN_GIT_VOCABULARY)
 const FORBIDDEN_VERSION_NUMBER = /\bv\d+\.\d+\.\d+\b|\bversion\s+\d+\b/i;
-const FORBIDDEN_SHA = /\b[0-9a-f]{7,40}\b/;
+// Match git SHA leakage but exclude task UUIDs the manager surfaces in
+// commission messages (e.g. "task ec367f47"). Without the negative
+// lookbehind the scenario flags legitimate "(task xxxxxxxx)" handles
+// the user genuinely wants to see.
+const FORBIDDEN_SHA =
+  /(?<!\btask\s)(?<!\btask\s\()(?<!\btask\s`)\b[0-9a-f]{7,40}\b/i;
 
 export const MANAGER_OUTPUT_SCENARIOS: ScenarioDef[] = [
   {
