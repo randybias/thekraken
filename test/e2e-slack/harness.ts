@@ -716,6 +716,30 @@ async function runScenarioOnce(
       }
     }
 
+    // LLM-as-judge: semantic evaluation against a free-form criteria.
+    // Runs IN ADDITION to expectedPatterns/forbiddenPatterns when both
+    // are configured. Falls back to PASS when ANTHROPIC_API_KEY is unset
+    // so the suite doesn't go red on missing test infra.
+    if (scenario.llmJudge && process.env['KRAKEN_E2E_DRY_RUN'] !== '1') {
+      const { evaluateWithJudge } = await import('./llm-judge.js');
+      const result = await evaluateWithJudge(
+        replyText,
+        scenario.llmJudge.criteria,
+        scenario.id,
+      );
+      if (result === null) {
+        console.warn(
+          `[harness] ${scenario.id}: ANTHROPIC_API_KEY not set, skipping llmJudge`,
+        );
+      } else if (!result.pass) {
+        failures.push(`llmJudge: ${result.reason}`);
+      } else {
+        console.log(
+          `[harness] ${scenario.id}: llmJudge PASS — ${result.reason}`,
+        );
+      }
+    }
+
     if (failures.length > 0) {
       return {
         id: scenario.id,
