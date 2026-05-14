@@ -708,12 +708,19 @@ export const TENTACLE_SCENARIOS: ScenarioDef[] = [
     name: 'run hello-world',
     channel: CHANNELS.test,
     message: '@Kraken run hello-world',
-    expectedPatterns: [
-      // "done|task completed" covers broadcast from a prior task completion bleeding in
-      /hello-world|not found|started|triggered|running|timeout|unreachable|mcp.*server|not in a runnable|done|task completed/i,
-    ],
     forbiddenPatterns: [/kubectl/i],
     timeoutMs: 90_000,
+    llmJudge: {
+      criteria:
+        'Reply indicates a run of the hello-world tentacle was initiated, ' +
+        'is in progress, or completed (success or failure). Acceptable: ' +
+        '"started", "triggered", "running", a workflow output line such as ' +
+        '"Hello, World!" with timing info ("— 1ms"), "done", "task completed", ' +
+        '"not found", "not in a runnable state", "unreachable / MCP server" ' +
+        '(transient infra error reported honestly). Unacceptable: refusing to ' +
+        'act, replying about something unrelated, or claiming a result without ' +
+        'any indication a run was attempted.',
+    },
   },
   {
     id: 'F6',
@@ -1244,12 +1251,16 @@ export const LIFECYCLE_SCENARIOS: ScenarioDef[] = ALLOW_DESTRUCTIVE
         timeoutMs: 600_000,
         llmJudge: {
           criteria:
-            'Reply acknowledges that a build/deploy task is being commissioned ' +
-            'or already in flight for e2e-echo-probe-1. Acceptable phrasings: ' +
-            '"dev team on it", "commissioned a team", "I\'ll scaffold and deploy", ' +
-            '"task <id> in progress", "building now". Unacceptable: refusing to ' +
-            'act, claiming the tentacle is already done before any work has started, ' +
-            'or replying about something else.',
+            'Reply EITHER (a) acknowledges that a build/deploy task is being ' +
+            'commissioned or already in flight for e2e-echo-probe-1 ' +
+            '("dev team on it", "commissioned a team", "I\'ll scaffold and ' +
+            'deploy", "task <id> in progress", "building now"), OR (b) ' +
+            'correctly detects that e2e-echo-probe-1 already exists in this ' +
+            "enclave's git-state from a prior run and asks the user how to " +
+            'proceed (deploy as-is, rebuild, etc.) — this is correct ' +
+            'defensive UX. Unacceptable: refusing to engage entirely, ' +
+            'claiming the tentacle is already deployed and healthy without ' +
+            'any work having happened, or replying about something else.',
         },
       },
       {
