@@ -11,6 +11,7 @@ describe('ChromaDriver', () => {
       content: vi.fn().mockResolvedValue('<html><body>hello</body></html>'),
       innerText: vi.fn().mockResolvedValue('hello world'),
       waitForFunction: vi.fn().mockResolvedValue(undefined),
+      waitForLoadState: vi.fn().mockResolvedValue(undefined),
       screenshot: vi.fn().mockResolvedValue(Buffer.from([])),
       close: vi.fn().mockResolvedValue(undefined),
       url: vi.fn().mockReturnValue('http://chroma.test/'),

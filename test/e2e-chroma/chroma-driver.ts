@@ -46,6 +46,14 @@ export function createChromaDriver(deps: ChromaDriverDeps): ChromaDriver {
       const page = await getPage();
       const url = `${baseUrl}${path.startsWith('/') ? path : `/${path}`}`;
       await page.goto(url, { waitUntil: 'load', timeout: 30_000 });
+      // Wait for client-side data fetches to settle. "use client" pages (like
+      // EnclaveDashboard) fetch data after the load event. networkidle fires
+      // once the initial API batch completes and the 500ms quiet window opens
+      // (before the 30s poll interval fires again). Falls through on timeout
+      // so smoke tests on static pages aren't held up if networkidle is slow.
+      await page
+        .waitForLoadState('networkidle', { timeout: 10_000 })
+        .catch(() => {});
     },
 
     async pageText(): Promise<string> {
