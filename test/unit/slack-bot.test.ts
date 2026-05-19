@@ -336,5 +336,93 @@ describe('createSlackBot event handlers (post-pivot)', () => {
 
       expect(say).not.toHaveBeenCalled();
     });
+
+    it('routes non-mention thread replies in enclave-bound channels to team', async () => {
+      // Regression: thread replies without @mention (e.g. "yes, confirm") were
+      // silently dropped because the message handler returned early for all
+      // non-DM channels. This test ensures confirmation replies reach the team.
+      await getSlackBot();
+      mockBindings.lookupEnclave.mockReturnValue({
+        channelId: 'C_ENC',
+        enclaveName: 'my-enclave',
+        ownerSlackId: 'U_OWNER',
+        status: 'active',
+      });
+      mockTeams.isTeamActive.mockReturnValue(true);
+
+      const say = vi.fn();
+      await registeredHandlers['message']!({
+        event: {
+          type: 'message',
+          channel: 'C_ENC',
+          channel_type: 'channel',
+          user: 'U_USER',
+          text: 'yes, confirm',
+          ts: '6000.2',          // reply ts differs from thread_ts
+          thread_ts: '6000.1',   // thread started earlier
+        },
+        say,
+        client: mockClient,
+      });
+
+      expect(mockTeams.sendToTeam).toHaveBeenCalledWith(
+        'my-enclave',
+        expect.objectContaining({ type: 'user_message', channelId: 'C_ENC' }),
+      );
+    });
+
+    it('ignores top-level non-mention messages in enclave channels (not a thread reply)', async () => {
+      // Top-level channel messages without @mention are random conversation —
+      // the bot must not intercept them. Only thread REPLIES are forwarded.
+      await getSlackBot();
+      mockBindings.lookupEnclave.mockReturnValue({
+        channelId: 'C_ENC',
+        enclaveName: 'my-enclave',
+        ownerSlackId: 'U_OWNER',
+        status: 'active',
+      });
+
+      const say = vi.fn();
+      await registeredHandlers['message']!({
+        event: {
+          type: 'message',
+          channel: 'C_ENC',
+          channel_type: 'channel',
+          user: 'U_USER',
+          text: 'hey team, standup in 5',
+          ts: '7000.1',
+          // No thread_ts — this is a top-level message
+        },
+        say,
+        client: mockClient,
+      });
+
+      expect(say).not.toHaveBeenCalled();
+      expect(mockTeams.sendToTeam).not.toHaveBeenCalled();
+    });
+
+    it('ignores non-mention thread replies in unbound channels', async () => {
+      // Thread replies in channels that are NOT bound to an enclave are ignored.
+      await getSlackBot();
+      mockBindings.lookupEnclave.mockReturnValue(null);
+
+      const say = vi.fn();
+      await registeredHandlers['message']!({
+        event: {
+          type: 'message',
+          channel: 'C_RANDOM',
+          channel_type: 'channel',
+          user: 'U_USER',
+          text: 'yes',
+          ts: '8000.2',
+          thread_ts: '8000.1',
+        },
+        say,
+        client: mockClient,
+      });
+
+      expect(say).not.toHaveBeenCalled();
+      expect(mockTeams.sendToTeam).not.toHaveBeenCalled();
+    });
   });
 });

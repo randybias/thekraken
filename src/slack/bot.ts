@@ -676,17 +676,21 @@ function registerEventHandlers(
     // Self-loop guard: never process our own bot's posts.
     if (userId && deps.botUserId && userId === deps.botUserId) return;
 
-    // CRITICAL: Only process DMs. Channel messages are handled by
-    // app_mention (if the bot is @-mentioned). Without this guard,
-    // the bot intercepts EVERY message in every channel it belongs
-    // to — including random conversations from other users — and
-    // fires auth prompts into unrelated threads.
-    if (channelType !== 'im') return;
-
     // Avoid double-firing with app_mention: Slack dispatches both `message`
     // and `app_mention` for a mention in a channel. Let app_mention own
     // those; this handler only covers DMs and non-mention thread replies.
     if (deps.botUserId && text.includes(`<@${deps.botUserId}>`)) return;
+
+    // Route selection:
+    //   - DMs: always process (smart path handles them)
+    //   - Thread replies in enclave-bound channels: forward to the active team
+    //     so users can send confirmation replies (e.g. "yes") without @mention
+    //   - Everything else: ignore (top-level channel messages without @mention
+    //     are random conversation that the bot must not intercept)
+    const isBoundChannel = !!deps.bindings.lookupEnclave(channelId);
+    const eventTs = ('ts' in event ? (event as { ts: string }).ts : undefined);
+    const isThreadReply = !!threadTs && threadTs !== eventTs;
+    if (channelType !== 'im' && !(isBoundChannel && isThreadReply)) return;
 
     return tracer.startActiveSpan('slack.message', async (span) => {
       span.setAttribute('slack.event_type', 'message');

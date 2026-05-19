@@ -528,10 +528,12 @@ export const PROVISIONING_SCENARIOS: ScenarioDef[] = [
       /deprovision|remove|confirm|not an enclave|owner|decommission|commissioned|dev team|still working|working|getting started/i,
     ],
     forbiddenPatterns: [],
-    // Kraken (correctly) asks for confirmation before deprovision. Send "yes"
-    // to confirm so the deprovision actually happens before chromaAssertion
-    // checks that the enclave is gone from Chroma's home page.
-    followUpMessages: ['yes'],
+    // Kraken (correctly) asks for confirmation before deprovision. Send "yes,
+    // confirm" to match the exact phrasing the manager requests. Without the
+    // bot @mention, the message relies on the thread-reply routing fix in
+    // bot.ts (message handler now passes non-mention thread replies in
+    // enclave-bound channels to the team).
+    followUpMessages: ['yes, confirm'],
     followUpAfterFirstReply: true,
     expectedReplyCount: 2,
     timeoutMs: 90_000,
@@ -1057,6 +1059,9 @@ export const GIT_STATE_SCENARIOS: ScenarioDef[] = [
     ],
     forbiddenPatterns: [FORBIDDEN_GIT_VOCABULARY],
     timeoutMs: 60_000,
+    // Requires ai-news-digest to have deployment history in this cluster.
+    // Set KRAKEN_E2E_AI_NEWS_DEPLOYED=1 to confirm the precondition is met.
+    skipWhen: () => process.env['KRAKEN_E2E_AI_NEWS_DEPLOYED'] !== '1',
   },
   // M2 and M3 removed per design decision (rc.20). M2 ("what changed since
   // last week?") is structurally hard to test deterministically — the
@@ -1081,6 +1086,8 @@ export const GIT_STATE_SCENARIOS: ScenarioDef[] = [
     // mcpAssertion verifies cluster annotation advanced AND a single new
     // deploy event row exists in Kraken DB. Skipped if Kraken DB query
     // path isn't yet exposed via MCP — placeholder.
+    // Requires ai-news-digest to have deployment history in this cluster.
+    skipWhen: () => process.env['KRAKEN_E2E_AI_NEWS_DEPLOYED'] !== '1',
   },
   {
     id: 'M5',
