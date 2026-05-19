@@ -298,9 +298,43 @@ export function runPreflight(): PreflightResult {
   // reader to skip past every incoming message. The team-bridge
   // never processes mailbox records and the suite appears auth-broken
   // when in fact the reader is just past EOF.
+  //
+  // CRITICAL: wiping the team dirs is not enough when a bridge process
+  // is already running inside the pod. Each bridge holds an open file
+  // handle to its mailbox.ndjson. After rm -rf, the inode survives
+  // until the file handle is closed. When the dispatcher recreates the
+  // dir and writes the next message, the live bridge reads from the
+  // stale (deleted) file and never sees new records. The team-lifecycle
+  // still marks the enclave as "team active" (the bridge process is
+  // running), so no new bridge is spawned.
+  //
+  // Fix: restart the pod before wiping dirs so all bridge subprocesses
+  // are killed. We then wipe dirs and cursors against the idle pod.
   const teams = listTeamDirs();
   if (process.env['KRAKEN_E2E_FRESH_TEAMS'] === '1') {
     try {
+      // Restart the pod first to kill in-process bridge subprocesses.
+      // Without this, a bridge started for a prior manual test holds a
+      // stale file handle to the mailbox.ndjson we are about to delete.
+      const restart = tryKubectl(
+        `rollout restart deployment/thekraken -n ${KRAKEN_NS}`,
+      );
+      if (!restart.ok) {
+        throw new Error(`pod restart failed: ${restart.err.slice(0, 200)}`);
+      }
+      console.log(
+        '[preflight] restarting Kraken pod to kill stale bridge processes...',
+      );
+      const ready = tryKubectl(
+        `rollout status deployment/thekraken -n ${KRAKEN_NS} --timeout=120s`,
+      );
+      if (!ready.ok) {
+        throw new Error(
+          `pod did not become ready after restart: ${ready.err.slice(0, 200)}`,
+        );
+      }
+      console.log('[preflight] Kraken pod ready');
+
       if (teams.length > 0) {
         wipeTeams(teams);
         console.log(`[preflight] wiped ${teams.length} stale team dir(s)`);
