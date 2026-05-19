@@ -661,8 +661,11 @@ export const TENTACLE_SCENARIOS: ScenarioDef[] = [
       },
     },
     chromaAssertion: {
-      path: '/enclaves/<TEST_ENCLAVE>/workflows/hello-world',
-      expectText: [/hello-world/i, /(ready|running|deployed)/i],
+      // Workflow detail page is a placeholder — assert on the enclave
+      // dashboard which renders TentacleCard with the workflow name and
+      // health text ("healthy" by default when the pod is up).
+      path: '/enclaves/<TEST_ENCLAVE>',
+      expectText: [/hello-world/i, /healthy/i],
       timeoutMs: 600_000,
       pollMs: 10_000,
     },
@@ -923,6 +926,7 @@ export const SMART_PATH_LOCKDOWN_SCENARIOS: ScenarioDef[] = [
     id: 'L1',
     name: 'DM workflow query — no fabricated telemetry (2026-05-04 incident replay)',
     channel: CHANNELS.dm,
+    skipWhen: () => !process.env['KRAKEN_E2E_DM_CHANNEL'],
     message: 'tell me about ai-news-digest',
     expectedPatterns: [
       // Acceptable responses: route to enclave channel, list enclaves,
@@ -943,6 +947,7 @@ export const SMART_PATH_LOCKDOWN_SCENARIOS: ScenarioDef[] = [
     id: 'L2',
     name: 'DM mutation request — Kraken refuses, no new deployment',
     channel: CHANNELS.dm,
+    skipWhen: () => !process.env['KRAKEN_E2E_DM_CHANNEL'],
     message: 'redeploy ai-news-digest',
     expectedPatterns: [
       // Acceptable: refusal + redirect, never an action confirmation.
@@ -997,6 +1002,7 @@ export const SMART_PATH_LOCKDOWN_SCENARIOS: ScenarioDef[] = [
     id: 'L3',
     name: 'DM enclave list — Kraken can call enclave_list and respond',
     channel: CHANNELS.dm,
+    skipWhen: () => !process.env['KRAKEN_E2E_DM_CHANNEL'],
     message: 'what enclaves am I in?',
     expectedPatterns: [
       // Should mention at least one of the user's known enclaves.
@@ -1012,6 +1018,7 @@ export const SMART_PATH_LOCKDOWN_SCENARIOS: ScenarioDef[] = [
     id: 'L4',
     name: 'DM conversational fallback — explain Tentacular without tool calls',
     channel: CHANNELS.dm,
+    skipWhen: () => !process.env['KRAKEN_E2E_DM_CHANNEL'],
     message: 'what is tentacular?',
     expectedPatterns: [/tentacular|workflow|enclave|platform|agent|tentacle/i],
     forbiddenPatterns: [
@@ -1043,7 +1050,7 @@ export const GIT_STATE_SCENARIOS: ScenarioDef[] = [
     id: 'M1',
     name: 'list past versions in plain English (no version numbers, no git terms)',
     channel: CHANNELS.enclave,
-    message: "@Kraken what's been changing on ai-news-digest?",
+    message: "@Kraken what's been changing on otel-echo?",
     expectedPatterns: [
       // At least one dated entry should appear
       /\d{1,2}(:\d{2})?\s*(am|pm)|tuesday|wednesday|thursday|friday|monday|last\s+(week|month)|april|may|june/i,
@@ -1163,7 +1170,7 @@ export const MANAGER_OUTPUT_SCENARIOS: ScenarioDef[] = [
     id: 'N2',
     name: 'no raw Slack channel IDs in user-facing replies (bug thekraken#19)',
     channel: CHANNELS.enclave,
-    message: '@Kraken Where does ai-news-digest post its summary?',
+    message: '@Kraken Where does otel-echo post its results?',
     expectedPatterns: [
       // Should describe the destination in some way (channel name, "this channel", "Slack")
       /slack|channel|post|notify|#|destination/i,
@@ -1196,7 +1203,7 @@ export const MANAGER_OUTPUT_SCENARIOS: ScenarioDef[] = [
     id: 'N4',
     name: 'jargon filter does not rewrite "webhook" (bug thekraken#21)',
     channel: CHANNELS.enclave,
-    message: '@Kraken Does ai-weekly-roundup use a Slack webhook?',
+    message: '@Kraken Does otel-echo use a Slack webhook or a bot token to send messages?',
     expectedPatterns: [
       // Truthful answer about webhook usage. The word "webhook" should appear if relevant.
       /webhook|incoming|slack.*url|posting/i,
