@@ -688,7 +688,7 @@ function registerEventHandlers(
     //   - Everything else: ignore (top-level channel messages without @mention
     //     are random conversation that the bot must not intercept)
     const isBoundChannel = !!deps.bindings.lookupEnclave(channelId);
-    const eventTs = ('ts' in event ? (event as { ts: string }).ts : undefined);
+    const eventTs = 'ts' in event ? (event as { ts: string }).ts : undefined;
     const isThreadReply = !!threadTs && threadTs !== eventTs;
     if (channelType !== 'im' && !(isBoundChannel && isThreadReply)) return;
 

@@ -358,8 +358,8 @@ describe('createSlackBot event handlers (post-pivot)', () => {
           channel_type: 'channel',
           user: 'U_USER',
           text: 'yes, confirm',
-          ts: '6000.2',          // reply ts differs from thread_ts
-          thread_ts: '6000.1',   // thread started earlier
+          ts: '6000.2', // reply ts differs from thread_ts
+          thread_ts: '6000.1', // thread started earlier
         },
         say,
         client: mockClient,
