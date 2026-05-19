@@ -41,11 +41,11 @@ export const CHANNELS = {
   test: process.env['KRAKEN_E2E_TEST_CHANNEL'] ?? 'newkraken-test',
   /**
    * DM channel between the test user and the bot. Used by L group
-   * (smart-path lockdown) scenarios to verify DM-mode behavior — the
-   * 2026-05-04 confabulation incident happened in this channel.
-   * Overridable via KRAKEN_E2E_DM_CHANNEL.
+   * (smart-path lockdown) scenarios. DM channel IDs are workspace-specific
+   * and have no sensible default — L scenarios SKIP when this is unset.
+   * Set KRAKEN_E2E_DM_CHANNEL to the Slack DM channel ID (e.g. D0AUR30EAQ0).
    */
-  dm: process.env['KRAKEN_E2E_DM_CHANNEL'] ?? 'D0AEFM5BL03',
+  dm: process.env['KRAKEN_E2E_DM_CHANNEL'] ?? '',
 };
 
 /**
