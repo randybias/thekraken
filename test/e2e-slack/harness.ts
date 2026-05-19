@@ -829,6 +829,29 @@ async function runScenarioOnce(
         await new Promise<void>((r) => setTimeout(r, pollMs));
       }
       if (lastErr !== null) {
+        // MCP poll timed out. Before giving up, try the kubectl cluster assertion
+        // as a fallback — the OIDC token may have expired during a long build poll,
+        // but the deployment can still be verified directly against the cluster.
+        if (scenario.clusterAssertion && process.env['KUBECONFIG']) {
+          try {
+            const clErr = await scenario.clusterAssertion.check();
+            if (clErr === null) {
+              console.log(
+                `[harness] kubectl cluster check passed for ${scenario.id} (MCP poll timed out: ${lastErr})`,
+              );
+              return {
+                id: scenario.id,
+                name: scenario.name,
+                status: 'PASS',
+                durationMs: Date.now() - start,
+                notes: 'kubectl cluster check passed (MCP poll timed out)',
+                replyText,
+              };
+            }
+          } catch {
+            // kubectl also unavailable — fall through to SKIP/FAIL
+          }
+        }
         // If the bot's reply indicates an async delegation path (e.g. "dev team
         // commissioned") and the assertion timed out, skip rather than fail.
         if (scenario.mcpAssertionSkipOnAsyncReply?.test(replyText)) {

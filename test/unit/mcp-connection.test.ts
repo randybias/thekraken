@@ -18,11 +18,17 @@ describe('MCP tool category constants', () => {
     expect(ENCLAVE_SCOPED).toContain('audit_rbac');
   });
 
-  it('BLOCKED_IN_ENCLAVE contains enclave admin tools', () => {
+  it('BLOCKED_IN_ENCLAVE contains platform admin tools', () => {
     expect(BLOCKED_IN_ENCLAVE).toContain('enclave_provision');
-    expect(BLOCKED_IN_ENCLAVE).toContain('enclave_deprovision');
+    // enclave_deprovision is NOT blocked — enclave owners can deprovision their own enclave;
+    // MCP server enforces ownership via OIDC token.
+    expect(BLOCKED_IN_ENCLAVE).not.toContain('enclave_deprovision');
     expect(BLOCKED_IN_ENCLAVE).toContain('enclave_preflight');
     expect(BLOCKED_IN_ENCLAVE).toContain('cluster_profile');
+  });
+
+  it('ENCLAVE_SCOPED contains enclave_deprovision for auto-inject + cross-enclave guard', () => {
+    expect(ENCLAVE_SCOPED).toContain('enclave_deprovision');
   });
 
   it('DM_ALLOWED contains cross-enclave read tools', () => {

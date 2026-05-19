@@ -341,6 +341,9 @@ export function runPreflight(): PreflightResult {
         );
       }
       console.log('[preflight] Kraken pod ready');
+      // Allow extra time for Slack Socket Mode to reconnect after pod restart.
+      console.log('[preflight] waiting 20s for Slack WebSocket reconnect...');
+      execSync('sleep 20');
 
       if (teams.length > 0) {
         wipeTeams(teams);

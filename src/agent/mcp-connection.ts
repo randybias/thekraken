@@ -40,12 +40,12 @@ export const ENCLAVE_SCOPED = [
   'audit_psa',
   'enclave_info',
   'enclave_sync',
+  'enclave_deprovision',
 ] as const;
 
-/** Tools blocked in enclave mode (DM or admin only). Phase 2 adds enforcement. */
+/** Tools blocked in enclave mode (admin/platform-operator only). Phase 2 adds enforcement. */
 export const BLOCKED_IN_ENCLAVE = [
   'enclave_provision',
-  'enclave_deprovision',
   'enclave_preflight',
   'cluster_profile',
   'proxy_status',

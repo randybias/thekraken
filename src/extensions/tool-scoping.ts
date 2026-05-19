@@ -30,6 +30,7 @@ const ENCLAVE_SCOPED: Record<string, string> = {
   // Enclave management (scoped to own enclave)
   enclave_info: 'name',
   enclave_sync: 'name',
+  enclave_deprovision: 'name',
   // Permissions
   permissions_get: 'enclave',
   permissions_set: 'enclave',
@@ -44,9 +45,10 @@ const BLOCKED_IN_ENCLAVE = new Set([
   'ns_update',
   'ns_delete',
   'ns_list',
-  // Enclave provisioning — create a Slack channel instead
+  // Enclave provisioning — enclave owners create via channel invite;
+  // cross-enclave provision not allowed from within an enclave.
+  // enclave_deprovision IS allowed: the MCP server enforces ownership.
   'enclave_provision',
-  'enclave_deprovision',
   // Cross-enclave listing — available in DM mode only
   'enclave_list',
   // Platform operator tools
@@ -180,9 +182,6 @@ export function evaluateToolCall(
 function getBlockedHint(shortName: string): string {
   if (shortName === 'enclave_provision') {
     return 'To create an enclave, create a new Slack channel and invite me to it.';
-  }
-  if (shortName === 'enclave_deprovision') {
-    return 'Enclave removal requires a platform administrator.';
   }
   if (shortName === 'enclave_list') {
     return 'To see all your enclaves, DM me directly.';

@@ -82,7 +82,7 @@ describe('evaluateToolCall', () => {
         'ns_delete',
         'ns_list',
         'enclave_provision',
-        'enclave_deprovision',
+        // enclave_deprovision is NOT blocked — enclave owners can deprovision their own enclave
         'enclave_list',
         'enclave_preflight',
         'cluster_profile',
@@ -102,6 +102,28 @@ describe('evaluateToolCall', () => {
           `${tool} should be blocked in enclave mode`,
         ).toBe(false);
       }
+    });
+
+    it('enclave_deprovision is allowed but scoped to own enclave', () => {
+      // Allowed when no name specified (auto-injected)
+      const noName = evaluateToolCall(
+        `${MCP}enclave_deprovision`,
+        {},
+        'test-enclave',
+      );
+      expect(noName.allowed).toBe(true);
+      expect(
+        (noName as { allowed: true; updatedInput?: Record<string, unknown> })
+          .updatedInput?.['name'],
+      ).toBe('test-enclave');
+
+      // Blocked when trying to deprovision a different enclave
+      const wrongEnclave = evaluateToolCall(
+        `${MCP}enclave_deprovision`,
+        { name: 'other-enclave' },
+        'test-enclave',
+      );
+      expect(wrongEnclave.allowed).toBe(false);
     });
   });
 
