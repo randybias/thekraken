@@ -49,13 +49,14 @@ describe('ScenarioDef.chromaAssertion (chroma E2E platform tests)', () => {
     expect(e5?.chromaAssertion?.forbiddenText).toBeDefined();
   });
 
-  it('F1 scenario has chromaAssertion on tentacle path', async () => {
+  it('F1 scenario has chromaAssertion on enclave dashboard (not placeholder workflow page)', async () => {
     const { TENTACLE_SCENARIOS } = await import('../../e2e-slack/scenarios.js');
     const f1 = TENTACLE_SCENARIOS.find((s) => s.id === 'F1');
     expect(f1).toBeDefined();
-    expect(f1?.chromaAssertion?.path).toBe(
-      '/enclaves/<TEST_ENCLAVE>/workflows/hello-world',
-    );
+    // Workflow detail page is a Chroma placeholder — assert on the enclave
+    // dashboard which renders TentacleCard with name + health status.
+    expect(f1?.chromaAssertion?.path).toBe('/enclaves/<TEST_ENCLAVE>');
+    expect(f1?.chromaAssertion?.expectText).toBeDefined();
   });
 
   it('F10 scenario has chromaAssertion checking tentacles list for absence', async () => {
