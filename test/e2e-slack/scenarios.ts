@@ -1203,7 +1203,8 @@ export const MANAGER_OUTPUT_SCENARIOS: ScenarioDef[] = [
     id: 'N4',
     name: 'jargon filter does not rewrite "webhook" (bug thekraken#21)',
     channel: CHANNELS.enclave,
-    message: '@Kraken Does otel-echo use a Slack webhook or a bot token to send messages?',
+    message:
+      '@Kraken Does otel-echo use a Slack webhook or a bot token to send messages?',
     expectedPatterns: [
       // Truthful answer about webhook usage. The word "webhook" should appear if relevant.
       /webhook|incoming|slack.*url|posting/i,
