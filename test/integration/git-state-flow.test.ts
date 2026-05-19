@@ -20,14 +20,8 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { execSync, execFileSync } from 'node:child_process';
-import {
-  mkdtempSync,
-  mkdirSync,
-  writeFileSync,
-  readFileSync,
-  rmSync,
-} from 'node:fs';
+import { execSync, execFileSync, spawnSync } from 'node:child_process';
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
 
@@ -84,7 +78,7 @@ function cloneWorkingRepo(bareRepoPath: string): string {
   // Push to main explicitly; the branch in initDir is already named main
   // because the bare repo was initialised with --initial-branch=main.
   execFileSync('git', ['push', 'origin', 'HEAD:main'], { cwd: initDir });
-  rmSync(initDir, { recursive: true, force: true });
+  spawnSync('rm', ['-rf', initDir]);
 
   // Clone the seeded bare repo.
   execFileSync('git', ['clone', bareRepoPath, dir]);
@@ -168,12 +162,7 @@ beforeEach(() => {
 
 afterEach(() => {
   for (const dir of dirsToClean) {
-    rmSync(dir, {
-      recursive: true,
-      force: true,
-      maxRetries: 5,
-      retryDelay: 100,
-    });
+    spawnSync('rm', ['-rf', dir]);
   }
 });
 
@@ -441,7 +430,7 @@ describe('entrypoint git-state setup gaps', () => {
       cwd: initDir,
     });
     execFileSync('git', ['push', 'origin', 'HEAD:main'], { cwd: initDir });
-    rmSync(initDir, { recursive: true, force: true });
+    spawnSync('rm', ['-rf', initDir]);
 
     const noHookRepo = mkdtempSync(join(tmpdir(), 'kraken-nohook-'));
     dirsToClean.push(noHookRepo);
