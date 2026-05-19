@@ -168,7 +168,12 @@ beforeEach(() => {
 
 afterEach(() => {
   for (const dir of dirsToClean) {
-    rmSync(dir, { recursive: true, force: true });
+    rmSync(dir, {
+      recursive: true,
+      force: true,
+      maxRetries: 5,
+      retryDelay: 100,
+    });
   }
 });
 
