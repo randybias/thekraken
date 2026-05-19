@@ -234,8 +234,11 @@ function resetTargetEnclaves(): void {
   }
 
   // 3. Prune enclave_bindings rows pointing at namespaces that no longer
-  // exist. The dispatcher consults this table on routing. Two-step: list
-  // bindings (in-pod) then check each namespace (from this host).
+  // exist OR are Terminating. The dispatcher consults this table on routing.
+  // Terminating namespaces are treated as dead because --wait=false deletes
+  // leave them in Terminating briefly; if we only check existence, the binding
+  // survives and E2's enclave_provision is skipped (channel already bound),
+  // leaving the new run without a live namespace to deploy into.
   const listBindings = tryKubectl(
     `exec -n ${KRAKEN_NS} deploy/thekraken -- node -e ` +
       `"const D=require('better-sqlite3');` +
@@ -252,8 +255,12 @@ function resetTargetEnclaves(): void {
   }
   const dead: string[] = [];
   for (const b of bindings) {
-    const r = tryKubectl(`get ns ${b.enclave_name} -o name 2>/dev/null`);
-    if (!r.ok || !r.out.trim()) dead.push(b.channel_id);
+    const phase = tryKubectl(
+      `get ns ${b.enclave_name} -o jsonpath={.status.phase} 2>/dev/null`,
+    );
+    const nsPhase = phase.out.trim();
+    if (!phase.ok || !nsPhase || nsPhase === 'Terminating')
+      dead.push(b.channel_id);
   }
   if (dead.length > 0) {
     const channels = dead.map((c) => `'${c}'`).join(',');

@@ -1050,7 +1050,7 @@ export const GIT_STATE_SCENARIOS: ScenarioDef[] = [
     id: 'M1',
     name: 'list past versions in plain English (no version numbers, no git terms)',
     channel: CHANNELS.enclave,
-    message: "@Kraken what's been changing on otel-echo?",
+    message: "@Kraken what's been changing on ai-news-digest?",
     expectedPatterns: [
       // At least one dated entry should appear
       /\d{1,2}(:\d{2})?\s*(am|pm)|tuesday|wednesday|thursday|friday|monday|last\s+(week|month)|april|may|june/i,
