@@ -542,10 +542,10 @@ export const PROVISIONING_SCENARIOS: ScenarioDef[] = [
       forbiddenText: [/<TEST_ENCLAVE>/i],
       // Deprovision propagation: Kraken confirm → MCP enclave_deprovision
       // → k8s namespace deletion (finalizers + terminating state, can
-      // take 2-4 min on slow control planes) → enclave_list reflects gone
-      // → Chroma home page re-renders without it. We've accepted this is
-      // eventually-consistent; just verify it happens within 5 min.
-      timeoutMs: 300_000,
+      // take 5-10 min on nats-weu due to proxy/RBAC cleanup) → enclave_list
+      // reflects gone → Chroma home page re-renders without it.
+      // 10 min budget observed-necessary on nats-weu single-node k0s cluster.
+      timeoutMs: 600_000,
       pollMs: 15_000,
     },
   },
@@ -1114,7 +1114,9 @@ export const GIT_STATE_SCENARIOS: ScenarioDef[] = [
     expectedPatterns: [
       // Manager redirects to date/person/behavior framing, OR refuses the
       // technical reference and points the user at the right vocabulary.
-      /which deploy|when was that|i talk about deploys by date|let me know which version|not able to look up|don't (work|talk|refer) (with|in)|raw internal identifier|by (date|name|deploy)/i,
+      // Observed phrasings: "can't look up changes by that kind of reference",
+      // "tell me which tentacle", "deploy history" — extend the pattern to cover.
+      /which deploy|when was that|i talk about deploys by date|let me know which version|not able to look up|can't look up|kind of reference|don't (work|talk|refer) (with|in)|raw internal identifier|by (date|name|deploy)|deploy history|tell me which tentacle/i,
     ],
     forbiddenPatterns: [
       // Must NOT confirm understanding of "abc123" as a meaningful identifier

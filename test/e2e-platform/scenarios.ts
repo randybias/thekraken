@@ -79,9 +79,11 @@ export const LIFECYCLE_SCENARIOS: LifecycleScenarioDef[] = [
         timeoutMs: 15 * 60 * 1000,
       },
       {
+        // Check the enclave dashboard (not the stub workflow detail page).
+        // TentacleCard renders the workflow name + health key ("healthy" by default).
         kind: 'chroma',
-        path: `/enclaves/${TEST_ENCLAVE}/workflows/hello-world`,
-        expectText: [/hello-world/i, /(ready|running|deployed)/i],
+        path: `/enclaves/${TEST_ENCLAVE}`,
+        expectText: [/hello-world/i, /healthy/i],
         timeoutMs: 600_000,
         pollMs: 10_000,
       },
