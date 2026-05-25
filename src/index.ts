@@ -377,6 +377,7 @@ async function main(): Promise<void> {
       },
     },
     tracker: outbound,
+    bindings,
     getActiveTeams: () => teams.getActiveTeamNames(),
   });
 

@@ -92,6 +92,15 @@ export function parseCommand(
   // Normalise command to hyphenated form
   const command = rawCommand.replace(/\s+/g, '-');
 
+  // add/remove only match when the args contain a @mention — otherwise
+  // "remove this channel as an enclave" or "remove hello-world" would be
+  // intercepted as membership commands and produce confusing error messages.
+  if (command === 'add' || command === 'remove') {
+    if (!/<@[A-Z0-9_]+>/i.test(rawArgs)) {
+      return null;
+    }
+  }
+
   return { command, args, rawArgs };
 }
 

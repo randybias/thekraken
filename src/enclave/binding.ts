@@ -264,6 +264,24 @@ export class EnclaveBindingEngine {
   }
 
   /**
+   * Mark an enclave binding as deprovisioned.
+   *
+   * Called after enclave_deprovision succeeds so the channel is no longer
+   * routed to the enclave team on the next mention.
+   *
+   * @param channelId - Slack channel ID whose binding should be deactivated.
+   */
+  deactivateBinding(channelId: string): void {
+    this.db
+      .prepare(
+        `UPDATE enclave_bindings SET status = 'deprovisioned' WHERE channel_id = ?`,
+      )
+      .run(channelId);
+
+    log.info({ channelId }, 'enclave binding deactivated');
+  }
+
+  /**
    * Count active enclave bindings.
    * Used for the startup banner.
    */

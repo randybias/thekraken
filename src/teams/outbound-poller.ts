@@ -30,6 +30,7 @@ import type { KrakenConfig } from '../config.js';
 import type { TeamLifecycleManager } from './lifecycle.js';
 import { filterJargon, filterNarration } from '../extensions/jargon-filter.js';
 import { getCursor, setCursor } from '../db/cursors.js';
+import type { EnclaveBindingEngine } from '../enclave/binding.js';
 
 const log = createChildLogger({ module: 'outbound-poller' });
 const tracer = trace.getTracer('thekraken.outbound-poller');
@@ -81,11 +82,15 @@ const POLL_INTERVAL_MS = 1000;
 /**
  * An outbound record written by the manager to outbound.ndjson.
  * The dispatcher reads this and posts to Slack.
+ *
+ * enclave_deprovisioned: written by the manager after enclave_deprovision
+ * succeeds. The poller calls deactivateBinding() on the channelId so the
+ * next mention in this channel hits the provision path instead of the team.
  */
 export interface OutboundRecord {
   id: string;
   timestamp: string;
-  type: 'slack_message' | 'heartbeat' | 'error';
+  type: 'slack_message' | 'heartbeat' | 'error' | 'enclave_deprovisioned';
   channelId: string;
   threadTs: string;
   text: string;
@@ -108,6 +113,7 @@ export interface OutboundPollerDeps {
   teams: Pick<TeamLifecycleManager, 'isTeamActive'>;
   slack: SlackPostClient;
   tracker: OutboundTracker;
+  bindings: EnclaveBindingEngine;
   /** Active team names to poll. Callback called once per poll cycle. */
   getActiveTeams: () => string[];
 }
@@ -275,6 +281,21 @@ export class OutboundPoller {
       span.setAttribute('slack.channel_id', record.channelId);
 
       try {
+        // enclave_deprovisioned: deactivate the channel binding so the next
+        // mention routes to the provision path instead of the enclave team.
+        if (record.type === 'enclave_deprovisioned') {
+          if (record.channelId) {
+            this.deps.bindings.deactivateBinding(record.channelId);
+            log.info(
+              { enclaveName, channelId: record.channelId },
+              'outbound: enclave binding deactivated after deprovision',
+            );
+          }
+          span.setStatus({ code: SpanStatusCode.OK });
+          span.end();
+          return;
+        }
+
         // Bug 3: skip records with empty or missing text — posting an empty
         // message to Slack is never useful and may indicate the agent wrote a
         // partial record. Log a warning so it shows up in ops dashboards.
