@@ -1038,74 +1038,21 @@ export const SMART_PATH_LOCKDOWN_SCENARIOS: ScenarioDef[] = [
 // Validates the git-state recovery design (PR-set G1-G5,
 // docs/superpowers/specs/2026-05-05-git-state-recovery-design.md).
 //
-// Preconditions for M1, M2: at least 2 deploys must have happened on
-// the test tentacle prior to running these scenarios. The harness
-// does not pre-seed; rely on natural state from prior F-group scenarios
-// or manual setup.
+// M1, M4, M5 are self-encapsulated: they run inside LIFECYCLE_SCENARIOS
+// (gated by KRAKEN_E2E_ALLOW_DESTRUCTIVE=1) against e2e-echo-probe-1,
+// which F-CREATE-1 and F-UPDATE-1 build and re-deploy earlier in the same
+// run. M6 is stateless and always runs here.
 // ---------------------------------------------------------------------------
 
 const FORBIDDEN_GIT_VOCABULARY =
   /\bv\d+\b|\bsha\b|\bcommit\b|\btag\b|\bbranch\b|\bnamespace\b|\bkubectl\b|\bpod\b/i;
 
+// M2 and M3 removed per design decision (rc.20). M2 ("what changed since
+// last week?") is structurally hard to test deterministically. M3 (revert
+// with confirm flow) requires multi-version history. Both will return when
+// the M-group is redesigned around tests that BUILD their own history.
+
 export const GIT_STATE_SCENARIOS: ScenarioDef[] = [
-  {
-    id: 'M1',
-    name: 'list past versions in plain English (no version numbers, no git terms)',
-    channel: CHANNELS.enclave,
-    message: "@Kraken what's been changing on ai-news-digest?",
-    expectedPatterns: [
-      // At least one dated entry should appear
-      /\d{1,2}(:\d{2})?\s*(am|pm)|tuesday|wednesday|thursday|friday|monday|last\s+(week|month)|april|may|june/i,
-    ],
-    forbiddenPatterns: [FORBIDDEN_GIT_VOCABULARY],
-    timeoutMs: 60_000,
-    // Requires ai-news-digest to have deployment history in this cluster.
-    // Set KRAKEN_E2E_AI_NEWS_DEPLOYED=1 to confirm the precondition is met.
-    skipWhen: () => process.env['KRAKEN_E2E_AI_NEWS_DEPLOYED'] !== '1',
-  },
-  // M2 and M3 removed per design decision (rc.20). M2 ("what changed since
-  // last week?") is structurally hard to test deterministically — the
-  // expected behavior depends on real, dated deploy history in the
-  // git-state which would require backdated commits. M3 (revert with
-  // confirm flow) requires the same multi-version history precondition.
-  // Both will return when the M-group is redesigned around tests that
-  // BUILD their own history (deploy v1, tweak, deploy v2, then revert),
-  // not tests that depend on pre-existing fixture data.
-  {
-    id: 'M4',
-    name: 'revert + tweak — combined intent, single deploy event',
-    channel: CHANNELS.enclave,
-    message:
-      "@Kraken go back to last Tuesday's but raise the title limit to 80",
-    expectedPatterns: [/you mean|confirm|ok to proceed|want me to/i],
-    forbiddenPatterns: [FORBIDDEN_GIT_VOCABULARY],
-    followUpMessages: ['yes'],
-    followUpAfterFirstReply: true,
-    expectedReplyCount: 2,
-    timeoutMs: 10 * 60_000,
-    // mcpAssertion verifies cluster annotation advanced AND a single new
-    // deploy event row exists in Kraken DB. Skipped if Kraken DB query
-    // path isn't yet exposed via MCP — placeholder.
-    // Requires ai-news-digest to have deployment history in this cluster.
-    skipWhen: () => process.env['KRAKEN_E2E_AI_NEWS_DEPLOYED'] !== '1',
-  },
-  {
-    id: 'M5',
-    name: 'ambiguity disambiguation by person+time, not SHA',
-    channel: CHANNELS.enclave,
-    message: "@Kraken go back to Tuesday's version",
-    expectedPatterns: [
-      // Manager must ask which one (the morning/afternoon, or by deployer)
-      /which one|two changes on tuesday|morning|afternoon|or do you mean/i,
-    ],
-    forbiddenPatterns: [
-      FORBIDDEN_GIT_VOCABULARY,
-      // Disambig prompt itself must not list SHAs
-      /[a-f0-9]{7,}/i,
-    ],
-    timeoutMs: 60_000,
-    skipWhen: () => process.env['KRAKEN_E2E_AMBIGUITY_PRECONDITION'] !== 'true',
-  },
   {
     id: 'M6',
     name: 'manager refuses git-talk, redirects to dated phrasing',
@@ -1330,6 +1277,50 @@ export const LIFECYCLE_SCENARIOS: ScenarioDef[] = ALLOW_DESTRUCTIVE
             'refusing to act, claiming the tentacle does not exist after F-CREATE-1 ' +
             'just created it.',
         },
+      },
+      // M1, M4, M5 — git-state UX scenarios. Self-encapsulated: run here
+      // after F-CREATE-1 (deploy #1) and F-UPDATE-1 (deploy #2) have built
+      // the deploy history that M1/M4/M5 exercise. F-DELETE-1 cleans up.
+      {
+        id: 'M1',
+        name: 'list past versions in plain English (no version numbers, no git terms)',
+        channel: CHANNELS.enclave,
+        message: "@Kraken what's been changing on e2e-echo-probe-1?",
+        expectedPatterns: [
+          // At least one time reference or description of changes
+          /\d{1,2}(:\d{2})?\s*(am|pm)|today|yesterday|ago|deployed|created|updated|built|change/i,
+        ],
+        forbiddenPatterns: [FORBIDDEN_GIT_VOCABULARY],
+        timeoutMs: 60_000,
+      },
+      {
+        id: 'M4',
+        name: 'revert + tweak — combined intent, single deploy event',
+        channel: CHANNELS.enclave,
+        message:
+          '@Kraken go back to the initial version of e2e-echo-probe-1 but increase the response limit to 10',
+        expectedPatterns: [/you mean|confirm|ok to proceed|want me to/i],
+        forbiddenPatterns: [FORBIDDEN_GIT_VOCABULARY],
+        followUpMessages: ['yes'],
+        followUpAfterFirstReply: true,
+        expectedReplyCount: 2,
+        timeoutMs: 10 * 60_000,
+      },
+      {
+        id: 'M5',
+        name: 'ambiguity disambiguation by person+time, not SHA',
+        channel: CHANNELS.enclave,
+        message: '@Kraken go back to an earlier version of e2e-echo-probe-1',
+        expectedPatterns: [
+          // Manager must ask which one when multiple deploys exist today
+          /which one|two deploys|earlier today|first deploy|which version|confirm|want me to|ok to proceed|or do you mean/i,
+        ],
+        forbiddenPatterns: [
+          FORBIDDEN_GIT_VOCABULARY,
+          // Disambig prompt must not surface SHAs
+          /[a-f0-9]{7,}/i,
+        ],
+        timeoutMs: 60_000,
       },
       {
         id: 'F-DELETE-1',

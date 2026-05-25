@@ -28,6 +28,7 @@
  *                               (default: e2e-test-noop@example.com)
  *   KRAKEN_E2E_MEMBER_EMAIL    real email of a second Slack user; enables I4 scenario
  *   KRAKEN_E2E_MEMBER_SECRET   secret path for second user token; enables H1-H3 RBAC scenarios
+ *   KRAKEN_E2E_DM_CHANNEL      Slack DM channel ID (D...); enables L1-L4 smart-path lockdown scenarios
  *   KRAKEN_E2E_NAMESPACE       K8s namespace where Kraken runs (default: tentacular-kraken)
  *   KRAKEN_E2E_MCP_URL         in-cluster MCP server URL (default: cluster-local address)
  *   KUBECONFIG                 path to kubeconfig; enables kubectl cluster assertions in F1

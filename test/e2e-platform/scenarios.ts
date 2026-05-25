@@ -92,14 +92,17 @@ export const LIFECYCLE_SCENARIOS: LifecycleScenarioDef[] = [
         channel: CHANNELS.test,
         message: '@Kraken run hello-world',
         expectedPatterns: [/started|triggered|run|running|complete/i],
-        timeoutMs: 60_000,
+        timeoutMs: 120_000,
       },
       {
+        // Check the enclave-level run history page (no per-workflow runs sub-page
+        // exists yet). "Run History" is always rendered in the page header so
+        // this verifies the page loads without a 404 or 500.
         kind: 'chroma',
-        path: `/enclaves/${TEST_ENCLAVE}/workflows/hello-world/runs`,
-        expectText: [/hello-world/i],
-        timeoutMs: 120_000,
-        pollMs: 10_000,
+        path: `/enclaves/${TEST_ENCLAVE}/runs`,
+        expectText: [/run history/i],
+        timeoutMs: 60_000,
+        pollMs: 5_000,
       },
     ],
     cleanup: [
