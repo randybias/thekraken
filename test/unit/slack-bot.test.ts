@@ -349,11 +349,12 @@ describe('createSlackBot event handlers (post-pivot)', () => {
       expect(say).not.toHaveBeenCalled();
     });
 
-    it('routes non-mention thread replies in enclave-bound channels to team', async () => {
+    it('routes non-mention thread replies in Kraken-owned threads to team', async () => {
       // Regression: thread replies without @mention (e.g. "yes, confirm") were
       // silently dropped because the message handler returned early for all
-      // non-DM channels. This test ensures confirmation replies reach the team.
-      await getSlackBot();
+      // non-DM channels. This test ensures confirmation replies reach the team
+      // when the thread was started by a bot @-mention (Kraken-owned thread).
+      await getSlackBotWithDb();
       mockBindings.lookupEnclave.mockReturnValue({
         channelId: 'C_ENC',
         enclaveName: 'my-enclave',
@@ -361,6 +362,9 @@ describe('createSlackBot event handlers (post-pivot)', () => {
         status: 'active',
       });
       mockTeams.isTeamActive.mockReturnValue(true);
+      // Prime isKrakenThread to return true for this thread
+      const { isKrakenThread: mockIsKrakenThread } = await import('../../src/db/kraken-threads.js');
+      vi.mocked(mockIsKrakenThread).mockReturnValue(true);
 
       const say = vi.fn();
       await registeredHandlers['message']!({
@@ -550,5 +554,136 @@ describe('app_mention: kraken_threads population', () => {
     });
 
     expect(mockRecordKrakenThread).not.toHaveBeenCalled();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// kraken_threads gate — message handler forwards based on isKrakenThread
+// ---------------------------------------------------------------------------
+
+describe('message handler: kraken_threads gate', () => {
+  beforeEach(async () => {
+    vi.resetModules();
+    vi.clearAllMocks();
+    for (const key of Object.keys(registeredHandlers)) {
+      delete registeredHandlers[key];
+    }
+    mockBindings.lookupEnclave.mockReturnValue(null);
+    mockTeams.isTeamActive.mockReturnValue(false);
+    const auth = await import('../../src/auth/index.js');
+    vi.mocked(auth.getValidTokenForUser).mockResolvedValue('mock-access-token');
+    // Default: isKrakenThread returns false unless explicitly overridden per test
+    const { isKrakenThread } = await import('../../src/db/kraken-threads.js');
+    vi.mocked(isKrakenThread).mockReturnValue(false);
+  });
+
+  it('forwards thread reply when thread is Kraken-owned', async () => {
+    // Prime isKrakenThread to return true for (C1, 1234.5)
+    await getSlackBotWithDb();
+    const { isKrakenThread } = await import('../../src/db/kraken-threads.js');
+    vi.mocked(isKrakenThread).mockReturnValue(true);
+    mockTeams.isTeamActive.mockReturnValue(true);
+    mockBindings.lookupEnclave.mockReturnValue({
+      channelId: 'C1',
+      enclaveName: 'enc-owned',
+      ownerSlackId: 'U_OWNER',
+      status: 'active',
+    });
+
+    const say = vi.fn();
+    await registeredHandlers['message']!({
+      event: {
+        type: 'message',
+        channel: 'C1',
+        channel_type: 'channel',
+        user: 'U_USER',
+        text: 'follow up no mention',
+        ts: '5678.9',
+        thread_ts: '1234.5',
+      },
+      say,
+      client: mockClient,
+    });
+
+    expect(mockTeams.sendToTeam).toHaveBeenCalledWith(
+      'enc-owned',
+      expect.objectContaining({ type: 'user_message', channelId: 'C1' }),
+    );
+  });
+
+  it('does NOT forward thread reply when thread is NOT Kraken-owned', async () => {
+    // isKrakenThread returns false (default) — thread not owned by bot
+    await getSlackBotWithDb();
+    const { isKrakenThread } = await import('../../src/db/kraken-threads.js');
+    vi.mocked(isKrakenThread).mockReturnValue(false);
+
+    const say = vi.fn();
+    await registeredHandlers['message']!({
+      event: {
+        type: 'message',
+        channel: 'C_RANDOM',
+        channel_type: 'channel',
+        user: 'U_USER',
+        text: 'unrelated reply',
+        ts: '9999.2',
+        thread_ts: '9999.9',
+      },
+      say,
+      client: mockClient,
+    });
+
+    expect(say).not.toHaveBeenCalled();
+    expect(mockTeams.sendToTeam).not.toHaveBeenCalled();
+  });
+
+  it('forwards all DMs (channel_type=im) regardless of kraken_threads', async () => {
+    // DMs always reach the smart path — no kraken_threads row needed
+    await getSlackBotWithDb();
+    const { isKrakenThread } = await import('../../src/db/kraken-threads.js');
+    vi.mocked(isKrakenThread).mockReturnValue(false);
+
+    const say = vi.fn().mockResolvedValue({ ts: 'dm-reply-ts' });
+    await registeredHandlers['message']!({
+      event: {
+        type: 'message',
+        channel: 'D_DM_CHANNEL',
+        channel_type: 'im',
+        user: 'U_USER',
+        text: 'hi kraken',
+        ts: '1111.1',
+      },
+      say,
+      client: mockClient,
+    });
+
+    // DMs reach onSmartPath (or auth gate), not sendToTeam — just assert
+    // we did NOT return early (i.e. the smart path was attempted).
+    expect(mockTeams.sendToTeam).not.toHaveBeenCalled();
+    // The smart path mock is called for DMs
+    expect(mockSmartPath).toHaveBeenCalled();
+  });
+
+  it('does NOT forward top-level channel messages without @mention', async () => {
+    // No thread_ts — this is a plain channel message, not a thread reply
+    await getSlackBotWithDb();
+
+    const say = vi.fn();
+    await registeredHandlers['message']!({
+      event: {
+        type: 'message',
+        channel: 'C_PUBLIC',
+        channel_type: 'channel',
+        user: 'U_USER',
+        text: 'standup in 5',
+        ts: '2222.1',
+        // No thread_ts
+      },
+      say,
+      client: mockClient,
+    });
+
+    expect(say).not.toHaveBeenCalled();
+    expect(mockTeams.sendToTeam).not.toHaveBeenCalled();
+    expect(mockSmartPath).not.toHaveBeenCalled();
   });
 });

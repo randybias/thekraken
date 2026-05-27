@@ -46,7 +46,7 @@ import {
 } from '../auth/index.js';
 import { parseCommand, executeCommand } from '../enclave/commands.js';
 import { handleChannelEvent } from '../enclave/drift.js';
-import { recordKrakenThread } from '../db/kraken-threads.js';
+import { isKrakenThread, recordKrakenThread } from '../db/kraken-threads.js';
 
 const log = createChildLogger({ module: 'slack-bot' });
 const tracer = trace.getTracer('thekraken.slack');
@@ -694,14 +694,21 @@ function registerEventHandlers(
 
     // Route selection:
     //   - DMs: always process (smart path handles them)
-    //   - Thread replies in enclave-bound channels: forward to the active team
-    //     so users can send confirmation replies (e.g. "yes") without @mention
+    //   - Thread replies in a Kraken-owned thread: forward to the active team
+    //     so users can send follow-up messages without @mention, even in
+    //     channels that are still being provisioned (not yet bound).
+    //     A Kraken-owned thread is one whose top-level message was a bot
+    //     @-mention (recorded in kraken_threads by the app_mention handler).
     //   - Everything else: ignore (top-level channel messages without @mention
     //     are random conversation that the bot must not intercept)
-    const isBoundChannel = !!deps.bindings.lookupEnclave(channelId);
     const eventTs = 'ts' in event ? (event as { ts: string }).ts : undefined;
     const isThreadReply = !!threadTs && threadTs !== eventTs;
-    if (channelType !== 'im' && !(isBoundChannel && isThreadReply)) return;
+    const isOwnedThread =
+      isThreadReply &&
+      threadTs !== undefined &&
+      !!deps.db &&
+      isKrakenThread(deps.db, channelId, threadTs);
+    if (channelType !== 'im' && !isOwnedThread) return;
 
     return tracer.startActiveSpan('slack.message', async (span) => {
       span.setAttribute('slack.event_type', 'message');
