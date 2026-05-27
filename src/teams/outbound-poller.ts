@@ -309,13 +309,14 @@ export class OutboundPoller {
           return;
         }
 
-        // Bug 2: fall back to mailbox channelId/threadTs when the outbound
-        // record is missing them. The dispatcher always writes these fields to
-        // mailbox.ndjson, so the last mailbox record is a reliable source of
-        // truth for the target Slack location.
+        // N4: channelId fallback only — threadTs is trusted as written.
+        // An empty-string threadTs means "post at top of channel" and must NOT
+        // be overridden with the manager's current thread. Only a missing
+        // channelId is recovered via mailbox fallback; threadTs is passed
+        // through verbatim (empty string → no thread_ts in postMessage).
         let channelId = record.channelId;
-        let threadTs = record.threadTs;
-        if (!channelId || !threadTs) {
+        const threadTs = record.threadTs;
+        if (!channelId) {
           const mailboxPath = join(
             this.deps.config.teamsDir,
             enclaveName,
@@ -323,28 +324,19 @@ export class OutboundPoller {
           );
           const fallback = readLastMailboxTarget(mailboxPath);
           if (fallback) {
-            if (!channelId) {
-              log.warn(
-                { enclaveName, recordId: record.id },
-                'outbound record missing channelId, falling back to mailbox',
-              );
-              channelId = fallback.channelId;
-            }
-            if (!threadTs) {
-              log.warn(
-                { enclaveName, recordId: record.id },
-                'outbound record missing threadTs, falling back to mailbox',
-              );
-              threadTs = fallback.threadTs;
-            }
+            log.warn(
+              { enclaveName, recordId: record.id },
+              'outbound record missing channelId, falling back to mailbox',
+            );
+            channelId = fallback.channelId;
           } else {
             log.error(
               { enclaveName, recordId: record.id },
-              'outbound record missing channelId/threadTs and no mailbox fallback available; skipping',
+              'outbound record missing channelId and no mailbox fallback available; skipping',
             );
             span.setStatus({
               code: SpanStatusCode.ERROR,
-              message: 'missing channelId/threadTs with no mailbox fallback',
+              message: 'missing channelId with no mailbox fallback',
             });
             span.end();
             return;

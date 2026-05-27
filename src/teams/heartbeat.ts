@@ -44,8 +44,12 @@ export interface HeartbeatControllerOptions {
   /**
    * Called when a heartbeat should be emitted. The text is a short,
    * friendly, human-addressed message in the manager's voice.
+   *
+   * N2: threadTs is the originating Slack thread timestamp for the task.
+   * Callers should route the heartbeat to that thread rather than falling
+   * back to the last mailbox entry.
    */
-  onHeartbeat: (text: string) => void;
+  onHeartbeat: (text: string, threadTs: string) => void;
   /**
    * Minimum milliseconds between consecutive heartbeats. Default: 30_000 (30s).
    * Overrideable for tests.
@@ -63,7 +67,7 @@ export interface HeartbeatControllerOptions {
 export class HeartbeatController {
   private lastHeartbeatAt = 0;
   private readonly floorMs: number;
-  private readonly onHeartbeat: (text: string) => void;
+  private readonly onHeartbeat: (text: string, threadTs: string) => void;
 
   constructor(opts: HeartbeatControllerOptions) {
     this.floorMs = opts.heartbeatFloorMs ?? 30_000;
@@ -78,8 +82,11 @@ export class HeartbeatController {
    *
    * @param signal - The signal from the dev team.
    * @param tentacleName - The tentacle name the task relates to (for context in the message).
+   * @param threadTs - N2: The originating Slack threadTs for this task. Passed
+   *   through to onHeartbeat so the outbound-poller can route the heartbeat to
+   *   the correct Slack thread instead of falling back to the last mailbox entry.
    */
-  onSignal(signal: SignalRecord, tentacleName?: string): void {
+  onSignal(signal: SignalRecord, tentacleName?: string, threadTs = ''): void {
     if (!isSignificantSignal(signal)) return;
 
     // Terminal signals (task_completed, task_failed) MUST always emit.
@@ -94,7 +101,7 @@ export class HeartbeatController {
 
     const text = this.buildHeartbeatText(signal, tentacleName);
     this.lastHeartbeatAt = now;
-    this.onHeartbeat(text);
+    this.onHeartbeat(text, threadTs);
   }
 
   /**

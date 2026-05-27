@@ -58,9 +58,8 @@ describe('handleProvision: defaults', () => {
   it('does NOT pass description to mcpCall even when channel topic is set', async () => {
     const ctx = mkCtx({ channelTopic: 'Voyager group workflows' });
     await handleProvision('', ctx);
-    const args = (ctx.mcpCall as ReturnType<typeof vi.fn>).mock.calls[0]?.[1] as
-      | Record<string, unknown>
-      | undefined;
+    const args = (ctx.mcpCall as ReturnType<typeof vi.fn>).mock
+      .calls[0]?.[1] as Record<string, unknown> | undefined;
     expect(args).not.toHaveProperty('description');
   });
 });
@@ -83,9 +82,8 @@ describe('handleProvision: overrides', () => {
   it('parses `description <text>` but does NOT send it to mcpCall (forward-compat)', async () => {
     const ctx = mkCtx();
     await handleProvision('description Custom description here', ctx);
-    const args = (ctx.mcpCall as ReturnType<typeof vi.fn>).mock.calls[0]?.[1] as
-      | Record<string, unknown>
-      | undefined;
+    const args = (ctx.mcpCall as ReturnType<typeof vi.fn>).mock
+      .calls[0]?.[1] as Record<string, unknown> | undefined;
     expect(args).toMatchObject({ name: 'voyager-agentic-flows' });
     expect(args).not.toHaveProperty('description');
   });
@@ -93,9 +91,8 @@ describe('handleProvision: overrides', () => {
   it('uses `as <name>` from combined form; ignores description for MCP', async () => {
     const ctx = mkCtx();
     await handleProvision('as foo description Bar baz quux', ctx);
-    const args = (ctx.mcpCall as ReturnType<typeof vi.fn>).mock.calls[0]?.[1] as
-      | Record<string, unknown>
-      | undefined;
+    const args = (ctx.mcpCall as ReturnType<typeof vi.fn>).mock
+      .calls[0]?.[1] as Record<string, unknown> | undefined;
     expect(args).toMatchObject({ name: 'foo' });
     expect(args).not.toHaveProperty('description');
   });

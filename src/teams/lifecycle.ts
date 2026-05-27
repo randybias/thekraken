@@ -17,7 +17,14 @@
  * Teams write outbound.ndjson; OutboundPoller reads it.
  */
 
-import { mkdirSync, readdirSync, statSync, rmSync, existsSync } from 'node:fs';
+import {
+  mkdirSync,
+  readdirSync,
+  statSync,
+  rmSync,
+  existsSync,
+  readFileSync,
+} from 'node:fs';
 import { join, resolve } from 'node:path';
 import type Database from 'better-sqlite3';
 import { createChildLogger } from '../logger.js';
@@ -101,6 +108,70 @@ function resolvePiBinary(): string {
  */
 function ensureTeamDir(teamDir: string): void {
   mkdirSync(join(teamDir, 'memory'), { recursive: true });
+}
+
+/**
+ * Read all lines from an NDJSON file. Returns an empty array if the file does
+ * not exist or cannot be read.
+ */
+function readNdjsonLines(filePath: string): string[] {
+  if (!existsSync(filePath)) return [];
+  try {
+    return readFileSync(filePath, 'utf8')
+      .split('\n')
+      .filter((l) => l.trim().length > 0);
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Compute the set of task IDs that have been commissioned but have not yet
+ * received a task_completed or task_failed signal.
+ *
+ * A task is "in-flight" when:
+ *   - A commission_dev_team record with that taskId exists in signals-out.ndjson, AND
+ *   - No task_completed or task_failed record with the same taskId exists in
+ *     signals-in.ndjson.
+ *
+ * Used by the idle-timeout check to suppress premature team termination while
+ * dev team subprocesses are still working (Fix K — v0.10.4).
+ *
+ * @param teamDir - Absolute path to the team's directory.
+ * @returns Array of in-flight taskId strings (may be empty).
+ */
+export function inFlightTaskIds(teamDir: string): string[] {
+  const out = readNdjsonLines(join(teamDir, 'signals-out.ndjson'));
+  const inb = readNdjsonLines(join(teamDir, 'signals-in.ndjson'));
+
+  const commissioned = new Set<string>();
+  for (const line of out) {
+    try {
+      const rec = JSON.parse(line) as Record<string, unknown>;
+      if (
+        rec['type'] === 'commission_dev_team' &&
+        typeof rec['taskId'] === 'string'
+      ) {
+        commissioned.add(rec['taskId']);
+      }
+    } catch {
+      /* skip malformed */
+    }
+  }
+  for (const line of inb) {
+    try {
+      const rec = JSON.parse(line) as Record<string, unknown>;
+      if (
+        (rec['type'] === 'task_completed' || rec['type'] === 'task_failed') &&
+        typeof rec['taskId'] === 'string'
+      ) {
+        commissioned.delete(rec['taskId']);
+      }
+    } catch {
+      /* skip malformed */
+    }
+  }
+  return [...commissioned];
 }
 
 /**
@@ -409,6 +480,22 @@ export class TeamLifecycleManager {
     const now = Date.now();
     for (const [name, state] of this.teams) {
       if (now - state.lastActivity > IDLE_TIMEOUT_MS) {
+        // Fix K (v0.10.4): suppress idle-kill when dev team tasks are still in flight.
+        // A task is in-flight if signals-out has a commission_dev_team for it
+        // but signals-in has no matching task_completed or task_failed.
+        const inFlight = inFlightTaskIds(state.teamDir);
+        if (inFlight.length > 0) {
+          log.info(
+            {
+              enclaveName: name,
+              idleMs: now - state.lastActivity,
+              inFlightTasks: inFlight,
+            },
+            'team-lifecycle: idle timeout SUPPRESSED — in-flight tasks',
+          );
+          continue;
+        }
+
         log.info(
           { enclaveName: name, idleMs: now - state.lastActivity },
           'idle timeout, stopping team bridge',
