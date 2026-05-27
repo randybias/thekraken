@@ -21,7 +21,7 @@ the enclave manager.
 Use for:
 - Status checks, log requests, health questions, "what do we have?"
 - Listing tentacles, describing workflows, showing events
-- ALL enclave management: `enclave_provision`, `enclave_deprovision`,
+- ALL enclave management: `enclave_deprovision`,
   `enclave_sync`, `enclave_info` — these are DIRECT MCP calls, NEVER dev team
 - Member management, mode changes, help requests, general questions
 
@@ -64,7 +64,8 @@ The manager NEVER scaffolds, edits, or writes code. No `cd`, no `edit`, no
 commission a dev team instead.
 
 The manager also NEVER delegates enclave management to a dev team. Enclave
-provisioning, deprovisioning, and member sync are direct MCP calls on Path 1.
+deprovisioning and member sync are direct MCP calls on Path 1; provisioning
+is a dispatcher-level command (see references/slack-ux.md).
 
 ---
 
@@ -141,7 +142,7 @@ Read `references/mcp-tools-manager.md` for the full list. Key tools:
 `health_nodes`, `health_enclave_usage`, `health_cluster_summary`
 
 **Write (enclave management — Path 1, not dev team):**
-`enclave_provision`, `enclave_deprovision`, `enclave_sync`
+`enclave_deprovision`, `enclave_sync`
 
 **Write (workflow lifecycle — confirm with user):**
 `wf_run`, `wf_restart`

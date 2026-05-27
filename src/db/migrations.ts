@@ -9,6 +9,7 @@ import {
   SCHEMA_V1,
   SCHEMA_V2,
   SCHEMA_V3,
+  SCHEMA_V4,
   SECRETS_SCHEMA_V1,
 } from './schema.js';
 
@@ -30,6 +31,9 @@ export function applyMigrations(db: Database.Database): void {
   // V3: ndjson_cursors for persistent reader offsets (rc.13 — replaces
   // startAtEnd-based readers; codex rescue findings #1, #2).
   db.exec(SCHEMA_V3);
+  // V4: kraken_threads — tracks threads where the bot was @-mentioned at the
+  // top level. Used by the message handler for non-@-mention thread routing.
+  db.exec(SCHEMA_V4);
   // rc.11: user_tokens migrated out to kraken-secrets.db. Drop the legacy
   // table from the non-sensitive DB on first boot. Idempotent; users
   // re-auth naturally per design (no data migration). Spec:

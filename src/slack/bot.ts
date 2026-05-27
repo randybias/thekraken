@@ -44,8 +44,11 @@ import {
   pollForToken,
   storeTokenForUser,
 } from '../auth/index.js';
+import { handleProvision } from '../enclave/handlers/provisioning.js';
+import { extractIdentityFromToken } from '../auth/oidc.js';
 import { parseCommand, executeCommand } from '../enclave/commands.js';
 import { handleChannelEvent } from '../enclave/drift.js';
+import { isKrakenThread, recordKrakenThread } from '../db/kraken-threads.js';
 
 const log = createChildLogger({ module: 'slack-bot' });
 const tracer = trace.getTracer('thekraken.slack');
@@ -305,6 +308,16 @@ function registerEventHandlers(
     // Self-loop guard: never process our own bot's posts. Other bots are fine.
     if (userId && deps.botUserId && userId === deps.botUserId) return;
 
+    // Track this thread as Kraken-owned if the @-mention is a top-level
+    // thread starter. Used by the message handler to forward non-@-mention
+    // thread replies to the dispatcher (the user's directive: within a
+    // Kraken-owned thread, mentioning the bot should not be necessary).
+    const eventTs = (event as { ts: string }).ts;
+    const isTopLevelMention = !event.thread_ts || event.thread_ts === eventTs;
+    if (isTopLevelMention && deps.db) {
+      recordKrakenThread(deps.db, channelId, eventTs);
+    }
+
     return tracer.startActiveSpan('slack.app_mention', async (span) => {
       span.setAttribute('slack.event_type', 'app_mention');
       span.setAttribute('slack.channel_id', channelId);
@@ -321,35 +334,90 @@ function registerEventHandlers(
         // silent without ever triggering the device-auth prompt.
         const binding = deps.bindings.lookupEnclave(channelId);
 
-        // A3: non-enclave silence. If the channel is not bound as an
-        // enclave, respond ONLY to explicit provision intent. Everything
-        // else is ignored — the bot is passive in regular channels.
+        // A3: non-enclave routing. If the channel is not bound as an enclave:
+        //   1. Strict provision command → deterministic handleProvision.
+        //   2. Loose provision intent (PROVISION_PATTERN) → usage hint.
+        //   3. Anything else → terse "not an enclave" hint.
         if (!binding) {
-          if (!PROVISION_PATTERN.test(text)) {
-            log.info(
-              { channelId, userId },
-              'mention in unbound channel — no provision intent, replying',
+          // Step 1: try parsing as a deterministic command.
+          const unboundParsed = parseCommand(text);
+          if (unboundParsed && unboundParsed.command === 'provision') {
+            const provisionToken = await checkAuthOrPrompt(
+              userId,
+              channelId,
+              client,
             );
-            await say({
-              thread_ts: threadTs,
-              text:
-                "This channel isn't set up as an enclave yet. To get started, say:\n" +
-                '`@Kraken provision this channel as an enclave named <name>`',
+            if (provisionToken === null) return;
+
+            // Resolve channel name + topic from Slack.
+            let channelName = channelId;
+            let channelTopic = '';
+            try {
+              const info = await client.conversations.info({
+                channel: channelId,
+              });
+              channelName =
+                (info.channel as { name?: string })?.name ?? channelId;
+              channelTopic =
+                (info.channel as { topic?: { value?: string } })?.topic
+                  ?.value ?? '';
+            } catch (err) {
+              log.warn(
+                { err, channelId },
+                'conversations.info failed in provision',
+              );
+            }
+
+            // Resolve identity from the OIDC token.
+            const { email: userEmail, sub: userSub } =
+              extractIdentityFromToken(provisionToken);
+
+            const mcpCall =
+              deps.getMcpCallForToken?.(provisionToken) ?? deps.mcpCall;
+            if (!mcpCall) {
+              await say({
+                text: 'Internal error: no MCP client factory configured.',
+                thread_ts: threadTs ?? (event as { ts: string }).ts,
+              });
+              span.setStatus({ code: SpanStatusCode.OK });
+              return;
+            }
+
+            await handleProvision(unboundParsed.rawArgs, {
+              channelId,
+              channelName,
+              channelTopic,
+              senderSlackId: userId,
+              userEmail,
+              userSub,
+              threadTs: threadTs ?? (event as { ts: string }).ts,
+              mcpCall,
+              insertBinding: (cId, name, owner) =>
+                deps.bindings.insertBinding(cId, name, owner),
+              recordKrakenThread: (cId, tTs) => {
+                if (deps.db) recordKrakenThread(deps.db, cId, tTs);
+              },
+              lookupEnclave: (cId) => {
+                const b = deps.bindings.lookupEnclave(cId);
+                return b ? { enclaveName: b.enclaveName } : null;
+              },
+              sendMessage: async (msg) => {
+                await say({
+                  text: msg,
+                  thread_ts: threadTs ?? (event as { ts: string }).ts,
+                });
+              },
             });
             span.setStatus({ code: SpanStatusCode.OK });
             return;
           }
 
-          // Provision intent detected — now require auth and delegate to
-          // the smart-path in provision mode.
-          const provisionToken = await checkAuthOrPrompt(
-            userId,
-            channelId,
-            client,
-          );
-          if (provisionToken === null) return;
-
-          if (deps.onSmartPath) {
+          // Step 2: loose provision intent — usage hint.
+          if (PROVISION_PATTERN.test(text)) {
+            log.info(
+              { channelId, userId },
+              'mention in unbound channel — loose provision intent, showing hint',
+            );
             let channelName = channelId;
             try {
               const info = await client.conversations.info({
@@ -358,41 +426,30 @@ function registerEventHandlers(
               channelName =
                 (info.channel as { name?: string })?.name ?? channelId;
             } catch {
-              // non-fatal
+              // non-fatal — fall through with channelId as the display name
             }
-            const provisionReply = await deps.onSmartPath({
-              channelId,
-              threadTs,
-              userId,
-              text,
-              enclaveName: null,
-              mode: 'provision',
-              channelName,
-              userToken: provisionToken,
-              priorTurns: [],
-            });
-            if (provisionReply) {
-              await say({ text: provisionReply, thread_ts: threadTs });
-            }
-            // After provisioning, attempt to populate the binding
-            // (enclave_provision may have just created it).
-            const mcpCallForReconstitute =
-              deps.getMcpCallForToken?.(provisionToken) ?? deps.mcpCall;
-            if (mcpCallForReconstitute) {
-              await deps.bindings
-                .lookupEnclaveWithReconstitute(
-                  channelId,
-                  userId,
-                  mcpCallForReconstitute,
-                )
-                .catch(() => null);
-            }
-          } else {
             await say({
-              text: "This channel isn't an enclave yet. DM me to set one up.",
-              thread_ts: threadTs,
+              text:
+                `To provision this channel as an enclave, say ` +
+                `\`@The Kraken provision\` (uses channel name \`${channelName}\`) or ` +
+                `\`@The Kraken provision as my-enclave\` to choose a different name.`,
+              thread_ts: threadTs ?? (event as { ts: string }).ts,
             });
+            span.setStatus({ code: SpanStatusCode.OK });
+            return;
           }
+
+          // Step 3: unrelated mention — terse hint.
+          log.info(
+            { channelId, userId },
+            'mention in unbound channel — no provision intent, replying',
+          );
+          await say({
+            thread_ts: threadTs,
+            text:
+              "This channel isn't set up as an enclave yet. To get started, say " +
+              '`@Kraken provision`.',
+          });
           span.setStatus({ code: SpanStatusCode.OK });
           return;
         }
@@ -683,14 +740,21 @@ function registerEventHandlers(
 
     // Route selection:
     //   - DMs: always process (smart path handles them)
-    //   - Thread replies in enclave-bound channels: forward to the active team
-    //     so users can send confirmation replies (e.g. "yes") without @mention
+    //   - Thread replies in a Kraken-owned thread: forward to the active team
+    //     so users can send follow-up messages without @mention, even in
+    //     channels that are still being provisioned (not yet bound).
+    //     A Kraken-owned thread is one whose top-level message was a bot
+    //     @-mention (recorded in kraken_threads by the app_mention handler).
     //   - Everything else: ignore (top-level channel messages without @mention
     //     are random conversation that the bot must not intercept)
-    const isBoundChannel = !!deps.bindings.lookupEnclave(channelId);
     const eventTs = 'ts' in event ? (event as { ts: string }).ts : undefined;
     const isThreadReply = !!threadTs && threadTs !== eventTs;
-    if (channelType !== 'im' && !(isBoundChannel && isThreadReply)) return;
+    const isOwnedThread =
+      isThreadReply &&
+      threadTs !== undefined &&
+      !!deps.db &&
+      isKrakenThread(deps.db, channelId, threadTs);
+    if (channelType !== 'im' && !isOwnedThread) return;
 
     return tracer.startActiveSpan('slack.message', async (span) => {
       span.setAttribute('slack.event_type', 'message');

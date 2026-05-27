@@ -24,13 +24,43 @@ vi.mock('../../src/auth/index.js', () => ({
 }));
 
 // ---------------------------------------------------------------------------
+// Mock kraken-threads to spy on recordKrakenThread calls
+// ---------------------------------------------------------------------------
+
+const mockRecordKrakenThread = vi.fn();
+
+vi.mock('../../src/db/kraken-threads.js', () => ({
+  recordKrakenThread: mockRecordKrakenThread,
+  isKrakenThread: vi.fn().mockReturnValue(false),
+  pruneOldKrakenThreads: vi.fn().mockReturnValue(0),
+}));
+
+// ---------------------------------------------------------------------------
+// Mock handleProvision so the unbound-channel provision path is unit-testable
+// without a real MCP server.
+// ---------------------------------------------------------------------------
+
+const mockHandleProvision = vi.fn().mockResolvedValue(undefined);
+
+vi.mock('../../src/enclave/handlers/provisioning.js', () => ({
+  handleProvision: (...args: unknown[]) => mockHandleProvision(...args),
+}));
+
+// ---------------------------------------------------------------------------
 // Mock @slack/bolt to avoid real Slack API calls
 // ---------------------------------------------------------------------------
+
+const mockConversationsInfo = vi.fn().mockResolvedValue({
+  channel: { name: 'general', topic: { value: '' } },
+});
 
 const mockClient = {
   chat: {
     postMessage: vi.fn().mockResolvedValue({ ts: 'out-ts' }),
     postEphemeral: vi.fn().mockResolvedValue({}),
+  },
+  conversations: {
+    info: mockConversationsInfo,
   },
 };
 
@@ -71,6 +101,7 @@ const mockTeams = {
 const mockBindings = {
   lookupEnclave: vi.fn().mockReturnValue(null),
   lookupEnclaveWithReconstitute: vi.fn().mockResolvedValue(null),
+  insertBinding: vi.fn(),
   count: vi.fn().mockReturnValue(0),
 };
 
@@ -144,7 +175,13 @@ describe('createSlackBot event handlers (post-pivot)', () => {
       delete registeredHandlers[key];
     }
     mockBindings.lookupEnclave.mockReturnValue(null);
+    mockBindings.insertBinding.mockReset();
     mockTeams.isTeamActive.mockReturnValue(false);
+    mockHandleProvision.mockReset();
+    mockHandleProvision.mockResolvedValue(undefined);
+    mockConversationsInfo.mockResolvedValue({
+      channel: { name: 'general', topic: { value: '' } },
+    });
     // Restore auth mock default: authenticated user with a valid token.
     const auth = await import('../../src/auth/index.js');
     vi.mocked(auth.getValidTokenForUser).mockResolvedValue('mock-access-token');
@@ -175,13 +212,14 @@ describe('createSlackBot event handlers (post-pivot)', () => {
       });
 
       // Unbound channel + non-PROVISION_PATTERN text: hand the user a
-      // hint about how to provision the channel rather than silently
-      // ignoring. No team dispatch, no smart-path invocation.
+      // terse hint pointing at @Kraken provision. No team dispatch, no
+      // smart-path invocation.
       expect(mockTeams.sendToTeam).not.toHaveBeenCalled();
       expect(mockSmartPath).not.toHaveBeenCalled();
       expect(say).toHaveBeenCalledTimes(1);
       const sayArg = say.mock.calls[0]?.[0];
-      expect(sayArg?.text).toContain('provision this channel');
+      expect(sayArg?.text).toContain("isn't set up as an enclave yet");
+      expect(sayArg?.text).toContain('@Kraken provision');
     });
 
     it('forwards mentions in enclave channels to team (deterministic: spawn_and_forward)', async () => {
@@ -337,11 +375,12 @@ describe('createSlackBot event handlers (post-pivot)', () => {
       expect(say).not.toHaveBeenCalled();
     });
 
-    it('routes non-mention thread replies in enclave-bound channels to team', async () => {
+    it('routes non-mention thread replies in Kraken-owned threads to team', async () => {
       // Regression: thread replies without @mention (e.g. "yes, confirm") were
       // silently dropped because the message handler returned early for all
-      // non-DM channels. This test ensures confirmation replies reach the team.
-      await getSlackBot();
+      // non-DM channels. This test ensures confirmation replies reach the team
+      // when the thread was started by a bot @-mention (Kraken-owned thread).
+      await getSlackBotWithDb();
       mockBindings.lookupEnclave.mockReturnValue({
         channelId: 'C_ENC',
         enclaveName: 'my-enclave',
@@ -349,6 +388,10 @@ describe('createSlackBot event handlers (post-pivot)', () => {
         status: 'active',
       });
       mockTeams.isTeamActive.mockReturnValue(true);
+      // Prime isKrakenThread to return true for this thread
+      const { isKrakenThread: mockIsKrakenThread } =
+        await import('../../src/db/kraken-threads.js');
+      vi.mocked(mockIsKrakenThread).mockReturnValue(true);
 
       const say = vi.fn();
       await registeredHandlers['message']!({
@@ -424,5 +467,356 @@ describe('createSlackBot event handlers (post-pivot)', () => {
       expect(say).not.toHaveBeenCalled();
       expect(mockTeams.sendToTeam).not.toHaveBeenCalled();
     });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// kraken_threads population — standalone describe so we can pass deps.db
+// ---------------------------------------------------------------------------
+
+// Factory that wires a mock db into SlackBotDeps.
+const mockDb = {} as import('better-sqlite3').Database;
+
+async function getSlackBotWithDb() {
+  const { createSlackBot } = await import('../../src/slack/bot.js');
+  return createSlackBot({
+    config: baseConfig as any,
+    bindings: mockBindings as any,
+    outbound: mockOutbound as any,
+    teams: mockTeams as any,
+    onSmartPath: mockSmartPath,
+    getMcpCallForToken: () => async () => ({}),
+    db: mockDb,
+  });
+}
+
+describe('app_mention: kraken_threads population', () => {
+  beforeEach(async () => {
+    vi.resetModules();
+    vi.clearAllMocks();
+    for (const key of Object.keys(registeredHandlers)) {
+      delete registeredHandlers[key];
+    }
+    mockBindings.lookupEnclave.mockReturnValue(null);
+    mockTeams.isTeamActive.mockReturnValue(false);
+    const auth = await import('../../src/auth/index.js');
+    vi.mocked(auth.getValidTokenForUser).mockResolvedValue('mock-access-token');
+  });
+
+  it('records the thread when @-mention is top-level (no thread_ts)', async () => {
+    await getSlackBotWithDb();
+    const say = vi.fn();
+    await registeredHandlers['app_mention']!({
+      event: {
+        type: 'app_mention',
+        channel: 'C1',
+        user: 'U_ALICE',
+        text: '<@BOT> hello',
+        ts: '1234.5',
+        // No thread_ts — pure top-level mention
+      },
+      say,
+      client: mockClient,
+    });
+
+    expect(mockRecordKrakenThread).toHaveBeenCalledTimes(1);
+    expect(mockRecordKrakenThread).toHaveBeenCalledWith(mockDb, 'C1', '1234.5');
+  });
+
+  it('records the thread when @-mention started the thread (thread_ts === ts)', async () => {
+    await getSlackBotWithDb();
+    const say = vi.fn();
+    await registeredHandlers['app_mention']!({
+      event: {
+        type: 'app_mention',
+        channel: 'C2',
+        user: 'U_BOB',
+        text: '<@BOT> deploy',
+        ts: '2000.1',
+        // thread_ts === ts — the @-mention itself opened the thread
+        thread_ts: '2000.1',
+      },
+      say,
+      client: mockClient,
+    });
+
+    expect(mockRecordKrakenThread).toHaveBeenCalledTimes(1);
+    expect(mockRecordKrakenThread).toHaveBeenCalledWith(mockDb, 'C2', '2000.1');
+  });
+
+  it('does NOT record when @-mention is a reply in an existing thread', async () => {
+    await getSlackBotWithDb();
+    const say = vi.fn();
+    await registeredHandlers['app_mention']!({
+      event: {
+        type: 'app_mention',
+        channel: 'C3',
+        user: 'U_CAROL',
+        text: '<@BOT> what is the status?',
+        ts: '3000.2',
+        // thread_ts < ts — this is a reply inside an existing thread
+        thread_ts: '3000.1',
+      },
+      say,
+      client: mockClient,
+    });
+
+    expect(mockRecordKrakenThread).not.toHaveBeenCalled();
+  });
+
+  it('does NOT record when deps.db is absent', async () => {
+    // getSlackBot() omits db — recordKrakenThread must not be called
+    await getSlackBot();
+    const say = vi.fn();
+    await registeredHandlers['app_mention']!({
+      event: {
+        type: 'app_mention',
+        channel: 'C4',
+        user: 'U_DAVE',
+        text: '<@BOT> hi',
+        ts: '4000.1',
+      },
+      say,
+      client: mockClient,
+    });
+
+    expect(mockRecordKrakenThread).not.toHaveBeenCalled();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// kraken_threads gate — message handler forwards based on isKrakenThread
+// ---------------------------------------------------------------------------
+
+describe('message handler: kraken_threads gate', () => {
+  beforeEach(async () => {
+    vi.resetModules();
+    vi.clearAllMocks();
+    for (const key of Object.keys(registeredHandlers)) {
+      delete registeredHandlers[key];
+    }
+    mockBindings.lookupEnclave.mockReturnValue(null);
+    mockTeams.isTeamActive.mockReturnValue(false);
+    const auth = await import('../../src/auth/index.js');
+    vi.mocked(auth.getValidTokenForUser).mockResolvedValue('mock-access-token');
+    // Default: isKrakenThread returns false unless explicitly overridden per test
+    const { isKrakenThread } = await import('../../src/db/kraken-threads.js');
+    vi.mocked(isKrakenThread).mockReturnValue(false);
+  });
+
+  it('forwards thread reply when thread is Kraken-owned', async () => {
+    // Prime isKrakenThread to return true for (C1, 1234.5)
+    await getSlackBotWithDb();
+    const { isKrakenThread } = await import('../../src/db/kraken-threads.js');
+    vi.mocked(isKrakenThread).mockReturnValue(true);
+    mockTeams.isTeamActive.mockReturnValue(true);
+    mockBindings.lookupEnclave.mockReturnValue({
+      channelId: 'C1',
+      enclaveName: 'enc-owned',
+      ownerSlackId: 'U_OWNER',
+      status: 'active',
+    });
+
+    const say = vi.fn();
+    await registeredHandlers['message']!({
+      event: {
+        type: 'message',
+        channel: 'C1',
+        channel_type: 'channel',
+        user: 'U_USER',
+        text: 'follow up no mention',
+        ts: '5678.9',
+        thread_ts: '1234.5',
+      },
+      say,
+      client: mockClient,
+    });
+
+    expect(mockTeams.sendToTeam).toHaveBeenCalledWith(
+      'enc-owned',
+      expect.objectContaining({ type: 'user_message', channelId: 'C1' }),
+    );
+  });
+
+  it('does NOT forward thread reply when thread is NOT Kraken-owned', async () => {
+    // isKrakenThread returns false (default) — thread not owned by bot
+    await getSlackBotWithDb();
+    const { isKrakenThread } = await import('../../src/db/kraken-threads.js');
+    vi.mocked(isKrakenThread).mockReturnValue(false);
+
+    const say = vi.fn();
+    await registeredHandlers['message']!({
+      event: {
+        type: 'message',
+        channel: 'C_RANDOM',
+        channel_type: 'channel',
+        user: 'U_USER',
+        text: 'unrelated reply',
+        ts: '9999.2',
+        thread_ts: '9999.9',
+      },
+      say,
+      client: mockClient,
+    });
+
+    expect(say).not.toHaveBeenCalled();
+    expect(mockTeams.sendToTeam).not.toHaveBeenCalled();
+  });
+
+  it('forwards all DMs (channel_type=im) regardless of kraken_threads', async () => {
+    // DMs always reach the smart path — no kraken_threads row needed
+    await getSlackBotWithDb();
+    const { isKrakenThread } = await import('../../src/db/kraken-threads.js');
+    vi.mocked(isKrakenThread).mockReturnValue(false);
+
+    const say = vi.fn().mockResolvedValue({ ts: 'dm-reply-ts' });
+    await registeredHandlers['message']!({
+      event: {
+        type: 'message',
+        channel: 'D_DM_CHANNEL',
+        channel_type: 'im',
+        user: 'U_USER',
+        text: 'hi kraken',
+        ts: '1111.1',
+      },
+      say,
+      client: mockClient,
+    });
+
+    // DMs reach onSmartPath (or auth gate), not sendToTeam — just assert
+    // we did NOT return early (i.e. the smart path was attempted).
+    expect(mockTeams.sendToTeam).not.toHaveBeenCalled();
+    // The smart path mock is called for DMs
+    expect(mockSmartPath).toHaveBeenCalled();
+  });
+
+  it('does NOT forward top-level channel messages without @mention', async () => {
+    // No thread_ts — this is a plain channel message, not a thread reply
+    await getSlackBotWithDb();
+
+    const say = vi.fn();
+    await registeredHandlers['message']!({
+      event: {
+        type: 'message',
+        channel: 'C_PUBLIC',
+        channel_type: 'channel',
+        user: 'U_USER',
+        text: 'standup in 5',
+        ts: '2222.1',
+        // No thread_ts
+      },
+      say,
+      client: mockClient,
+    });
+
+    expect(say).not.toHaveBeenCalled();
+    expect(mockTeams.sendToTeam).not.toHaveBeenCalled();
+    expect(mockSmartPath).not.toHaveBeenCalled();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Unbound-channel provisioning — new deterministic flow (Task 9)
+// ---------------------------------------------------------------------------
+
+describe('app_mention: unbound channel provisioning', () => {
+  beforeEach(async () => {
+    vi.resetModules();
+    vi.clearAllMocks();
+    for (const key of Object.keys(registeredHandlers)) {
+      delete registeredHandlers[key];
+    }
+    mockBindings.lookupEnclave.mockReturnValue(null);
+    mockBindings.insertBinding.mockReset();
+    mockHandleProvision.mockReset();
+    mockHandleProvision.mockResolvedValue(undefined);
+    mockConversationsInfo.mockResolvedValue({
+      channel: { name: 'voyager', topic: { value: '' } },
+    });
+    const auth = await import('../../src/auth/index.js');
+    vi.mocked(auth.getValidTokenForUser).mockResolvedValue('mock-access-token');
+  });
+
+  it('dispatches @kraken provision to handleProvision with channel name from Slack', async () => {
+    await getSlackBot();
+
+    const say = vi.fn();
+    await registeredHandlers['app_mention']!({
+      event: {
+        type: 'app_mention',
+        channel: 'C_UNBOUND',
+        user: 'U_USER',
+        text: '<@BOTID> provision',
+        ts: '1000.3',
+      },
+      say,
+      client: mockClient,
+    });
+
+    // handleProvision should have been called with rawArgs="" and
+    // channelName="voyager" (resolved from conversations.info mock).
+    expect(mockHandleProvision).toHaveBeenCalledTimes(1);
+    const [rawArgs, ctx] = mockHandleProvision.mock.calls[0] as [
+      string,
+      { channelName: string; channelId: string },
+    ];
+    expect(rawArgs).toBe('');
+    expect(ctx.channelName).toBe('voyager');
+    expect(ctx.channelId).toBe('C_UNBOUND');
+
+    // Smart path must NOT be called.
+    expect(mockSmartPath).not.toHaveBeenCalled();
+  });
+
+  it('replies with usage hint when PROVISION_PATTERN matches but parseCommand does not', async () => {
+    await getSlackBot();
+
+    const say = vi.fn();
+    await registeredHandlers['app_mention']!({
+      event: {
+        type: 'app_mention',
+        channel: 'C_UNBOUND',
+        user: 'U_USER',
+        text: '<@BOTID> provision this channel as an enclave please',
+        ts: '1000.4',
+      },
+      say,
+      client: mockClient,
+    });
+
+    // handleProvision must NOT be called — the text matches PROVISION_PATTERN
+    // but not the strict parseCommand grammar.
+    expect(mockHandleProvision).not.toHaveBeenCalled();
+    expect(mockSmartPath).not.toHaveBeenCalled();
+
+    expect(say).toHaveBeenCalledTimes(1);
+    const sayArg = say.mock.calls[0]?.[0];
+    expect(sayArg?.text).toContain('To provision this channel as an enclave');
+    expect(sayArg?.text).toContain('@The Kraken provision');
+  });
+
+  it('replies with terse non-enclave message for unrelated mention', async () => {
+    await getSlackBot();
+
+    const say = vi.fn();
+    await registeredHandlers['app_mention']!({
+      event: {
+        type: 'app_mention',
+        channel: 'C_UNBOUND',
+        user: 'U_USER',
+        text: '<@BOTID> what is the meaning of life?',
+        ts: '1000.5',
+      },
+      say,
+      client: mockClient,
+    });
+
+    expect(mockHandleProvision).not.toHaveBeenCalled();
+    expect(mockSmartPath).not.toHaveBeenCalled();
+
+    expect(say).toHaveBeenCalledTimes(1);
+    const sayArg = say.mock.calls[0]?.[0];
+    expect(sayArg?.text).toContain("isn't set up as an enclave yet");
+    expect(sayArg?.text).toContain('@Kraken provision');
   });
 });

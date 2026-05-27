@@ -150,3 +150,22 @@ CREATE TABLE IF NOT EXISTS ndjson_cursors (
   PRIMARY KEY (enclave_name, filename)
 );
 `;
+
+/**
+ * Schema v4: kraken_threads — tracks threads where the bot was @-mentioned
+ * at the top level. Used by the message handler to forward non-@-mention
+ * thread replies to the dispatcher only when the thread is "owned" by the
+ * Kraken (started by a bot @-mention). Rows older than 7 days are pruned
+ * at boot.
+ */
+export const SCHEMA_V4 = `
+CREATE TABLE IF NOT EXISTS kraken_threads (
+  channel_id TEXT NOT NULL,
+  thread_ts TEXT NOT NULL,
+  created_at INTEGER NOT NULL,
+  PRIMARY KEY (channel_id, thread_ts)
+);
+
+CREATE INDEX IF NOT EXISTS idx_kraken_threads_created_at
+  ON kraken_threads(created_at);
+`;

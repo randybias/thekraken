@@ -7,6 +7,7 @@
  *   @kraken members
  *   @kraken whoami
  *   @kraken set mode <preset>
+ *   @kraken provision [as <name>] [description <text>]  (handled in bot.ts unbound-channel branch, not executeCommand)
  *   @kraken show prompts [workflow]
  *   @kraken show prompt <workflow> <name>
  *   @kraken show templates [workflow]
@@ -80,7 +81,7 @@ export function parseCommand(
 
   // Match against known command patterns
   const match = cleaned.match(
-    /^(add|remove|members|whoami|set\s+mode|show\s+prompts|show\s+prompt|show\s+templates|show\s+template|help)\s*(.*)/i,
+    /^(add|remove|members|whoami|set\s+mode|show\s+prompts|show\s+prompt|show\s+templates|show\s+template|help|provision)\s*(.*)/i,
   );
 
   if (!match) return null;
@@ -97,6 +98,18 @@ export function parseCommand(
   // intercepted as membership commands and produce confusing error messages.
   if (command === 'add' || command === 'remove') {
     if (!/<@[A-Z0-9_]+>/i.test(rawArgs)) {
+      return null;
+    }
+  }
+
+  if (command === 'provision') {
+    // Strict grammar: either no args, or `as <name>`, or `description <text>`,
+    // or `as <name> description <text>` (in that order).
+    // Loose phrasing like "provision this channel" must NOT match — falls
+    // through to PROVISION_PATTERN usage-hint handling in bot.ts.
+    const provArgsRe =
+      /^(?:as\s+\S+)?(?:\s*description\s+.+)?$|^description\s+.+$/i;
+    if (rawArgs.length > 0 && !provArgsRe.test(rawArgs)) {
       return null;
     }
   }
