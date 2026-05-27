@@ -71,3 +71,90 @@ describe('handleProvision: defaults', () => {
     );
   });
 });
+
+describe('handleProvision: overrides', () => {
+  it('uses `as <name>` to override the enclave name', async () => {
+    const ctx = mkCtx();
+    await handleProvision('as my-custom-name', ctx);
+    expect(ctx.mcpCall).toHaveBeenCalledWith(
+      'enclave_provision',
+      expect.objectContaining({ name: 'my-custom-name' }),
+    );
+    expect(ctx.insertBinding).toHaveBeenCalledWith(
+      'C123',
+      'my-custom-name',
+      'U_ALICE',
+    );
+  });
+
+  it('uses `description <text>` to override the description', async () => {
+    const ctx = mkCtx();
+    await handleProvision('description Custom description here', ctx);
+    expect(ctx.mcpCall).toHaveBeenCalledWith(
+      'enclave_provision',
+      expect.objectContaining({
+        description: 'Custom description here',
+        name: 'voyager-agentic-flows',
+      }),
+    );
+  });
+
+  it('uses both overrides when provided together', async () => {
+    const ctx = mkCtx();
+    await handleProvision('as foo description Bar baz quux', ctx);
+    expect(ctx.mcpCall).toHaveBeenCalledWith(
+      'enclave_provision',
+      expect.objectContaining({
+        name: 'foo',
+        description: 'Bar baz quux',
+      }),
+    );
+  });
+});
+
+describe('handleProvision: validation', () => {
+  it('rejects channel-name default that fails enclave-name regex', async () => {
+    const ctx = mkCtx({ channelName: 'BadName_WithStuff' });
+    await handleProvision('', ctx);
+    expect(ctx.mcpCall).not.toHaveBeenCalled();
+    expect(ctx.insertBinding).not.toHaveBeenCalled();
+    expect(ctx.recordKrakenThread).not.toHaveBeenCalled();
+    expect(ctx._sent[0]).toMatch(
+      /`BadName_WithStuff` isn't a valid enclave name/,
+    );
+  });
+
+  it('rejects explicit name that fails regex', async () => {
+    const ctx = mkCtx();
+    await handleProvision('as Has_Underscores', ctx);
+    expect(ctx.mcpCall).not.toHaveBeenCalled();
+    expect(ctx._sent[0]).toMatch(/isn't a valid enclave name/);
+  });
+});
+
+describe('handleProvision: already bound', () => {
+  it('refuses when channel is already an enclave', async () => {
+    const ctx = mkCtx({
+      lookupEnclave: vi.fn(() => ({ enclaveName: 'existing' })),
+    });
+    await handleProvision('', ctx);
+    expect(ctx.mcpCall).not.toHaveBeenCalled();
+    expect(ctx.insertBinding).not.toHaveBeenCalled();
+    expect(ctx.recordKrakenThread).not.toHaveBeenCalled();
+    expect(ctx._sent[0]).toMatch(/already enclave `existing`/);
+  });
+});
+
+describe('handleProvision: MCP error', () => {
+  it('echoes MCP failure message verbatim, no side effects', async () => {
+    const ctx = mkCtx({
+      mcpCall: vi.fn(async () => {
+        throw new Error('forbidden: owner_sub empty');
+      }),
+    });
+    await handleProvision('', ctx);
+    expect(ctx.insertBinding).not.toHaveBeenCalled();
+    expect(ctx.recordKrakenThread).not.toHaveBeenCalled();
+    expect(ctx._sent[0]).toBe('Provisioning failed: forbidden: owner_sub empty');
+  });
+});
