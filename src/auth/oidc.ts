@@ -239,6 +239,33 @@ export function extractEmailFromToken(token: string): string | undefined {
 }
 
 /**
+ * Extract { email, sub } from a JWT access token in one call.
+ * Returns empty strings for absent or unparseable claims — callers must
+ * validate that the values are non-empty before using them for authz.
+ *
+ * NOTE: the signature is NOT verified here. Signature verification is
+ * the responsibility of the MCP server the token is presented to.
+ */
+export function extractIdentityFromToken(token: string): {
+  email: string;
+  sub: string;
+} {
+  const parts = token.split('.');
+  if (parts.length < 2) return { email: '', sub: '' };
+  try {
+    const payload = JSON.parse(
+      Buffer.from(parts[1] ?? '', 'base64url').toString('utf8'),
+    ) as { email?: string; sub?: string };
+    return {
+      email: payload.email ?? '',
+      sub: payload.sub ?? '',
+    };
+  } catch {
+    return { email: '', sub: '' };
+  }
+}
+
+/**
  * Extract the Keycloak subject ID (`sub`) from a JWT access token.
  * Used for `enclave_provision({owner_sub})`.
  */
