@@ -1449,10 +1449,14 @@ export const RBAC_SCENARIOS: ScenarioDef[] = [
 // All scenarios in run order
 // ---------------------------------------------------------------------------
 
-// Splice E1/E2/E5 and C5 into explicit positions around the F group.
-const [e1, e2, e5] = [
+// Splice E1/E2/E6/E7/E8/E9/E5 and C5 into explicit positions around the F group.
+const [e1, e2, e6, e7, e8, e9, e5] = [
   PROVISIONING_SCENARIOS.find((s) => s.id === 'E1')!,
   PROVISIONING_SCENARIOS.find((s) => s.id === 'E2')!,
+  PROVISIONING_SCENARIOS.find((s) => s.id === 'E6')!,
+  PROVISIONING_SCENARIOS.find((s) => s.id === 'E7')!,
+  PROVISIONING_SCENARIOS.find((s) => s.id === 'E8')!,
+  PROVISIONING_SCENARIOS.find((s) => s.id === 'E9')!,
   PROVISIONING_SCENARIOS.find((s) => s.id === 'E5')!,
 ];
 // C5 (health of hello-world) belongs after F4 (status check), not at the end of F.
@@ -1482,10 +1486,17 @@ export const ALL_SCENARIOS: ScenarioDef[] = [
   ...MEMBERSHIP_SCENARIOS,
   // J. Thread memory
   ...MEMORY_SCENARIOS,
+  // E8/E9: thread-participation tests in the bound enclave channel (after J)
+  e8,
+  e9,
   // E1: verify non-enclave behaviour before provisioning
   e1,
   // E2: provision the test channel as an enclave
   e2,
+  // E6: provision with no args (channel name as enclave name)
+  e6,
+  // E7: provision with overrides (named enclave + description)
+  e7,
   // F1 deploy → F2 concurrent chat → F4 status → C5 health → F5 run → F6 logs → F8 restart → F9 describe → F10 remove
   f1,
   f2,
