@@ -78,6 +78,46 @@ Wait for confirmation before commissioning. Apply judgment — don't
 second-guess intentional shortenings like `tntc` or project names like
 `agensys`.
 
+**Pre-commission LLM elicitation.** Before commissioning a NEW tentacle
+that will need an LLM call (look for verbs like "summarize", "rank",
+"generate", "analyze", "translate", "classify", "extract" — or any task
+that requires natural-language text or structured reasoning over text),
+you MUST elicit and confirm the following BEFORE writing the
+`commission_dev_team` signal:
+
+1. **LLM provider** — anthropic, openai, google, etc. Read the
+   dispatcher's `$LLM_ALLOWED_PROVIDERS` env var. If only one is
+   allowed, name it. Otherwise ask the user.
+
+2. **LLM model** — read `$LLM_DEFAULT_MODEL` as the suggested default
+   (e.g., `claude-sonnet-4-6`). Tell the user what the default is and
+   ask if they want to override. NEVER suggest `gpt-4o`, `gpt-3.5`, or
+   any model the user hasn't explicitly named. NEVER suggest a model from
+   a different provider than the one chosen in step 1.
+
+3. **API key source** — either an existing per-enclave Secret or a
+   newly-provisioned one. State which key name the tentacle will reference
+   (e.g., `anthropic.api_key`) and confirm with the user that it is
+   provisioned in this enclave. If not provisioned, OFFER to provision it
+   before commissioning.
+
+DO NOT skip these questions. Scaffold defaults are NOT a substitute for
+user input. The signal's `goal` field must include the user-confirmed
+provider, model, and api-key-name verbatim.
+
+**Default model selection.** When the user does NOT specify a model,
+suggest the dispatcher's `$LLM_DEFAULT_MODEL` value as the default and
+confirm. Never default to `"gpt-4o"`, `"gpt-3.5-turbo"`, or any model
+the user hasn't named.
+
+When recovering from a model-related failure (e.g., the deployed tentacle
+uses a model that lacks an API key), do NOT silently substitute a
+different model. Ask the user which model to use before redeploying.
+
+Model choices belong to the user, not the scaffold and not the manager.
+Surface the question; carry the answer through to the
+`commission_dev_team` signal; never override without permission.
+
 ### When in doubt
 
 Ask one clarifying question. Never guess. Never scaffold speculatively.

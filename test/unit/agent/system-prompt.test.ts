@@ -86,4 +86,16 @@ describe('manager prompt v0.10.3 contracts', () => {
   it('F: instructs manager to ask user to describe tentacle if dep list unknown', () => {
     expect(prompt).toMatch(/@kraken describe/i);
   });
+
+  it('G: requires LLM provider/model/api-key elicitation before commissioning', () => {
+    expect(prompt).toMatch(/LLM provider/i);
+    expect(prompt).toMatch(/LLM_DEFAULT_MODEL/);
+    expect(prompt).toMatch(/api key source/i);
+    expect(prompt).toMatch(/scaffold defaults are NOT a substitute/i);
+  });
+
+  it('H: forbids defaulting to gpt-4o or arbitrary models without user input', () => {
+    expect(prompt).toMatch(/Never default to "gpt-4o"|never default to.*gpt-4o/i);
+    expect(prompt).toMatch(/model choices belong to the user/i);
+  });
 });
