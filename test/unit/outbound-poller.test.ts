@@ -330,7 +330,7 @@ describe('OutboundPoller', () => {
     expect(postedMessages).toHaveLength(0);
   });
 
-  it('falls back to mailbox channelId/threadTs when outbound record lacks them (Bug 2)', async () => {
+  it('falls back to mailbox channelId when outbound record lacks channelId (N4 — channelId fallback only)', async () => {
     const f = createTeamFixture('fallback-enc');
     fixtures.push(f);
 
@@ -349,21 +349,21 @@ describe('OutboundPoller', () => {
 
     poller = makePoller(f, ['fallback-enc']);
     await poller.drainOnce(); // register reader at current EOF
-    // Write an outbound record that is missing channelId and threadTs
+    // Write an outbound record that is missing channelId but has an explicit threadTs
     f.appendOutbound({
       id: 'out-no-channel',
       timestamp: new Date().toISOString(),
       type: 'slack_message',
       channelId: '',
-      threadTs: '',
+      threadTs: 'T_explicit',
       text: 'agent reply without channel',
     });
     await poller.stop();
 
-    // Should have posted using the mailbox fallback values
+    // channelId falls back to mailbox; threadTs is trusted as written (N4)
     expect(postedMessages).toHaveLength(1);
     expect(postedMessages[0]!.channel).toBe('C_FALLBACK');
-    expect(postedMessages[0]!.thread_ts).toBe('9876.543');
+    expect(postedMessages[0]!.thread_ts).toBe('T_explicit');
     expect(postedMessages[0]!.text).toBe('agent reply without channel');
   });
 
