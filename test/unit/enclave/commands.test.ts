@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { parseCommand } from '../../../src/enclave/commands.js';
+import { parseCommand, executeCommand } from '../../../src/enclave/commands.js';
 
 describe('parseCommand: provision', () => {
   it('matches bare `provision`', () => {
@@ -51,5 +51,32 @@ describe('parseCommand: provision', () => {
   it('does NOT match `provision as ` (no name, trailing space)', () => {
     const parsed = parseCommand('<@U123BOT> provision as ');
     expect(parsed).toBeNull();
+  });
+});
+
+describe('executeCommand: provision', () => {
+  it('does NOT dispatch provision through the standard switch', async () => {
+    const sent: string[] = [];
+    const ctx = {
+      channelId: 'C1',
+      threadTs: 'T1',
+      senderSlackId: 'U1',
+      enclaveName: '',
+      mcpCall: async () => ({}),
+      sendMessage: async (text: string) => {
+        sent.push(text);
+      },
+      resolveEmail: async () => undefined,
+    };
+    await executeCommand(
+      { command: 'provision', args: [], rawArgs: '' },
+      ctx,
+    );
+    // executeCommand has no 'provision' case — falls into default branch
+    // with the standard "I don't recognise that command" reply.
+    // provision is dispatched directly from bot.ts's unbound-channel branch
+    // (Task 9) because it needs channelName + channelTopic + userEmail +
+    // userSub which CommandContext doesn't carry.
+    expect(sent[0]).toMatch(/don't recognise that command/);
   });
 });
