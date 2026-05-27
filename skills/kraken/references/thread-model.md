@@ -83,3 +83,23 @@ synthesizes a `task_failed` (premature exit).
 The bridge waits up to 10 minutes for `agent_end` per mailbox turn
 (`IDLE_TIMEOUT_MS = 10 * 60 * 1000`). Build turns routinely take 10-15
 minutes; do not expect fast completion for F-group scenarios.
+
+## Thread participation rule
+
+A Slack thread is "Kraken-owned" if and only if the top-level message
+that started the thread @-mentioned The Kraken. The dispatcher tracks
+such threads in the `kraken_threads` SQLite table (channel_id,
+thread_ts, created_at).
+
+In a Kraken-owned thread:
+- The bot receives every reply (with or without @-mention).
+- Mid-thread follow-ups like "yes, go ahead" or "what about X?" route
+  to the dispatcher (or the enclave manager for bound channels).
+
+In any other thread:
+- The bot only receives messages that explicitly @-mention it.
+- Random in-thread chatter is ignored.
+
+This implements the directive: "within a Kraken-owned thread, mentioning
+the bot should not be necessary". The bot stays out of conversations it
+wasn't invited into.

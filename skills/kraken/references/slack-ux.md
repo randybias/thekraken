@@ -84,3 +84,26 @@ Good:
 - Never show raw POSIX permission strings (`rwxrwx---`) — translate them
 - Never say "I've let you know" or "I've responded" — just respond
 - Never use kubectl output verbatim
+
+## @kraken provision command (dispatcher-level)
+
+The Kraken's dispatcher handles enclave provisioning as a deterministic
+command. The enclave manager never provisions — by the time the manager
+is running, the enclave is already bound.
+
+Grammar (from a Slack channel that is NOT yet bound to an enclave):
+
+    @The Kraken provision
+    @The Kraken provision as <enclave-name>
+    @The Kraken provision description <text>
+    @The Kraken provision as <enclave-name> description <text>
+
+Defaults:
+- `name` = channel name (validated: lowercase, alphanumeric, hyphens, max 63 chars)
+- `description` = channel topic if set, else `Workflow channel for #<channel>`
+
+If the channel name doesn't validate as a valid enclave name, the
+dispatcher refuses with a clear message asking for an explicit name.
+
+If the channel is already an enclave, the dispatcher refuses with a
+pointer to `@kraken status`.
