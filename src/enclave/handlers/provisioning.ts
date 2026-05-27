@@ -102,7 +102,12 @@ export async function handleProvision(
     return;
   }
 
-  // Step 5: call enclave_provision via MCP
+  // Step 5: call enclave_provision via MCP.
+  // NOTE: the tentacular-mcp `enclave_provision` tool does not (yet) accept
+  // a `description` field — its EnclaveProvisionParams struct rejects
+  // unknown properties. We still parse `description <text>` from the
+  // command for forward compatibility, but it's not yet sent to MCP.
+  // Followup: add `description` to the MCP tool schema, then wire it here.
   log.info(
     {
       name,
@@ -116,7 +121,6 @@ export async function handleProvision(
   try {
     await ctx.mcpCall('enclave_provision', {
       name,
-      description,
       owner_email: ctx.userEmail,
       owner_sub: ctx.userSub,
       platform: 'slack',

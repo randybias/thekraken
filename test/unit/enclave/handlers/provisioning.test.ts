@@ -33,9 +33,11 @@ describe('handleProvision: defaults', () => {
   it('uses channel name as enclave name when no args', async () => {
     const ctx = mkCtx();
     await handleProvision('', ctx);
+    // NOTE: description is parsed from rawArgs / derived from channel topic
+    // but NOT sent to MCP — the enclave_provision tool doesn't (yet) accept
+    // a description field. Forward-compat: keep parsing for when it does.
     expect(ctx.mcpCall).toHaveBeenCalledWith('enclave_provision', {
       name: 'voyager-agentic-flows',
-      description: 'Workflow channel for #voyager-agentic-flows',
       owner_email: 'alice@example.com',
       owner_sub: 'KEYCLOAK-SUB-1',
       platform: 'slack',
@@ -53,22 +55,13 @@ describe('handleProvision: defaults', () => {
     );
   });
 
-  it('uses channel topic as description when present', async () => {
+  it('does NOT pass description to mcpCall even when channel topic is set', async () => {
     const ctx = mkCtx({ channelTopic: 'Voyager group workflows' });
     await handleProvision('', ctx);
-    expect(ctx.mcpCall).toHaveBeenCalledWith(
-      'enclave_provision',
-      expect.objectContaining({ description: 'Voyager group workflows' }),
-    );
-  });
-
-  it('trims whitespace from channel topic before using', async () => {
-    const ctx = mkCtx({ channelTopic: '   Padded topic   ' });
-    await handleProvision('', ctx);
-    expect(ctx.mcpCall).toHaveBeenCalledWith(
-      'enclave_provision',
-      expect.objectContaining({ description: 'Padded topic' }),
-    );
+    const args = (ctx.mcpCall as ReturnType<typeof vi.fn>).mock.calls[0]?.[1] as
+      | Record<string, unknown>
+      | undefined;
+    expect(args).not.toHaveProperty('description');
   });
 });
 
@@ -87,28 +80,24 @@ describe('handleProvision: overrides', () => {
     );
   });
 
-  it('uses `description <text>` to override the description', async () => {
+  it('parses `description <text>` but does NOT send it to mcpCall (forward-compat)', async () => {
     const ctx = mkCtx();
     await handleProvision('description Custom description here', ctx);
-    expect(ctx.mcpCall).toHaveBeenCalledWith(
-      'enclave_provision',
-      expect.objectContaining({
-        description: 'Custom description here',
-        name: 'voyager-agentic-flows',
-      }),
-    );
+    const args = (ctx.mcpCall as ReturnType<typeof vi.fn>).mock.calls[0]?.[1] as
+      | Record<string, unknown>
+      | undefined;
+    expect(args).toMatchObject({ name: 'voyager-agentic-flows' });
+    expect(args).not.toHaveProperty('description');
   });
 
-  it('uses both overrides when provided together', async () => {
+  it('uses `as <name>` from combined form; ignores description for MCP', async () => {
     const ctx = mkCtx();
     await handleProvision('as foo description Bar baz quux', ctx);
-    expect(ctx.mcpCall).toHaveBeenCalledWith(
-      'enclave_provision',
-      expect.objectContaining({
-        name: 'foo',
-        description: 'Bar baz quux',
-      }),
-    );
+    const args = (ctx.mcpCall as ReturnType<typeof vi.fn>).mock.calls[0]?.[1] as
+      | Record<string, unknown>
+      | undefined;
+    expect(args).toMatchObject({ name: 'foo' });
+    expect(args).not.toHaveProperty('description');
   });
 });
 
