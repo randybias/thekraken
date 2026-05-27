@@ -42,4 +42,14 @@ describe('parseCommand: provision', () => {
     expect(parsed).not.toBeNull();
     expect(parsed?.command).toBe('provision');
   });
+
+  it('does NOT match `provision as` (no name)', () => {
+    const parsed = parseCommand('<@U123BOT> provision as');
+    expect(parsed).toBeNull();
+  });
+
+  it('does NOT match `provision as ` (no name, trailing space)', () => {
+    const parsed = parseCommand('<@U123BOT> provision as ');
+    expect(parsed).toBeNull();
+  });
 });

@@ -7,6 +7,7 @@
  *   @kraken members
  *   @kraken whoami
  *   @kraken set mode <preset>
+ *   @kraken provision [as <name>] [description <text>]  (handled in bot.ts unbound-channel branch, not executeCommand)
  *   @kraken show prompts [workflow]
  *   @kraken show prompt <workflow> <name>
  *   @kraken show templates [workflow]
