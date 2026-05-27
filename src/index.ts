@@ -26,6 +26,7 @@ import { initTelemetry, shutdownTelemetry } from './telemetry.js';
 import { createChildLogger } from './logger.js';
 import { initDatabase, initSecretsDatabase } from './db/index.js';
 import { initCursorStore } from './db/cursors.js';
+import { pruneOldKrakenThreads } from './db/kraken-threads.js';
 import {
   extractEmailFromToken,
   getValidTokenForUser,
@@ -60,6 +61,10 @@ async function main(): Promise<void> {
   log.info('Database initialized');
   initCursorStore(db);
   log.info('Cursor store initialized');
+  // Prune kraken_threads >7 days old at boot. Bounds table growth.
+  // A daily scheduled prune is followup work.
+  pruneOldKrakenThreads(db, 7 * 24 * 3600);
+  log.info('kraken_threads: boot prune complete');
   const secretsDb = initSecretsDatabase(config);
   log.info('Secrets database initialized');
 
