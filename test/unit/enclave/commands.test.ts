@@ -68,10 +68,7 @@ describe('executeCommand: provision', () => {
       },
       resolveEmail: async () => undefined,
     };
-    await executeCommand(
-      { command: 'provision', args: [], rawArgs: '' },
-      ctx,
-    );
+    await executeCommand({ command: 'provision', args: [], rawArgs: '' }, ctx);
     // executeCommand has no 'provision' case — falls into default branch
     // with the standard "I don't recognise that command" reply.
     // provision is dispatched directly from bot.ts's unbound-channel branch

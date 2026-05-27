@@ -155,6 +155,8 @@ describe('handleProvision: MCP error', () => {
     await handleProvision('', ctx);
     expect(ctx.insertBinding).not.toHaveBeenCalled();
     expect(ctx.recordKrakenThread).not.toHaveBeenCalled();
-    expect(ctx._sent[0]).toBe('Provisioning failed: forbidden: owner_sub empty');
+    expect(ctx._sent[0]).toBe(
+      'Provisioning failed: forbidden: owner_sub empty',
+    );
   });
 });

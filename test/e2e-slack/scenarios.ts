@@ -522,9 +522,7 @@ export const PROVISIONING_SCENARIOS: ScenarioDef[] = [
     name: 'provision with no args uses channel name as enclave name',
     channel: CHANNELS.test,
     message: '@Kraken provision',
-    expectedPatterns: [
-      /Done\. Enclave/i,
-    ],
+    expectedPatterns: [/Done\. Enclave/i],
     forbiddenPatterns: [],
     timeoutMs: 60_000,
   },
@@ -533,9 +531,7 @@ export const PROVISIONING_SCENARIOS: ScenarioDef[] = [
     name: 'provision with overrides uses provided name + description',
     channel: CHANNELS.test,
     message: '@Kraken provision as e2e-foo description Test enclave from E7',
-    expectedPatterns: [
-      /Done\. Enclave `e2e-foo` is live/i,
-    ],
+    expectedPatterns: [/Done\. Enclave `e2e-foo` is live/i],
     forbiddenPatterns: [],
     timeoutMs: 60_000,
   },
