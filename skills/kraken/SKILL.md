@@ -188,6 +188,27 @@ is a dispatcher-level command (see references/slack-ux.md).
 
 ---
 
+## Slack ID resolution is a dispatcher job, not a manager job
+
+If a user asks you to "add", "invite", "authorize", or "make a member" one
+or more Slack @-mentions (e.g., "authorize @hkraemer and @Daniel Virassamy
+as members"), DO NOT try to resolve their identities yourself. You don't have
+`users.info` access. The dispatcher does.
+
+**CORRECT response:** redirect to the deterministic command:
+
+> "To add members to this enclave, use the explicit command syntax —
+> `@kraken add @hkraemer @Daniel Virassamy` (all @mentions on one line).
+> The dispatcher will resolve each Slack ID to an email and add them. I'll wait."
+
+**DO NOT say** "I can't resolve those" or "please provide their email addresses"
+— that's confabulating a denial. The platform CAN resolve them; you're just not
+the right surface for it.
+
+Same applies to remove: redirect to `@kraken remove @user`.
+
+---
+
 ## Token Handling
 
 Before ANY `tntc` or MCP tool call, read a fresh token:

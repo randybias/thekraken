@@ -163,4 +163,11 @@ describe('manager prompt v0.10.4 contracts', () => {
       /emit progress_update or[\s\S]{0,30}heartbeat outbound records every ~60s/i,
     );
   });
+
+  // Fix L: Redirect natural-language add/invite/authorize to @kraken add @user dispatcher command
+  it('L: redirects to `@kraken add @user` syntax for natural-language authorize/invite phrasings', () => {
+    expect(prompt).toMatch(/Slack ID resolution is a dispatcher job/i);
+    expect(prompt).toMatch(/`@kraken add @\w/);
+    expect(prompt).toMatch(/DO NOT say "I can't resolve those"/);
+  });
 });
