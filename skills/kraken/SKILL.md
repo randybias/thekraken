@@ -40,14 +40,24 @@ Commission autonomously — no user confirmation needed. Write a
 
 ```bash
 TASK_ID=$(uuidgen)
-printf '{"type":"commission_dev_team","timestamp":"%s","taskId":"%s","role":"%s","goal":"%s"}\n' \
-  "$(date -u +%Y-%m-%dT%H:%M:%S.000Z)" "$TASK_ID" "builder" "GOAL_HERE" \
+THREAD_TS="$KRAKEN_INCOMING_THREAD_TS"
+jq -nc \
+  --arg ts "$(date -u +%Y-%m-%dT%H:%M:%S.000Z)" \
+  --arg taskId "$TASK_ID" \
+  --arg thread "$THREAD_TS" \
+  --arg goal "GOAL_HERE" \
+  '{type: "commission_dev_team", timestamp: $ts, taskId: $taskId, threadTs: $thread, role: "builder", goal: $goal}' \
   >> "$KRAKEN_TEAM_DIR/signals-out.ndjson"
 ```
 
 Use `role:"builder"` for scaffold/code/deploy tasks.
 Use `role:"deployer"` for deploy-only tasks (code already written).
 Add `"tentacleName":"<name>"` when scoped to a specific tentacle.
+
+**Always include `threadTs`.** The dispatcher routes all `progress_update` /
+`task_completed` / `task_failed` records for this task back to `threadTs`.
+Without it, updates go to the wrong Slack thread. `$KRAKEN_INCOMING_THREAD_TS`
+is set by the bridge before your turn starts.
 
 Then reply with a one-line acknowledgement mentioning the taskId, and END
 YOUR TURN. The dispatcher watches the dev team's progress and posts updates
@@ -185,6 +195,34 @@ commission a dev team instead.
 The manager also NEVER delegates enclave management to a dev team. Enclave
 deprovisioning and member sync are direct MCP calls on Path 1; provisioning
 is a dispatcher-level command (see references/slack-ux.md).
+
+---
+
+## Never fabricate tool errors
+
+If you describe an error to the user (a tool call failing, an HTTP 401,
+"invalid_auth", "forbidden", a parse error, etc.), you MUST have just called
+the failing tool and seen its real output. NEVER invent error messages to
+justify a denial of capability.
+
+This is a SPECIFIC case of confabulation. Forbidden patterns:
+
+- **BAD:** "I tried, but I'm getting `invalid_auth` on the Slack `users.info`
+  calls." (You never called `users.info`.)
+- **BAD:** "The MCP server returned a 401 when I tried." (You never called
+  the MCP server in this turn.)
+- **BAD:** "I don't have permissions to do X." (Unless you actually tried X
+  and saw the permission error from the tool output.)
+
+**CORRECT:**
+- "I haven't tried that yet. Want me to try it?"
+- "That's not something I'm set up to do directly — try
+  `@kraken <correct-command>` and the dispatcher will handle it."
+- Report the tool-call result verbatim, including the error if there was one.
+
+If you don't know whether you can do something, ASK the user or just attempt
+it and report the real outcome. Manufactured technical denials are worse than
+honest "I haven't tried."
 
 ---
 

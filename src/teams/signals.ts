@@ -87,6 +87,19 @@ export interface CommissionDevTeamSignal extends SignalBase {
   role: 'builder' | 'deployer';
   /** Optional: the tentacle name the task relates to (for workspace scoping). */
   tentacleName?: string;
+  /**
+   * The Slack thread timestamp of the originating user message (N2).
+   *
+   * The outbound-poller uses this to route all progress_update /
+   * task_completed / task_failed heartbeats back to the correct thread.
+   * Without it, heartbeats fall back to the last mailbox entry's threadTs,
+   * which may belong to a completely different conversation.
+   *
+   * Set from KRAKEN_INCOMING_THREAD_TS in the commission_dev_team signal.
+   * The bridge injects KRAKEN_INCOMING_THREAD_TS into the subprocess env
+   * before spawning.
+   */
+  threadTs?: string;
 }
 
 /** Manager → Bridge: stop a running dev team. */

@@ -86,6 +86,15 @@ interface DevTeamHandle {
   proc: ChildProcess;
   /** True if we have already emitted a terminal signal (task_completed or task_failed). */
   terminated: boolean;
+  /**
+   * N2: The Slack threadTs of the originating user message for this task.
+   *
+   * Written into outbound heartbeat records so the outbound-poller can
+   * route progress_update / task_completed / task_failed back to the
+   * correct Slack thread rather than using the last mailbox entry's threadTs
+   * (which may belong to a different conversation entirely).
+   */
+  threadTs: string;
 }
 
 export interface TeamBridgeOptions {
@@ -213,8 +222,10 @@ export class TeamBridge {
       persistOffset: (off) => setCursor(enclave, 'signals-in.ndjson', off),
     });
     // C4: Heartbeat controller emits to outbound.ndjson on the manager's behalf.
+    // N2: threadTs is passed through from the originating commission signal so
+    // the outbound record routes to the correct Slack thread.
     this.heartbeat = new HeartbeatController({
-      onHeartbeat: (text) => this.writeHeartbeat(text),
+      onHeartbeat: (text, threadTs) => this.writeHeartbeat(text, threadTs),
     });
 
     if (!existsSync(opts.gitStateDir)) {
@@ -606,6 +617,10 @@ export class TeamBridge {
    * task_failed), the HeartbeatController decides whether enough time has
    * passed to emit a heartbeat. The heartbeat is written to outbound.ndjson
    * by the bridge, acting on the manager's behalf.
+   *
+   * N2: The threadTs from the originating commission signal is passed through
+   * to writeHeartbeat so the outbound-poller routes the heartbeat to the
+   * correct Slack thread rather than falling back to the last mailbox entry.
    */
   private pollSignalsIn(): void {
     if (this.stopped) return;
@@ -640,7 +655,12 @@ export class TeamBridge {
           ? signal['tentacleName']
           : undefined;
 
-      this.heartbeat.onSignal(signal, tentacleName);
+      // N2: Look up the threadTs for this task so the heartbeat is routed
+      // back to the originating Slack thread, not the most-recently-active one.
+      const handle = this.devTeams.get(signal.taskId);
+      const threadTs = handle?.threadTs ?? '';
+
+      this.heartbeat.onSignal(signal, tentacleName, threadTs);
     }
   }
 
@@ -664,6 +684,11 @@ export class TeamBridge {
     signal: CommissionDevTeamSignal,
   ): Promise<void> {
     const { taskId, goal, role, tentacleName } = signal;
+    // N2: Resolve threadTs for this task. Priority order:
+    // 1. signal.threadTs — set by the manager from KRAKEN_INCOMING_THREAD_TS
+    // 2. currentRecord.threadTs — the mailbox record that triggered this turn
+    // 3. '' — fallback (outbound poller will use last mailbox entry)
+    const taskThreadTs = signal.threadTs || this.currentRecord?.threadTs || '';
 
     // Deduplicate: reserve the slot synchronously before any await so a
     // second commission for the same taskId in the same poll cycle is
@@ -697,6 +722,8 @@ export class TeamBridge {
       // the .has() guard. Replaced with the real proc before returning.
       proc: { killed: false, kill: () => false } as unknown as ChildProcess,
       terminated: false,
+      // N2: store the originating threadTs so heartbeats route correctly.
+      threadTs: taskThreadTs,
     };
     this.devTeams.set(taskId, placeholder);
 
@@ -751,12 +778,16 @@ export class TeamBridge {
     }
 
     // Build the subprocess env: inherit manager env + task-scoped token file.
+    // N2: KRAKEN_INCOMING_THREAD_TS carries the originating Slack threadTs
+    // into the subprocess so the manager can embed it in commission_dev_team
+    // signals (and so deployers / builders can reference it in outbound records).
     const devTeamEnv: Record<string, string> = {
       ...this.opts.env,
       KRAKEN_TOKEN_FILE: tokenPath,
       KRAKEN_TASK_ID: taskId,
       KRAKEN_TASK_DIR: taskDir,
       ...(tentacleName ? { KRAKEN_TENTACLE_NAME: tentacleName } : {}),
+      ...(taskThreadTs ? { KRAKEN_INCOMING_THREAD_TS: taskThreadTs } : {}),
     };
 
     // Build the system prompt for the dev team role.
@@ -814,7 +845,13 @@ export class TeamBridge {
 
     const devProc = this.spawnDevTeamProcess(spawnOpts);
     // Swap the real process handle in over the placeholder.
-    const handle: DevTeamHandle = { taskId, proc: devProc, terminated: false };
+    // N2: preserve threadTs so pollSignalsIn can route heartbeats correctly.
+    const handle: DevTeamHandle = {
+      taskId,
+      proc: devProc,
+      terminated: false,
+      threadTs: taskThreadTs,
+    };
     this.devTeams.set(taskId, handle);
 
     devProc.on('exit', (code, exitSignal) => {
@@ -954,18 +991,18 @@ export class TeamBridge {
    * Called by HeartbeatController.onHeartbeat() when a significant event
    * has occurred and the 30s floor has elapsed.
    *
-   * The heartbeat record has no threadTs — the outbound poller should
-   * post it to the channel's most recent thread (or the channel directly).
-   * For now, we use a sentinel empty string so the poller can identify
-   * heartbeat records and handle them appropriately.
+   * N2: threadTs is now passed in from pollSignalsIn() via the per-task
+   * DevTeamHandle, so the outbound record routes to the originating Slack
+   * thread. Falls back to empty string (poller resolves from last mailbox
+   * entry) when the threadTs is not available — same as the old behavior.
    */
-  private writeHeartbeat(text: string): void {
+  private writeHeartbeat(text: string, threadTs = ''): void {
     const outbound: OutboundRecord = {
       id: randomUUID(),
       timestamp: new Date().toISOString(),
       type: 'heartbeat',
       channelId: '', // resolved by the outbound poller from bridge context
-      threadTs: '',
+      threadTs,
       text,
     };
     try {
