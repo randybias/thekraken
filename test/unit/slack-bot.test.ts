@@ -24,6 +24,18 @@ vi.mock('../../src/auth/index.js', () => ({
 }));
 
 // ---------------------------------------------------------------------------
+// Mock kraken-threads to spy on recordKrakenThread calls
+// ---------------------------------------------------------------------------
+
+const mockRecordKrakenThread = vi.fn();
+
+vi.mock('../../src/db/kraken-threads.js', () => ({
+  recordKrakenThread: mockRecordKrakenThread,
+  isKrakenThread: vi.fn().mockReturnValue(false),
+  pruneOldKrakenThreads: vi.fn().mockReturnValue(0),
+}));
+
+// ---------------------------------------------------------------------------
 // Mock @slack/bolt to avoid real Slack API calls
 // ---------------------------------------------------------------------------
 
@@ -424,5 +436,119 @@ describe('createSlackBot event handlers (post-pivot)', () => {
       expect(say).not.toHaveBeenCalled();
       expect(mockTeams.sendToTeam).not.toHaveBeenCalled();
     });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// kraken_threads population — standalone describe so we can pass deps.db
+// ---------------------------------------------------------------------------
+
+// Factory that wires a mock db into SlackBotDeps.
+const mockDb = {} as import('better-sqlite3').Database;
+
+async function getSlackBotWithDb() {
+  const { createSlackBot } = await import('../../src/slack/bot.js');
+  return createSlackBot({
+    config: baseConfig as any,
+    bindings: mockBindings as any,
+    outbound: mockOutbound as any,
+    teams: mockTeams as any,
+    onSmartPath: mockSmartPath,
+    getMcpCallForToken: () => async () => ({}),
+    db: mockDb,
+  });
+}
+
+describe('app_mention: kraken_threads population', () => {
+  beforeEach(async () => {
+    vi.resetModules();
+    vi.clearAllMocks();
+    for (const key of Object.keys(registeredHandlers)) {
+      delete registeredHandlers[key];
+    }
+    mockBindings.lookupEnclave.mockReturnValue(null);
+    mockTeams.isTeamActive.mockReturnValue(false);
+    const auth = await import('../../src/auth/index.js');
+    vi.mocked(auth.getValidTokenForUser).mockResolvedValue('mock-access-token');
+  });
+
+  it('records the thread when @-mention is top-level (no thread_ts)', async () => {
+    await getSlackBotWithDb();
+    const say = vi.fn();
+    await registeredHandlers['app_mention']!({
+      event: {
+        type: 'app_mention',
+        channel: 'C1',
+        user: 'U_ALICE',
+        text: '<@BOT> hello',
+        ts: '1234.5',
+        // No thread_ts — pure top-level mention
+      },
+      say,
+      client: mockClient,
+    });
+
+    expect(mockRecordKrakenThread).toHaveBeenCalledTimes(1);
+    expect(mockRecordKrakenThread).toHaveBeenCalledWith(mockDb, 'C1', '1234.5');
+  });
+
+  it('records the thread when @-mention started the thread (thread_ts === ts)', async () => {
+    await getSlackBotWithDb();
+    const say = vi.fn();
+    await registeredHandlers['app_mention']!({
+      event: {
+        type: 'app_mention',
+        channel: 'C2',
+        user: 'U_BOB',
+        text: '<@BOT> deploy',
+        ts: '2000.1',
+        // thread_ts === ts — the @-mention itself opened the thread
+        thread_ts: '2000.1',
+      },
+      say,
+      client: mockClient,
+    });
+
+    expect(mockRecordKrakenThread).toHaveBeenCalledTimes(1);
+    expect(mockRecordKrakenThread).toHaveBeenCalledWith(mockDb, 'C2', '2000.1');
+  });
+
+  it('does NOT record when @-mention is a reply in an existing thread', async () => {
+    await getSlackBotWithDb();
+    const say = vi.fn();
+    await registeredHandlers['app_mention']!({
+      event: {
+        type: 'app_mention',
+        channel: 'C3',
+        user: 'U_CAROL',
+        text: '<@BOT> what is the status?',
+        ts: '3000.2',
+        // thread_ts < ts — this is a reply inside an existing thread
+        thread_ts: '3000.1',
+      },
+      say,
+      client: mockClient,
+    });
+
+    expect(mockRecordKrakenThread).not.toHaveBeenCalled();
+  });
+
+  it('does NOT record when deps.db is absent', async () => {
+    // getSlackBot() omits db — recordKrakenThread must not be called
+    await getSlackBot();
+    const say = vi.fn();
+    await registeredHandlers['app_mention']!({
+      event: {
+        type: 'app_mention',
+        channel: 'C4',
+        user: 'U_DAVE',
+        text: '<@BOT> hi',
+        ts: '4000.1',
+      },
+      say,
+      client: mockClient,
+    });
+
+    expect(mockRecordKrakenThread).not.toHaveBeenCalled();
   });
 });

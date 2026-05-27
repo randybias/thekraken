@@ -46,6 +46,7 @@ import {
 } from '../auth/index.js';
 import { parseCommand, executeCommand } from '../enclave/commands.js';
 import { handleChannelEvent } from '../enclave/drift.js';
+import { recordKrakenThread } from '../db/kraken-threads.js';
 
 const log = createChildLogger({ module: 'slack-bot' });
 const tracer = trace.getTracer('thekraken.slack');
@@ -304,6 +305,16 @@ function registerEventHandlers(
 
     // Self-loop guard: never process our own bot's posts. Other bots are fine.
     if (userId && deps.botUserId && userId === deps.botUserId) return;
+
+    // Track this thread as Kraken-owned if the @-mention is a top-level
+    // thread starter. Used by the message handler to forward non-@-mention
+    // thread replies to the dispatcher (the user's directive: within a
+    // Kraken-owned thread, mentioning the bot should not be necessary).
+    const eventTs = (event as { ts: string }).ts;
+    const isTopLevelMention = !event.thread_ts || event.thread_ts === eventTs;
+    if (isTopLevelMention && deps.db) {
+      recordKrakenThread(deps.db, channelId, eventTs);
+    }
 
     return tracer.startActiveSpan('slack.app_mention', async (span) => {
       span.setAttribute('slack.event_type', 'app_mention');
