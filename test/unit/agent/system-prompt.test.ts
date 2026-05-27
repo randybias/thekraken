@@ -95,7 +95,72 @@ describe('manager prompt v0.10.3 contracts', () => {
   });
 
   it('H: forbids defaulting to gpt-4o or arbitrary models without user input', () => {
-    expect(prompt).toMatch(/Never default to "gpt-4o"|never default to.*gpt-4o/i);
+    expect(prompt).toMatch(
+      /Never default to "gpt-4o"|never default to.*gpt-4o/i,
+    );
     expect(prompt).toMatch(/model choices belong to the user/i);
+  });
+});
+
+describe('manager prompt v0.10.4 contracts', () => {
+  const prompt = buildManagerPrompt(BASE_OPTS);
+
+  // Fix I: Status replies must poll ground truth
+  it('I: requires polling signals-in.ndjson before composing a status reply', () => {
+    expect(prompt).toMatch(/Status replies must poll ground truth/i);
+    expect(prompt).toMatch(/signals-in\.ndjson[\s\S]{0,100}task_completed/);
+  });
+
+  it('I: requires calling wf_status on the tentacle being built', () => {
+    expect(prompt).toMatch(/Call wf_status on the tentacle being built/i);
+  });
+
+  it('I: requires calling wf_logs before composing status reply', () => {
+    expect(prompt).toMatch(/Call wf_logs on the tentacle/i);
+  });
+
+  it('I: forbids saying "still running" when signals-in is silent for >2 min', () => {
+    expect(prompt).toMatch(
+      /Never say "still running" if[\s\S]{0,60}signals-in\.ndjson is silent/i,
+    );
+  });
+
+  it('I: instructs manager to say it cannot determine ground truth rather than confabulate', () => {
+    // The phrase spans a line break — use [\s\S] to match across lines
+    expect(prompt).toMatch(/I can't see what's[\s\S]{0,20}happening/i);
+    expect(prompt).toMatch(/wf_describe \+ enclave_info/i);
+  });
+
+  // Fix J: Silent failure detection
+  it('J: defines silent failure as no progress_update in >2 minutes', () => {
+    expect(prompt).toMatch(/Silent failure detection/i);
+    expect(prompt).toMatch(/no progress_update in the last 2 minutes/i);
+  });
+
+  it('J: forbids reporting as "still working" after 2-min signal gap', () => {
+    expect(prompt).toMatch(/Do NOT report it as "still working"/i);
+    expect(prompt).toMatch(/confabulating[\s\S]{0,30}lack of evidence/i);
+  });
+
+  it('J: instructs manager to surface wf_logs verbatim on silent failure', () => {
+    expect(prompt).toMatch(/logs show an error, surface[\s\S]{0,20}verbatim/i);
+  });
+
+  it('J: instructs manager to say "logs are silent" when logs are empty', () => {
+    expect(prompt).toMatch(
+      /logs are silent — dev[\s\S]{0,30}subprocess may have died/i,
+    );
+  });
+
+  // Fix K bonus: lifecycle no-quiesce reminder in manager prompt
+  it("K: tells manager it won't be timed out mid-job due to no-quiesce protection", () => {
+    expect(prompt).toMatch(/dispatcher will keep this team subprocess alive/i);
+    expect(prompt).toMatch(/won't be timed out mid-job/i);
+  });
+
+  it('K: instructs manager to emit heartbeat records every ~60s while a job is in flight', () => {
+    expect(prompt).toMatch(
+      /emit progress_update or[\s\S]{0,30}heartbeat outbound records every ~60s/i,
+    );
   });
 });

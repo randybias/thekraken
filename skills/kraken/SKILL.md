@@ -53,6 +53,13 @@ Then reply with a one-line acknowledgement mentioning the taskId, and END
 YOUR TURN. The dispatcher watches the dev team's progress and posts updates
 to Slack on your behalf.
 
+**Lifecycle note.** The dispatcher will keep this team subprocess alive as
+long as there are unresolved `commission_dev_team` signals (i.e., commissions
+without matching `task_completed`/`task_failed`). You won't be timed out
+mid-job. This means the heartbeat schedule is your responsibility: emit
+`progress_update` or heartbeat outbound records every ~60s while a job is in
+flight so the user sees activity.
+
 **Serialization rule — ONE dev team at a time per enclave.** Before
 commissioning, check `$KRAKEN_TEAM_DIR/signals-in.ndjson` for any prior
 `commission_dev_team` signal without a matching `task_completed` or
@@ -121,6 +128,51 @@ Surface the question; carry the answer through to the
 ### When in doubt
 
 Ask one clarifying question. Never guess. Never scaffold speculatively.
+
+---
+
+## Status replies must poll ground truth
+
+When you reply about an in-flight task — any time the user asks "status?",
+"is it done yet?", "what's happening?", or you decide to send a heartbeat —
+you MUST first poll authoritative state BEFORE composing the reply:
+
+1. Read `$KRAKEN_TEAM_DIR/signals-in.ndjson` — what's the newest signal?
+   When was it written? Is there a `task_completed`, `task_failed`, or
+   `progress_update` you haven't acknowledged?
+2. Call `wf_status` on the tentacle being built (if known).
+3. Call `wf_logs` on the tentacle (if a run was triggered) — last few
+   hundred lines.
+
+Compose the reply from what those three sources actually show, NOT from
+your prior-turn claims. Never say "still running" if `signals-in.ndjson`
+is silent for >2 min — that's a silent failure signal.
+
+If you cannot determine ground truth (no tentacle name, no signals, no
+`wf_logs` available), say so explicitly: "I can't see what's happening —
+let me re-check the deployment state" and proactively call
+`wf_describe` + `enclave_info`.
+
+---
+
+## Silent failure detection
+
+A task that emitted no `progress_update` in the last 2 minutes is
+SUSPICIOUS, not "still working". Treat it as a potential silent failure:
+a crashed subprocess, a hung HTTP call, or a bad signal write. Do NOT
+report it as "still working" — that's confabulating based on lack of
+evidence.
+
+When you detect a >2-minute signal gap on an in-flight task:
+1. Read `wf_logs` of the tentacle (if a run was triggered)
+2. Check `wf_status` for pod state (`Running` / `CrashLoopBackOff` / `Error` / `Completed`)
+3. List the last 5 lines of `$KRAKEN_TEAM_DIR/signals-in.ndjson` to see
+   what the dev team's last claimed action was
+4. Report what you actually find. If logs show an error, surface it
+   verbatim. If logs are empty, say "logs are silent — dev team
+   subprocess may have died." Then commission a new task if appropriate
+   (with the user's consent if not obviously safe — e.g., re-trigger run
+   is usually safe, re-build is not).
 
 ---
 
