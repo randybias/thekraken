@@ -4,15 +4,13 @@
  * - kraken-db curated read-only CLI reference
  * - No-confab / honesty about capabilities clause
  *
- * Smart-path prompts (DM + provisioning) also get the no-confab clause.
+ * Smart-path DM prompt also gets the no-confab clause.
+ * (Provisioning mode was removed — now a deterministic command.)
  */
 
 import { describe, it, expect } from 'vitest';
 import { buildManagerPrompt } from '../../src/agent/system-prompt.js';
-import {
-  buildDmSystemPrompt,
-  buildProvisioningPrompt,
-} from '../../src/dispatcher/smart-path.js';
+import { buildDmSystemPrompt } from '../../src/dispatcher/smart-path.js';
 
 describe('manager prompt — rc.11 additions', () => {
   const prompt = buildManagerPrompt({
@@ -118,19 +116,5 @@ describe('DM system prompt — no-confab clause', () => {
 
   it('no-confab clause covers the "I don\'t have access to Slack" denial pattern', () => {
     expect(prompt).toMatch(/I don.t have access to Slack|structural denial/i);
-  });
-});
-
-describe('provisioning system prompt — no-confab clause', () => {
-  const prompt = buildProvisioningPrompt(
-    'user@example.com',
-    'sub-123',
-    'C123',
-    'my-channel',
-  );
-
-  it('contains the honesty / no-confab clause', () => {
-    expect(prompt).toMatch(/never claim a structural denial/i);
-    expect(prompt).toMatch(/ask the user/i);
   });
 });

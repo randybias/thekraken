@@ -27,11 +27,11 @@ import {
   createMcpConnection,
   type McpConnection,
 } from '../agent/mcp-connection.js';
-import { extractEmailFromToken, extractSubFromToken } from '../auth/index.js';
+import { extractEmailFromToken } from '../auth/index.js';
 
 const log = createChildLogger({ module: 'smart-path' });
 
-export type SmartPathMode = 'dm' | 'provision';
+export type SmartPathMode = 'dm';
 
 /**
  * Static per-mode allowlist of MCP tool names exposed to the LLM.
@@ -42,6 +42,9 @@ export type SmartPathMode = 'dm' | 'provision';
  * single source of truth for what the LLM can call. Mutations live
  * on the team-manager path (D2/D7) — never here.
  *
+ * Provisioning is now a deterministic command handled by bot.ts
+ * app_mention unbound-channel branch — not a smart-path concern.
+ *
  * Spec: docs/superpowers/specs/2026-05-04-smart-path-tightening-design.md
  */
 export const MODE_TOOL_ALLOWLIST: Record<
@@ -49,7 +52,6 @@ export const MODE_TOOL_ALLOWLIST: Record<
   ReadonlyArray<string>
 > = {
   dm: ['enclave_list'],
-  provision: ['enclave_provision'],
 };
 
 /**
@@ -92,11 +94,11 @@ export interface SmartPathInput {
   modelId: string;
   /** Slack bot user ID — used to strip the leading mention. */
   botUserId?: string;
-  /** Dispatch mode: 'dm' (DM with no enclave) or 'provision' (unbound channel). */
+  /** Dispatch mode: 'dm' (DM with no enclave). */
   mode: SmartPathMode;
-  /** Slack channel ID — passed through for provisioning mode. */
+  /** Slack channel ID — passed through for context. */
   channelId?: string;
-  /** Slack channel name — passed through for provisioning mode. */
+  /** Slack channel name — passed through for context. */
   channelName?: string;
   /**
    * Prior turns in the same Slack thread, oldest first.
@@ -129,7 +131,7 @@ export async function runSmartPath(
   }
 
   // rc.13: resolve fresh token BEFORE extracting identity claims so
-  // provisioning prompts carry the correct owner_email / owner_sub.
+  // system prompts carry the correct owner_email.
   // Codex rescue finding #6.
   async function resolveTokenForEntry(): Promise<string | null> {
     if (input.getFreshToken) {
@@ -156,16 +158,7 @@ export async function runSmartPath(
 
   // Identity claims now come from the FRESH token, not the snapshot.
   const userEmail = extractEmailFromToken(activeToken) ?? 'unknown';
-  const userSub = extractSubFromToken(activeToken) ?? 'unknown';
-  const systemPrompt =
-    input.mode === 'provision'
-      ? buildProvisioningPrompt(
-          userEmail,
-          userSub,
-          input.channelId ?? '',
-          input.channelName ?? 'unknown-channel',
-        )
-      : buildDmSystemPrompt(userEmail);
+  const systemPrompt = buildDmSystemPrompt(userEmail);
 
   let mcp: McpConnection | null = null;
   try {
@@ -423,8 +416,7 @@ export function buildDmSystemPrompt(userEmail: string): string {
     '## What you can do',
     '- Answer general questions about Tentacular (concepts, scaffolds, skill).',
     "- List the user's enclaves and direct them to the right channel.",
-    '- Help the user provision a new enclave (you will be re-prompted in',
-    "  provision mode if they're in an unbound channel).",
+    '- Direct the user to @Kraken in their target channel to provision a new enclave.',
     '',
     '## What you must NOT do',
     '- Claim anything about a specific workflow, deployment, run history,',
@@ -448,59 +440,6 @@ export function buildDmSystemPrompt(userEmail: string): string {
     '## Style',
     '- First person. Concise. Engineers reading.',
     '- If you do not know, say so.',
-    '',
-    '## Honesty about capabilities',
-    'If you cannot do something, ask the user. NEVER claim a structural denial',
-    '— e.g. "I don\'t have access to Slack" or "I can\'t retrieve that" —',
-    'without first trying with the tools you have. If a tool call',
-    'fails, say what failed and ask the user how to proceed.',
-  ].join('\n');
-}
-
-export function buildProvisioningPrompt(
-  userEmail: string,
-  ownerSub: string,
-  channelId: string,
-  channelName: string,
-): string {
-  return [
-    '# Role: The Kraken (Provisioning Mode)',
-    '',
-    'You are The Kraken, helping a user set up a new Tentacular enclave for their Slack channel.',
-    `User email: ${userEmail}`,
-    `Keycloak subject (owner_sub): ${ownerSub}`,
-    `Slack channel ID: ${channelId}`,
-    `Slack channel name: #${channelName}`,
-    '',
-    '## Provisioning Flow',
-    'Walk the user through these steps conversationally:',
-    '',
-    `1. **Name**: Ask what the enclave should be called. Suggest \`${channelName}\` as the default.`,
-    '   - Enclave names: lowercase, alphanumeric + hyphens, max 63 chars.',
-    '   - If the user says "yes", "go ahead", or similar, use the channel name.',
-    '2. **Description**: Ask for a brief description of what this enclave is for.',
-    '3. **Provision**: Call the `enclave_provision` MCP tool with these exact parameters:',
-    `   - name: (from step 1, default \`${channelName}\`)`,
-    `   - owner_email: "${userEmail}"`,
-    `   - owner_sub: "${ownerSub}"`,
-    '   - platform: "slack"',
-    `   - channel_id: "${channelId}"`,
-    `   - channel_name: "${channelName}"`,
-    '4. **Confirm**: On success, tell the user the enclave is ready and they can',
-    '   start using it immediately (@Kraken in this channel).',
-    '   On failure, report the error clearly.',
-    '',
-    '## Prior thread context',
-    'Earlier replies in this thread are shown to you for continuity. Do',
-    'NOT treat your own prior replies as facts. Continue the provisioning',
-    'flow from wherever the user is now, not from what you previously',
-    'claimed had happened.',
-    '',
-    '## Rules',
-    '- Be conversational and concise. Users are engineers.',
-    '- Do NOT ask for owner_email, owner_sub, channel_id, or platform — you already have those.',
-    '- Only ask for name and description.',
-    '- NEVER mention kubectl, namespace, or pod.',
     '',
     '## Honesty about capabilities',
     'If you cannot do something, ask the user. NEVER claim a structural denial',

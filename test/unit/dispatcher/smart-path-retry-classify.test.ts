@@ -67,7 +67,7 @@ describe('smart-path retry classification (rc.13, finding #5)', () => {
   });
 });
 
-describe('smart-path provisioning identity from fresh token (rc.13, finding #6)', () => {
+describe('smart-path DM identity from fresh token (rc.13, finding #6)', () => {
   it('uses claims from active (fresh) token, not the snapshot', async () => {
     // Build two JWTs with different sub/email claims.
     function makeJwt(payload: Record<string, unknown>): string {
@@ -89,7 +89,7 @@ describe('smart-path provisioning identity from fresh token (rc.13, finding #6)'
 
     await runSmartPath({
       ...baseInput,
-      mode: 'provision' as const,
+      mode: 'dm' as const,
       channelId: 'C1',
       channelName: 'unknown-channel',
       userToken: staleToken,
@@ -97,9 +97,8 @@ describe('smart-path provisioning identity from fresh token (rc.13, finding #6)'
     });
 
     expect(capturedToken).toBe(freshToken);
-    // The identity claims used in the prompt would be from freshToken
-    // (extracted post-resolve), not staleToken. This is verified
-    // indirectly: the connection used the fresh token, and the prompt
-    // was built with the same activeToken's claims.
+    // The identity claims used in the prompt come from freshToken
+    // (extracted post-resolve), not staleToken. The connection used
+    // the fresh token and the prompt was built with the same activeToken.
   });
 });
