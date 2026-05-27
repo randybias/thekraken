@@ -85,17 +85,26 @@ describe('F16 — cross-thread isolation: interleaved concurrent tasks', () => {
     ctrlA.onSignal(makeTaskStarted({ taskId: 'task-A' }), 'nvidia-report', T_A);
     ctrlB.onSignal(makeTaskStarted({ taskId: 'task-B' }), 'add-member', T_B);
     ctrlA.onSignal(
-      makeProgressUpdate({ taskId: 'task-A', message: 'Scaffolded the tentacle' }),
+      makeProgressUpdate({
+        taskId: 'task-A',
+        message: 'Scaffolded the tentacle',
+      }),
       'nvidia-report',
       T_A,
     );
     ctrlB.onSignal(
-      makeTaskCompleted({ taskId: 'task-B', result: 'Done! PARTIAL: OpenAI gpt-4o integration complete.' }),
+      makeTaskCompleted({
+        taskId: 'task-B',
+        result: 'Done! PARTIAL: OpenAI gpt-4o integration complete.',
+      }),
       'add-member',
       T_B,
     );
     ctrlA.onSignal(
-      makeTaskCompleted({ taskId: 'task-A', result: 'NVIDIA report tentacle deployed.' }),
+      makeTaskCompleted({
+        taskId: 'task-A',
+        result: 'NVIDIA report tentacle deployed.',
+      }),
       'nvidia-report',
       T_A,
     );
@@ -162,7 +171,10 @@ describe('F16 — cross-thread isolation: late-commissioned task B', () => {
 
     // B is now commissioned and emits its first record
     ctrlB.onSignal(
-      makeProgressUpdate({ taskId: 'task-B', message: 'scaffolding workspace' }),
+      makeProgressUpdate({
+        taskId: 'task-B',
+        message: 'scaffolding workspace',
+      }),
       'new-feature',
       T_B,
     );
@@ -253,16 +265,52 @@ describe('F16 — cross-thread isolation: ledger walk across many records', () =
     // 12-signal interleaved sequence across 3 tasks
     ctrlX.onSignal(makeTaskStarted({ taskId: 'X' }), 'tentacle-x', T_X);
     ctrlY.onSignal(makeTaskStarted({ taskId: 'Y' }), 'tentacle-y', T_Y);
-    ctrlX.onSignal(makeProgressUpdate({ taskId: 'X', message: 'X step 1' }), 'tentacle-x', T_X);
+    ctrlX.onSignal(
+      makeProgressUpdate({ taskId: 'X', message: 'X step 1' }),
+      'tentacle-x',
+      T_X,
+    );
     ctrlZ.onSignal(makeTaskStarted({ taskId: 'Z' }), 'tentacle-z', T_Z);
-    ctrlY.onSignal(makeProgressUpdate({ taskId: 'Y', message: 'Y step 1' }), 'tentacle-y', T_Y);
-    ctrlX.onSignal(makeProgressUpdate({ taskId: 'X', message: 'X step 2' }), 'tentacle-x', T_X);
-    ctrlZ.onSignal(makeProgressUpdate({ taskId: 'Z', message: 'Z step 1' }), 'tentacle-z', T_Z);
-    ctrlY.onSignal(makeProgressUpdate({ taskId: 'Y', message: 'Y step 2' }), 'tentacle-y', T_Y);
-    ctrlZ.onSignal(makeTaskCompleted({ taskId: 'Z', result: 'Z done.' }), 'tentacle-z', T_Z);
-    ctrlX.onSignal(makeProgressUpdate({ taskId: 'X', message: 'X step 3' }), 'tentacle-x', T_X);
-    ctrlY.onSignal(makeTaskCompleted({ taskId: 'Y', result: 'Y done.' }), 'tentacle-y', T_Y);
-    ctrlX.onSignal(makeTaskCompleted({ taskId: 'X', result: 'X done.' }), 'tentacle-x', T_X);
+    ctrlY.onSignal(
+      makeProgressUpdate({ taskId: 'Y', message: 'Y step 1' }),
+      'tentacle-y',
+      T_Y,
+    );
+    ctrlX.onSignal(
+      makeProgressUpdate({ taskId: 'X', message: 'X step 2' }),
+      'tentacle-x',
+      T_X,
+    );
+    ctrlZ.onSignal(
+      makeProgressUpdate({ taskId: 'Z', message: 'Z step 1' }),
+      'tentacle-z',
+      T_Z,
+    );
+    ctrlY.onSignal(
+      makeProgressUpdate({ taskId: 'Y', message: 'Y step 2' }),
+      'tentacle-y',
+      T_Y,
+    );
+    ctrlZ.onSignal(
+      makeTaskCompleted({ taskId: 'Z', result: 'Z done.' }),
+      'tentacle-z',
+      T_Z,
+    );
+    ctrlX.onSignal(
+      makeProgressUpdate({ taskId: 'X', message: 'X step 3' }),
+      'tentacle-x',
+      T_X,
+    );
+    ctrlY.onSignal(
+      makeTaskCompleted({ taskId: 'Y', result: 'Y done.' }),
+      'tentacle-y',
+      T_Y,
+    );
+    ctrlX.onSignal(
+      makeTaskCompleted({ taskId: 'X', result: 'X done.' }),
+      'tentacle-x',
+      T_X,
+    );
 
     expect(ledger).toHaveLength(12);
 

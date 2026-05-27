@@ -1,13 +1,21 @@
 /**
- * v0.10.3 manager-prompt contract tests.
+ * v0.10.3 / v0.10.4 manager-prompt contract tests.
  *
- * Covers the four rules added/tightened after the eastus
- * voyager-agentic-flows incident on 2026-05-27:
+ * Covers rules added/tightened after the eastus voyager-agentic-flows
+ * incident on 2026-05-27 and the follow-up v0.10.4 overwatch pass:
  *
  * C: Serialize commission_dev_team per enclave
  * D: Typo confirmation before commissioning a new tentacle
  * E: "Done" contract — task_completed signal, not tntc deploy exit 0
  * F: Error messages cite EXACT declared dependency, never invented alternatives
+ * G: Pre-commission LLM elicitation (provider, model, api-key)
+ * H: Never default gpt-4o; use $LLM_DEFAULT_MODEL
+ * I: Proactive ground-truth polling before status replies
+ * J: Silent-failure detection: >2min signal gap → suspicious
+ * K: Lifecycle no-quiesce while jobs in flight (prompt reminder)
+ * M: Slack-redirect: authorize/invite @user → @kraken add (labeled L in prior commit)
+ * N1: No fabricated tool errors
+ * N3: Builder + Deployer also follow "never gpt-4o, use $LLM_DEFAULT_MODEL"
  */
 
 import { describe, it, expect } from 'vitest';
@@ -164,10 +172,109 @@ describe('manager prompt v0.10.4 contracts', () => {
     );
   });
 
-  // Fix L: Redirect natural-language add/invite/authorize to @kraken add @user dispatcher command
-  it('L: redirects to `@kraken add @user` syntax for natural-language authorize/invite phrasings', () => {
+  // Fix M / formerly-L: Redirect natural-language add/invite/authorize to @kraken add @user dispatcher command
+  it('M: redirects to `@kraken add @user` syntax for natural-language authorize/invite phrasings', () => {
     expect(prompt).toMatch(/Slack ID resolution is a dispatcher job/i);
     expect(prompt).toMatch(/`@kraken add @\w/);
     expect(prompt).toMatch(/DO NOT say "I can't resolve those"/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Fix N1: Never fabricate tool errors
+// ---------------------------------------------------------------------------
+
+describe('manager prompt N1 contracts — never fabricate tool errors', () => {
+  const prompt = buildManagerPrompt(BASE_OPTS);
+
+  it('N1: has a dedicated "Never fabricate tool errors" section', () => {
+    expect(prompt).toMatch(/Never fabricate tool errors/i);
+  });
+
+  it('N1: forbids inventing error messages without calling the tool', () => {
+    // The prompt must cite the BAD pattern of claiming invalid_auth without calling
+    expect(prompt).toMatch(/NEVER invent error[\s\S]{0,20}messages/i);
+  });
+
+  it('N1: identifies confabulated denial as a specific case of confabulation', () => {
+    expect(prompt).toMatch(/SPECIFIC case of confabulation/i);
+  });
+
+  it('N1: shows a BAD example where users.info was never called', () => {
+    expect(prompt).toContain('users.info');
+    expect(prompt).toMatch(/never called users\.info/i);
+  });
+
+  it('N1: gives a CORRECT alternative of asking the user first or attempting the call', () => {
+    expect(prompt).toMatch(/haven't tried that yet/i);
+    expect(prompt).toMatch(/attempt it and report the real outcome/i);
+  });
+
+  it('N1: states manufactured technical denials are worse than honest failure', () => {
+    expect(prompt).toMatch(/Manufactured technical denials/i);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Fix N3: Builder and Deployer also enforce "never gpt-4o, use $LLM_DEFAULT_MODEL"
+// ---------------------------------------------------------------------------
+
+import {
+  buildBuilderPrompt,
+  buildDeployerPrompt,
+} from '../../../src/agent/system-prompt.js';
+
+describe('builder prompt N3 contracts — model selection discipline', () => {
+  const prompt = buildBuilderPrompt({
+    ...BASE_OPTS,
+    taskDescription: 'Build a test tentacle',
+  });
+
+  it('N3: builder prompt has a model-selection section', () => {
+    expect(prompt).toMatch(/Model selection/i);
+  });
+
+  it('N3: builder prompt forbids defaulting to gpt-4o', () => {
+    expect(prompt).toMatch(/NEVER default to[\s\S]{0,40}gpt-4o/i);
+  });
+
+  it('N3: builder prompt instructs reading $LLM_DEFAULT_MODEL', () => {
+    expect(prompt).toMatch(/\$LLM_DEFAULT_MODEL/);
+  });
+
+  it('N3: builder prompt states scaffold defaults hardcoding gpt-4o are FORBIDDEN', () => {
+    expect(prompt).toMatch(/hardcode gpt-4o are FORBIDDEN/i);
+  });
+
+  it('N3: builder prompt says to use the goal field model value exactly', () => {
+    expect(prompt).toMatch(/use that EXACTLY/i);
+  });
+});
+
+describe('deployer prompt N3 contracts — model selection discipline', () => {
+  const prompt = buildDeployerPrompt({
+    ...BASE_OPTS,
+  });
+
+  it('N3: deployer prompt has a model-selection section', () => {
+    expect(prompt).toMatch(/Model selection/i);
+  });
+
+  it('N3: deployer prompt forbids defaulting to gpt-4o', () => {
+    expect(prompt).toMatch(/NEVER default to[\s\S]{0,40}gpt-4o/i);
+  });
+
+  it('N3: deployer prompt instructs reading $LLM_DEFAULT_MODEL', () => {
+    expect(prompt).toMatch(/\$LLM_DEFAULT_MODEL/);
+  });
+
+  it('N3: deployer prompt states scaffold defaults hardcoding gpt-4o are FORBIDDEN', () => {
+    expect(prompt).toMatch(
+      /Scaffold defaults that hardcode gpt-4o are FORBIDDEN/i,
+    );
+  });
+
+  it('N3: deployer prompt says to use goal field model value exactly', () => {
+    expect(prompt).toMatch(/use that EXACTLY/i);
   });
 });
