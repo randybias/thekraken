@@ -53,10 +53,10 @@ export const LIFECYCLE_SCENARIOS: LifecycleScenarioDef[] = [
       {
         kind: 'slack',
         channel: CHANNELS.test,
-        message: `@Kraken provision this channel as an enclave named ${TEST_ENCLAVE} for end-to-end testing`,
+        message: `@Kraken provision as ${TEST_ENCLAVE}`,
         expectedPatterns: [
           new RegExp(
-            `live|ready|done|is now|complete|set up|${TEST_ENCLAVE}.*enclave|enclave.*${TEST_ENCLAVE}|dev team|commissioned|working|getting started`,
+            `Done\\. Enclave \`${TEST_ENCLAVE}\` is live|live|ready|done|set up|${TEST_ENCLAVE}`,
             'i',
           ),
         ],

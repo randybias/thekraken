@@ -499,12 +499,12 @@ export const PROVISIONING_SCENARIOS: ScenarioDef[] = [
     name: 'provision test channel as enclave',
     channel: CHANNELS.test,
     // TEST_ENCLAVE is parameterised so the test can target any environment.
-    message: `@Kraken provision this channel as an enclave named ${TEST_ENCLAVE} for end-to-end testing`,
+    message: `@Kraken provision as ${TEST_ENCLAVE}`,
     // Accept either a synchronous "live/ready/done" confirmation or the async
     // "dev team commissioned" path (both result in a working enclave per F4/C5).
     expectedPatterns: [
       new RegExp(
-        `live|ready|done|is now|complete|set up|${TEST_ENCLAVE}.*enclave|enclave.*${TEST_ENCLAVE}|dev team|commissioned|working|getting started`,
+        `Done\\. Enclave \`${TEST_ENCLAVE}\` is live|live|ready|done|set up|${TEST_ENCLAVE}`,
         'i',
       ),
     ],
@@ -516,6 +516,52 @@ export const PROVISIONING_SCENARIOS: ScenarioDef[] = [
       timeoutMs: 60_000,
       pollMs: 5_000,
     },
+  },
+  {
+    id: 'E6',
+    name: 'provision with no args uses channel name as enclave name',
+    channel: CHANNELS.test,
+    message: '@Kraken provision',
+    expectedPatterns: [
+      /Done\. Enclave/i,
+    ],
+    forbiddenPatterns: [],
+    timeoutMs: 60_000,
+  },
+  {
+    id: 'E7',
+    name: 'provision with overrides uses provided name + description',
+    channel: CHANNELS.test,
+    message: '@Kraken provision as e2e-foo description Test enclave from E7',
+    expectedPatterns: [
+      /Done\. Enclave `e2e-foo` is live/i,
+    ],
+    forbiddenPatterns: [],
+    timeoutMs: 60_000,
+  },
+  {
+    id: 'E8',
+    name: 'thread reply without @mention reaches Kraken in owned thread',
+    channel: CHANNELS.enclave,
+    message: '@Kraken status',
+    followUpMessages: ['quick follow-up?'],
+    followUpAfterFirstReply: true,
+    expectedReplyCount: 2,
+    expectedPatterns: [/.+/i],
+    forbiddenPatterns: [],
+    timeoutMs: 60_000,
+  },
+  {
+    id: 'E9',
+    name: 'thread chatter in non-owned thread is ignored',
+    channel: CHANNELS.enclave,
+    message: '__NO_MENTION__ this is a thread top-level',
+    followUpMessages: ['__NO_MENTION__ in-thread chatter'],
+    followUpAfterFirstReply: false,
+    expectedReplyCount: 0,
+    forbiddenPatterns: [/.+/i],
+    timeoutMs: 30_000,
+    skipWhen: () => process.env['KRAKEN_E2E_NO_MENTION_SUPPORTED'] !== '1',
   },
   {
     id: 'E5',
