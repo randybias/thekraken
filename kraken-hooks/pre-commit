@@ -2,10 +2,193 @@
 set -euo pipefail
 
 # Pre-commit hook for git-state repo.
-# Auto-bumps version: N -> N+1 in workflow.yaml for any tentacle with staged changes.
-# Ignores CONTEXT.md-only changes (doc commits should not bump version).
+#
+# Does two things in order:
+#   1. Hardcoded-secret gate — scan staged text files for credential patterns
+#      and fail the commit if any are found.
+#   2. Version bump — auto-bump N -> N+1 in workflow.yaml for any tentacle
+#      with staged changes. Ignores CONTEXT.md-only changes.
 
 ENCLAVES_DIR="enclaves"
+
+# ---------------------------------------------------------------------------
+# Part 1: Hardcoded-secret gate
+# ---------------------------------------------------------------------------
+#
+# Emergency bypass: KRAKEN_ALLOW_SECRET_SCAN_BYPASS=1
+# This should only be used when you are intentionally committing a known-safe
+# false-positive AND you understand the risk. It is logged loudly.
+#
+# Excluded paths (never scanned):
+#   .secrets.yaml         — per-tentacle secrets placeholder (values are $shared refs)
+#   .secrets/**           — workspace-root shared secrets dir (git-ignored; never committed)
+#   *.enc.yaml            — SOPS-encrypted files (ciphertext, not plaintext secrets)
+#
+# Credential patterns detected:
+#   Anthropic API key     sk-ant-[A-Za-z0-9_-]{20,}
+#   OpenAI API key        sk-proj-[A-Za-z0-9_-]{20,}  |  sk-[A-Za-z0-9]{20,}
+#   Slack token           xox[baprs]-[A-Za-z0-9-]{10,}
+#   Slack app token       xapp-[A-Za-z0-9-]{10,}
+#   AWS access key        AKIA[0-9A-Z]{16}
+#   GitHub PAT            ghp_[A-Za-z0-9]{36}
+#   GitLab PAT            glpat-[A-Za-z0-9_-]{20,}
+#   Private key header    -----BEGIN * PRIVATE KEY-----
+#   Azure SAS             sv= ... sig= (co-occurrence pattern)
+
+# Patterns for grep -E
+SECRET_PATTERNS=(
+  'sk-ant-[A-Za-z0-9_-]{20,}'
+  'sk-proj-[A-Za-z0-9_-]{20,}'
+  'sk-[A-Za-z0-9]{20,}'
+  'xox[baprs]-[A-Za-z0-9-]{10,}'
+  'xapp-[A-Za-z0-9-]{10,}'
+  'AKIA[0-9A-Z]{16}'
+  'ghp_[A-Za-z0-9]{36}'
+  'glpat-[A-Za-z0-9_-]{20,}'
+  'BEGIN [A-Z ]*PRIVATE KEY'
+)
+
+# Azure SAS is a co-occurrence: both sv= and sig= on the same line
+AZURE_SAS_PATTERN_1='sv=[0-9]{4}-[0-9]{2}-[0-9]{2}'
+AZURE_SAS_PATTERN_2='sig=[A-Za-z0-9%]{20,}'
+
+# Paths to skip (relative to repo root, matched as substrings)
+SKIP_PATHS=(
+  '.secrets.yaml'
+  '.secrets/'
+  '.enc.yaml'
+)
+
+# Check whether a staged file path should be skipped
+should_skip_file() {
+  local filepath="${1}"
+  for skip in "${SKIP_PATHS[@]}"; do
+    if [[ "${filepath}" == *"${skip}"* ]]; then
+      return 0
+    fi
+  done
+  return 1
+}
+
+# Build a single grep alternation pattern from the SECRET_PATTERNS array.
+# E.g. "pat1|pat2|pat3" — used for a fast single-pass scan.
+build_combined_pattern() {
+  local combined="${SECRET_PATTERNS[0]}"
+  local i
+  for (( i=1; i<${#SECRET_PATTERNS[@]}; i++ )); do
+    combined="${combined}|${SECRET_PATTERNS[$i]}"
+  done
+  echo "${combined}"
+}
+
+# Scan a single staged file for credential patterns.
+# Reads the staged content from the index (git show :path) and runs a single
+# grep pass per file — no per-line subprocess spawning. Binary files are not
+# explicitly excluded; credential patterns are text-only and won't match.
+# Prints "FILE:LINE: matched-text" for each finding to stdout.
+# Returns 0 if no findings, 1 if at least one finding.
+scan_staged_file_for_secrets() {
+  local filepath="${1}"
+  local combined_pattern="${2}"
+  local found=0
+
+  # Get staged content of this file from the index. Skip silently if the
+  # object doesn't exist (e.g., deleted files included by diff-filter).
+  local content
+  content=$(git show ":${filepath}" 2>/dev/null) || return 0
+
+  # Single grep call for all standard patterns combined (fast: one process)
+  local matches
+  matches=$(echo "${content}" | grep -nE -e "${combined_pattern}" 2>/dev/null || true)
+  if [ -n "${matches}" ]; then
+    while IFS= read -r match; do
+      echo "${filepath}:${match}"
+      found=1
+    done <<< "${matches}"
+  fi
+
+  # Azure SAS co-occurrence: lines matching BOTH sv= and sig= patterns.
+  # Two grep passes on already-loaded content (one small pipe each).
+  local az_matches
+  az_matches=$(echo "${content}" | grep -nE -e "${AZURE_SAS_PATTERN_1}" 2>/dev/null \
+    | grep -E -e "${AZURE_SAS_PATTERN_2}" 2>/dev/null || true)
+  if [ -n "${az_matches}" ]; then
+    while IFS= read -r match; do
+      echo "${filepath}:${match} (Azure SAS token)"
+      found=1
+    done <<< "${az_matches}"
+  fi
+
+  return "${found}"
+}
+
+# Run the secret scan over all staged text files
+run_secret_scan() {
+  local all_staged
+  all_staged=$(git diff --cached --name-only --diff-filter=ACMR)
+
+  if [ -z "${all_staged}" ]; then
+    return 0
+  fi
+
+  # Build combined pattern once (avoid rebuilding per file)
+  local combined_pattern
+  combined_pattern=$(build_combined_pattern)
+
+  local findings=()
+
+  while IFS= read -r staged_file; do
+    [ -z "${staged_file}" ] && continue
+
+    # Skip excluded paths
+    if should_skip_file "${staged_file}"; then
+      continue
+    fi
+
+    # Collect findings from this file
+    while IFS= read -r finding; do
+      findings+=("${finding}")
+    done < <(scan_staged_file_for_secrets "${staged_file}" "${combined_pattern}" || true)
+
+  done <<< "${all_staged}"
+
+  if [ "${#findings[@]}" -gt 0 ]; then
+    echo "" >&2
+    echo "ERROR: Hardcoded credentials detected in staged files." >&2
+    echo "The Tentacular platform uses the \$shared secrets mechanism — never hardcode values." >&2
+    echo "" >&2
+    echo "Findings:" >&2
+    for finding in "${findings[@]}"; do
+      echo "  ${finding}" >&2
+    done
+    echo "" >&2
+    echo "Fix: Remove the hardcoded credential and use the correct pattern:" >&2
+    echo "  1. In workflow.yaml: auth: { type: api-token, secret: <group>.<subkey> }" >&2
+    echo "  2. In .secrets.yaml: <group>: \$shared.<group>" >&2
+    echo "  3. Shared value: ~/tentacles/.secrets/<group> (JSON, git-ignored, 0600)" >&2
+    echo "  4. In node code: ctx.dependency(\"<dep>\").secret" >&2
+    echo "" >&2
+    echo "See skills/kraken/references/secrets.md for the full methodology." >&2
+    echo "" >&2
+    if [ "${KRAKEN_ALLOW_SECRET_SCAN_BYPASS:-}" = "1" ]; then
+      echo "WARNING: KRAKEN_ALLOW_SECRET_SCAN_BYPASS=1 is set — bypassing secret gate." >&2
+      echo "WARNING: This bypass is for emergencies only. Ensure findings are safe false-positives." >&2
+      return 0
+    fi
+    return 1
+  fi
+
+  return 0
+}
+
+# Run secret scan first — fail fast before any version bumps
+if ! run_secret_scan; then
+  exit 1
+fi
+
+# ---------------------------------------------------------------------------
+# Part 2: Version bump
+# ---------------------------------------------------------------------------
 
 # Get list of staged files under enclaves/
 staged_files=$(git diff --cached --name-only --diff-filter=ACMR -- "${ENCLAVES_DIR}/")
