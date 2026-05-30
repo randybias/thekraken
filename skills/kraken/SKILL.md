@@ -403,6 +403,26 @@ Read `references/git-state.md` when:
 
 ---
 
+## Secrets
+
+Tentacles receive credentials via a three-layer mechanism (`workflow.yaml`
+contract → per-tentacle `.secrets.yaml` → workspace-root shared files).
+
+Read `references/secrets.md` when:
+- A builder needs to provision credentials for a new tentacle
+- A tentacle run fails with empty/missing secret values
+- You are reviewing tentacle source for hardcoded credentials
+
+Key rules (details in the reference):
+- Contract: `auth: { type: api-token, secret: <group>.<subkey> }`
+- `.secrets.yaml`: flat `<group>: $shared.<group>` — no direct values, no wrapper
+- Shared file: `~/tentacles/.secrets/<group>` is JSON keyed by subkey
+- Node code: `ctx.dependency("<dep>").secret` — NEVER hardcode fallbacks
+- Slack from tentacle: `ctx.dependency("slack")` + `chat.postMessage` — NEVER write to `outbound.ndjson`
+- Missing secret → STOP and ask; do not invent a fallback
+
+---
+
 ## References
 
 - `references/slack-ux.md` — Slack formatting, tables, threads, heartbeats
@@ -410,3 +430,4 @@ Read `references/git-state.md` when:
 - `references/permissions.md` — POSIX owner/group/mode model for enclaves
 - `references/enclave-personas.md` — enterprise team archetypes
 - `references/git-state.md` — version management UX: vocabulary contract, four conversation primitives, internal-op invocation rules
+- `references/secrets.md` — end-to-end secrets mechanism: contract → .secrets.yaml → shared files → node code

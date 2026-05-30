@@ -340,3 +340,100 @@ describe('buildDeployerPrompt', () => {
     expect(prompt).toContain('NO edit, write tools');
   });
 });
+
+// ---------------------------------------------------------------------------
+// Secrets section tests (V3 — incident prevention)
+// ---------------------------------------------------------------------------
+
+describe('buildBuilderPrompt — secrets section', () => {
+  const opts = { ...BASE_ROLE_OPTS, taskDescription: 'Build a tentacle' };
+
+  it('includes a Secrets section header', () => {
+    const prompt = buildBuilderPrompt(opts);
+    expect(prompt).toContain('## Secrets');
+  });
+
+  it('documents the contract auth.secret group.subkey convention', () => {
+    const prompt = buildBuilderPrompt(opts);
+    expect(prompt).toMatch(/auth.*type.*api-token.*secret.*<group>\.<subkey>/s);
+  });
+
+  it('documents the flat $shared reference format for .secrets.yaml', () => {
+    const prompt = buildBuilderPrompt(opts);
+    expect(prompt).toContain('$shared.');
+    expect(prompt).toContain('never direct values');
+  });
+
+  it('documents the shared file location and JSON structure', () => {
+    const prompt = buildBuilderPrompt(opts);
+    expect(prompt).toContain('~/tentacles/.secrets/');
+    expect(prompt).toContain('api_key');
+  });
+
+  it('documents ctx.dependency usage for node code', () => {
+    const prompt = buildBuilderPrompt(opts);
+    expect(prompt).toContain('ctx.dependency');
+  });
+
+  it('explicitly prohibits hardcoded credential fallbacks', () => {
+    const prompt = buildBuilderPrompt(opts);
+    expect(prompt).toContain('NEVER hardcode');
+  });
+
+  it('documents Slack posting via chat.postMessage (NOT outbound.ndjson)', () => {
+    const prompt = buildBuilderPrompt(opts);
+    expect(prompt).toContain('chat.postMessage');
+    expect(prompt).toContain('outbound.ndjson');
+    // Must say NEVER write to outbound.ndjson
+    const outboundIdx = prompt.indexOf('outbound.ndjson');
+    const neverIdx = prompt.lastIndexOf('NEVER', outboundIdx);
+    expect(neverIdx).toBeGreaterThan(-1);
+    // NEVER appears before outbound.ndjson in close proximity
+    expect(outboundIdx - neverIdx).toBeLessThan(200);
+  });
+
+  it('instructs builder to stop and ask if secret is missing (no fallback)', () => {
+    const prompt = buildBuilderPrompt(opts);
+    expect(prompt).toMatch(/STOP and ask/i);
+  });
+});
+
+describe('buildDeployerPrompt — secrets section', () => {
+  const opts = { ...BASE_ROLE_OPTS, taskDescription: 'Deploy a tentacle' };
+
+  it('includes a Secrets section header', () => {
+    const prompt = buildDeployerPrompt(opts);
+    expect(prompt).toContain('## Secrets');
+  });
+
+  it('documents the contract auth.secret group.subkey convention', () => {
+    const prompt = buildDeployerPrompt(opts);
+    expect(prompt).toMatch(/auth.*type.*api-token.*secret.*<group>\.<subkey>/s);
+  });
+
+  it('documents the flat $shared reference format for .secrets.yaml', () => {
+    const prompt = buildDeployerPrompt(opts);
+    expect(prompt).toContain('$shared.');
+    expect(prompt).toContain('never direct values');
+  });
+
+  it('explicitly prohibits hardcoded credential fallbacks', () => {
+    const prompt = buildDeployerPrompt(opts);
+    expect(prompt).toContain('NEVER hardcode');
+  });
+
+  it('documents Slack posting via chat.postMessage (NOT outbound.ndjson)', () => {
+    const prompt = buildDeployerPrompt(opts);
+    expect(prompt).toContain('chat.postMessage');
+    // Must explicitly prohibit writing to outbound.ndjson from workflow code
+    const lines = prompt.split('\n');
+    const outboundLines = lines.filter((l) => l.includes('outbound.ndjson'));
+    const hasProhibition = outboundLines.some((l) => l.includes('NEVER'));
+    expect(hasProhibition).toBe(true);
+  });
+
+  it('instructs deployer to stop and ask if secret is missing (no fallback)', () => {
+    const prompt = buildDeployerPrompt(opts);
+    expect(prompt).toMatch(/STOP and ask/i);
+  });
+});
