@@ -141,7 +141,11 @@ function buildChromaSection(
   chromaBaseUrl: string | undefined,
   enclaveName: string,
 ): string[] {
-  if (!chromaBaseUrl) {
+  // Normalise: a whitespace-only value is "not configured", never a URL. A
+  // truthy-but-blank string would otherwise leak into the prompt as a broken
+  // URL and break the confabulation contract.
+  const baseUrl = chromaBaseUrl?.trim();
+  if (!baseUrl) {
     return [
       '## Chroma — the enclave status UI',
       'Chroma is the read-only web dashboard for enclave and tentacle status.',
@@ -156,7 +160,7 @@ function buildChromaSection(
     'Chroma is the read-only web dashboard for enclave and tentacle status,',
     'deep-linked from Slack. When a user asks for "the Chroma URL", where to',
     "view this enclave, or to see a tentacle's status in the dashboard, give",
-    `them this enclave's page: ${chromaBaseUrl}/enclaves/${enclaveName}`,
+    `them this enclave's page: ${baseUrl}/enclaves/${enclaveName}`,
     '(There is no per-tentacle page — a tentacle is reviewed on its enclave',
     'page.) Chroma shows STATUS only — it is NOT a prompt editor and does not',
     'display tentacle prompt source. If a user wants to review a prompt, give',

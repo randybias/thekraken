@@ -86,4 +86,12 @@ describe('manager prompt — Chroma awareness', () => {
     expect(prompt).not.toContain('/enclaves/');
     expect(prompt).not.toMatch(/https?:\/\/\S*chroma/i);
   });
+
+  it('treats a whitespace-only base URL as unconfigured (no fabricated URL)', () => {
+    const prompt = buildManagerPrompt({ ...BASE_OPTS, chromaBaseUrl: '   ' });
+    expect(prompt).toMatch(/not configured/i);
+    expect(prompt).not.toContain('/enclaves/');
+    // The raw whitespace value must never reach the prompt as a URL.
+    expect(prompt).not.toMatch(/\/enclaves\/\s/);
+  });
 });
