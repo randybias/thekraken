@@ -141,10 +141,11 @@ function buildChromaSection(
   chromaBaseUrl: string | undefined,
   enclaveName: string,
 ): string[] {
-  // Normalise: a whitespace-only value is "not configured", never a URL. A
+  // Normalise: a whitespace-only value is "not configured", never a URL (a
   // truthy-but-blank string would otherwise leak into the prompt as a broken
-  // URL and break the confabulation contract.
-  const baseUrl = chromaBaseUrl?.trim();
+  // URL and break the confabulation contract). Strip ALL trailing slashes so
+  // the rendered URL never contains a `//enclaves/` double slash.
+  const baseUrl = chromaBaseUrl?.trim().replace(/\/+$/, '');
   if (!baseUrl) {
     return [
       '## Chroma — the enclave status UI',

@@ -94,4 +94,13 @@ describe('manager prompt — Chroma awareness', () => {
     // The raw whitespace value must never reach the prompt as a URL.
     expect(prompt).not.toMatch(/\/enclaves\/\s/);
   });
+
+  it('normalizes trailing slashes so the rendered URL has no double slash', () => {
+    const prompt = buildManagerPrompt({
+      ...BASE_OPTS,
+      chromaBaseUrl: 'https://chroma.example.com//',
+    });
+    expect(prompt).toContain('https://chroma.example.com/enclaves/voyager');
+    expect(prompt).not.toContain('//enclaves/');
+  });
 });

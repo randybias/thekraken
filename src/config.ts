@@ -339,7 +339,7 @@ export function loadConfig(): KrakenConfig {
       // unset, never a URL) and stripped of any trailing slash. If empty, the
       // Home Tab renders enclave rows without "Open in Chroma" buttons and the
       // manager treats Chroma as not configured.
-      baseUrl: optional('CHROMA_BASE_URL', '').trim().replace(/\/$/, ''),
+      baseUrl: optional('CHROMA_BASE_URL', '').trim().replace(/\/+$/, ''),
     },
     teamsDir: optional('KRAKEN_TEAMS_DIR', '/app/data/teams'),
     server: {

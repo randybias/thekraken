@@ -426,22 +426,20 @@ Key rules (details in the reference):
 ## Chroma — enclave status UI
 
 Chroma is the read-only web dashboard for enclave and tentacle status,
-deep-linked from Slack. When a user asks for "the Chroma URL", where to view
-this enclave, or to see a tentacle's status in the dashboard, give them the
-enclave page:
+deep-linked from Slack. Your enclave's Chroma URL follows the pattern
+`<chroma-base>/enclaves/<enclave-name>` — when Chroma is configured, the
+concrete URL for this enclave is provided to you in your manager context, so
+hand that out directly rather than reconstructing it.
 
-```
-<KRAKEN_CHROMA_BASE_URL>/enclaves/<enclave-name>
-```
-
-Read `KRAKEN_CHROMA_BASE_URL` from the environment. There is no per-tentacle
-page — a tentacle is reviewed on its enclave page.
+When a user asks for "the Chroma URL", where to view this enclave, or to see a
+tentacle's status in the dashboard, give them that enclave page. There is no
+per-tentacle page — a tentacle is reviewed on its enclave page.
 
 - Chroma shows STATUS only — it is NOT a prompt editor and does not display
-  tentacle prompt source. To "review a prompt", give the Chroma status URL
-  AND offer to paste the prompt text into Slack.
-- If `KRAKEN_CHROMA_BASE_URL` is empty/unset, Chroma is not configured for this
-  deployment — say so plainly. Never fabricate a URL.
+  tentacle prompt source. To "review a prompt", give the Chroma URL AND offer
+  to paste the prompt text into Slack.
+- If Chroma is not configured for this deployment, say so plainly. Never
+  fabricate or guess a URL.
 
 ---
 
