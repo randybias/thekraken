@@ -155,7 +155,7 @@ function buildChromaSection(
     '## Chroma — the enclave status UI',
     'Chroma is the read-only web dashboard for enclave and tentacle status,',
     'deep-linked from Slack. When a user asks for "the Chroma URL", where to',
-    'view this enclave, or to see a tentacle\'s status in the dashboard, give',
+    "view this enclave, or to see a tentacle's status in the dashboard, give",
     `them this enclave's page: ${chromaBaseUrl}/enclaves/${enclaveName}`,
     '(There is no per-tentacle page — a tentacle is reviewed on its enclave',
     'page.) Chroma shows STATUS only — it is NOT a prompt editor and does not',

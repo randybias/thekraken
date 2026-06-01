@@ -86,7 +86,9 @@ describe('manager subprocess context injection', () => {
       'https://chroma.example.com',
       'U0BOTKRAKEN',
     );
-    expect(opts.env['KRAKEN_CHROMA_BASE_URL']).toBe('https://chroma.example.com');
+    expect(opts.env['KRAKEN_CHROMA_BASE_URL']).toBe(
+      'https://chroma.example.com',
+    );
     expect(opts.env['KRAKEN_BOT_USER_ID']).toBe('U0BOTKRAKEN');
   });
 

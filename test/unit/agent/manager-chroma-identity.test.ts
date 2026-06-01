@@ -42,7 +42,9 @@ describe('manager prompt — self-identity (bot user id)', () => {
       ...BASE_OPTS,
       botUserId: 'U0AB4T4UHHS',
     });
-    expect(prompt).toMatch(/never say it (might|may) (have )?be(en)? for someone else/i);
+    expect(prompt).toMatch(
+      /never say it (might|may) (have )?be(en)? for someone else/i,
+    );
   });
 
   it('does not emit a broken handle when botUserId is absent', () => {
