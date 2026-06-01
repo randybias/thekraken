@@ -204,6 +204,14 @@ export class TeamLifecycleManager {
 
   private readonly bridgeFactory: TeamBridgeFactory;
 
+  /**
+   * The Kraken's own Slack bot user id, resolved at runtime by the Slack bot
+   * (auth.test) and pushed in via setBotUserId(). Empty until resolved. Passed
+   * into the manager prompt + subprocess env so the manager recognises its own
+   * <@bot_id> mention and never disclaims it.
+   */
+  private botUserId = '';
+
   constructor(
     private readonly config: KrakenConfig,
     _db: Database.Database,
@@ -221,6 +229,15 @@ export class TeamLifecycleManager {
    */
   setOnTeamExited(cb: (enclaveName: string) => void): void {
     this.onTeamExited = cb;
+  }
+
+  /**
+   * Record the Kraken's own Slack bot user id (resolved by the Slack bot via
+   * auth.test at startup). Subsequently-spawned managers learn their own
+   * handle so a <@bot_id> mention is recognised as self-addressed.
+   */
+  setBotUserId(botUserId: string): void {
+    this.botUserId = botUserId;
   }
 
   /**
@@ -312,6 +329,12 @@ export class TeamLifecycleManager {
       ...(this.config.llm.geminiApiKey
         ? { GEMINI_API_KEY: this.config.llm.geminiApiKey }
         : {}),
+      // Chroma status-UI base URL + the Kraken's own bot id. Only set when
+      // known so the subprocess never sees an empty/placeholder value.
+      ...(this.config.chroma.baseUrl
+        ? { KRAKEN_CHROMA_BASE_URL: this.config.chroma.baseUrl }
+        : {}),
+      ...(this.botUserId ? { KRAKEN_BOT_USER_ID: this.botUserId } : {}),
       // NOTE: KUBECONFIG is intentionally NOT set — teams use tntc→MCP only.
       // NOTE: TNTC_ACCESS_TOKEN is intentionally NOT set — read from KRAKEN_TOKEN_FILE.
     };
@@ -330,6 +353,8 @@ export class TeamLifecycleManager {
         enclaveName,
         userSlackId: initiatingUserId,
         userEmail: initiatingEmail,
+        chromaBaseUrl: this.config.chroma.baseUrl,
+        botUserId: this.botUserId,
       }),
       // C5: Wire the token refresh callback so the bridge refreshes token.json
       // before each mailbox turn. getValidTokenForUser auto-refreshes if needed.
