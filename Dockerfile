@@ -37,6 +37,18 @@ RUN TNTC_ARCH="${TARGETARCH}" \
   && curl -fsSL "https://github.com/randybias/tentacular/releases/download/${TNTC_VERSION}/tntc_linux_${TNTC_ARCH}" -o /usr/local/bin/tntc \
   && chmod +x /usr/local/bin/tntc
 
+# Download age + age-keygen (arch-aware, pinned). P1 shells out to these
+# (ADR-0001 in tentacular) to encrypt/decrypt tentacle secrets in-pod; the
+# Kraken pod's `tntc deploy`/`tntc secrets` fail loud without them on PATH.
+ARG AGE_VERSION=v1.3.1
+RUN AGE_ARCH="${TARGETARCH}" \
+  && curl -fsSL "https://github.com/FiloSottile/age/releases/download/${AGE_VERSION}/age-${AGE_VERSION}-linux-${AGE_ARCH}.tar.gz" -o /tmp/age.tar.gz \
+  && tar -xzf /tmp/age.tar.gz -C /tmp \
+  && install -m 0755 /tmp/age/age /usr/local/bin/age \
+  && install -m 0755 /tmp/age/age-keygen /usr/local/bin/age-keygen \
+  && rm -rf /tmp/age /tmp/age.tar.gz \
+  && age --version && age-keygen --version
+
 # Bundle skills
 COPY skills/ /app/skills/
 
