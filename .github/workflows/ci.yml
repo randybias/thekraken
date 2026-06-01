@@ -36,7 +36,10 @@ jobs:
           curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
           helm lint charts/thekraken --set gitState.repoUrl=https://github.com/test/repo.git --set gitState.credentialsSecret=test-secret
 
+      - name: Helm chart render assertions
+        run: bash scripts/test-chart-age-mount.sh
+
       - name: Shellcheck
         run: |
           sudo apt-get install -y shellcheck
-          shellcheck scripts/entrypoint.sh kraken-hooks/pre-commit
+          shellcheck scripts/entrypoint.sh kraken-hooks/pre-commit scripts/test-chart-age-mount.sh
