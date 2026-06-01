@@ -73,6 +73,21 @@
         "userEmail": { "type": "string" }
       }
     },
+    "ageKey": {
+      "type": "object",
+      "description": "Age private key mount for tentacle-secret decryption. Key is operator-provisioned, never committed.",
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "existingSecret": {
+          "type": "string",
+          "description": "Operator-created Secret containing key 'key.txt'. Required when enabled."
+        },
+        "mountPath": {
+          "type": "string",
+          "description": "In-pod path for the private key; also TENTACULAR_AGE_KEY_FILE."
+        }
+      }
+    },
     "llm": {
       "type": "object",
       "properties": {

@@ -40,3 +40,8 @@ data:
   OTEL_EXPORTER_OTLP_ENDPOINT:
     {{ .Values.observability.otlpEndpoint | default "" | quote }}
   LOG_LEVEL: {{ .Values.observability.logLevel | default "info" | quote }}
+  # Age private-key path — tntc reads the mounted key here to decrypt
+  # $shared tentacle secrets (P1 contract). Only set when the key is mounted.
+  {{- if .Values.ageKey.enabled }}
+  TENTACULAR_AGE_KEY_FILE: {{ .Values.ageKey.mountPath | default "/app/.age/key.txt" | quote }}
+  {{- end }}

@@ -118,6 +118,17 @@ gitState:
   userEmail: 'kraken@tentacular.dev'
   dir: '/app/data/git-state'
 
+# Age private key for tentacle-secret decryption (raw age, ADR-0001).
+# The Kraken is the trusted agent and decrypts/re-encrypts $shared secrets
+# in-pod. Provisioned as an operator/release step (k8s Secret), NEVER committed
+# and NEVER set via a Helm value. See README "Age private-key provisioning".
+ageKey:
+  enabled: false # flip true per-cluster ONLY after the Secret is provisioned
+  existingSecret: '' # operator-created Secret; MUST contain key 'key.txt'
+  # File path the key is mounted to; also TENTACULAR_AGE_KEY_FILE (P1 contract).
+  # The mount dir is dirname(mountPath); the Secret's 'key.txt' lands here.
+  mountPath: '/app/.age/key.txt'
+
 observability:
   # OTLP HTTP endpoint for OpenTelemetry trace export.
   # Empty string disables OTel (graceful degradation).
