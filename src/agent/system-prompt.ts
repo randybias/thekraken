@@ -108,6 +108,64 @@ function buildIdentityContext(userSlackId: string, userEmail: string): string {
 }
 
 /**
+ * Build the manager's self-identity section.
+ *
+ * The manager must know its own Slack bot user id so that a `<@bot_id>`
+ * mention is recognised as addressed to itself, instead of being disclaimed
+ * as "that may have been for someone else" (2026-06-01 incident). When the
+ * bot id has not been resolved yet, the section is omitted so the prompt
+ * never emits a broken `<@undefined>` handle.
+ */
+function buildSelfIdentitySection(botUserId?: string): string[] {
+  if (!botUserId) return [];
+  return [
+    '## Your Slack Identity',
+    `You are The Kraken. Your Slack handle is <@${botUserId}>.`,
+    `A mention of that ID is a mention of YOU — treat <@${botUserId}> as`,
+    'addressed to you and act on it. NEVER say it might be for someone else,',
+    'and NEVER claim you are not that mention. That handle IS you.',
+    '',
+  ];
+}
+
+/**
+ * Build the manager's Chroma-awareness section.
+ *
+ * Chroma is the read-only web UI for enclave + tentacle status, deep-linked
+ * from Slack. The manager must be able to hand out the enclave URL
+ * (`${baseUrl}/enclaves/<enclave>`, per src/slack/cards.ts). When Chroma is
+ * not configured for the deployment, the manager says so plainly rather than
+ * fabricating a URL (confabulation contract).
+ */
+function buildChromaSection(
+  chromaBaseUrl: string | undefined,
+  enclaveName: string,
+): string[] {
+  if (!chromaBaseUrl) {
+    return [
+      '## Chroma — the enclave status UI',
+      'Chroma is the read-only web dashboard for enclave and tentacle status.',
+      'Chroma is NOT configured for this deployment. If a user asks for a',
+      'Chroma link, say it is not configured here. Do NOT invent or guess a',
+      'URL.',
+      '',
+    ];
+  }
+  return [
+    '## Chroma — the enclave status UI',
+    'Chroma is the read-only web dashboard for enclave and tentacle status,',
+    'deep-linked from Slack. When a user asks for "the Chroma URL", where to',
+    'view this enclave, or to see a tentacle\'s status in the dashboard, give',
+    `them this enclave's page: ${chromaBaseUrl}/enclaves/${enclaveName}`,
+    '(There is no per-tentacle page — a tentacle is reviewed on its enclave',
+    'page.) Chroma shows STATUS only — it is NOT a prompt editor and does not',
+    'display tentacle prompt source. If a user wants to review a prompt, give',
+    'the Chroma status URL AND offer to paste the prompt text here in Slack.',
+    '',
+  ];
+}
+
+/**
  * Options shared by all per-role prompt builders.
  */
 export interface RolePromptOptions {
@@ -139,9 +197,22 @@ export function buildManagerPrompt(
     enclaveMemory?: string | null;
     /** Tentacular skill reference content (null when not yet loaded). */
     skills?: string | null;
+    /**
+     * Base URL for the Chroma enclave status UI (no trailing slash).
+     * When set, the manager hands out `${chromaBaseUrl}/enclaves/<enclave>`.
+     * When empty/undefined, the manager says Chroma is not configured rather
+     * than fabricating a URL.
+     */
+    chromaBaseUrl?: string;
+    /**
+     * The Kraken's own Slack bot user id (e.g. "U0AB4T4UHHS"). When set, the
+     * manager knows a `<@botUserId>` mention is addressed to itself.
+     */
+    botUserId?: string;
   },
 ): string {
-  const { enclaveName, userSlackId, userEmail } = options;
+  const { enclaveName, userSlackId, userEmail, chromaBaseUrl, botUserId } =
+    options;
 
   const sections: string[] = [
     '# Role: Enclave Manager',
@@ -617,6 +688,8 @@ export function buildManagerPrompt(
     'Never confirm for queries (list, compare, describe). Queries proceed without',
     'user confirmation.',
     '',
+    ...buildSelfIdentitySection(botUserId),
+    ...buildChromaSection(chromaBaseUrl, enclaveName),
     buildIdentityContext(userSlackId, userEmail),
   ];
 
