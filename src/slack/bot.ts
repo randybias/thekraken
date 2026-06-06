@@ -200,6 +200,13 @@ export function createSlackBot(deps: SlackBotDeps): SlackBot {
         }
       }
 
+      // Propagate the resolved bot id to the team lifecycle manager so each
+      // spawned manager learns its own Slack handle and treats a <@bot_id>
+      // mention as self-addressed (2026-06-01 identity fix).
+      if (deps.botUserId) {
+        deps.teams.setBotUserId(deps.botUserId);
+      }
+
       if (config.slack.mode === 'http') {
         await app.start(config.server.port);
       } else {

@@ -36,7 +36,7 @@
     "@opentelemetry/sdk-node": "^0.214.0",
     "@opentelemetry/semantic-conventions": "^1.40.0",
     "@slack/bolt": "^4.6.0",
-    "better-sqlite3": "^11.8.1",
+    "better-sqlite3": "^12.10.0",
     "pino": "^10.3.1"
   },
   "devDependencies": {

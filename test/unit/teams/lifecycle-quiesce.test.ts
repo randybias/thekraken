@@ -233,6 +233,7 @@ describe('TeamLifecycleManager idle-kill suppression (Fix K)', () => {
       },
       oidc: { issuerUrl: '', clientId: '', clientSecret: '', callbackUrl: '' },
       db: { path: ':memory:', secretsPath: ':memory:' },
+      chroma: { baseUrl: '' },
       server: { port: 3000 },
       observability: { otlpEndpoint: undefined },
     } as unknown as KrakenConfig;

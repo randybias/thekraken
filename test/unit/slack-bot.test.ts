@@ -62,6 +62,9 @@ const mockClient = {
   conversations: {
     info: mockConversationsInfo,
   },
+  auth: {
+    test: vi.fn().mockResolvedValue({ ok: true, user_id: 'UBOTRESOLVED' }),
+  },
 };
 
 type EventHandler = (args: {
@@ -96,6 +99,7 @@ const mockTeams = {
   getActiveTeamNames: vi.fn().mockReturnValue([]),
   spawnTeam: vi.fn().mockResolvedValue(undefined),
   shutdownAll: vi.fn(),
+  setBotUserId: vi.fn(),
 };
 
 const mockBindings = {
@@ -818,5 +822,19 @@ describe('app_mention: unbound channel provisioning', () => {
     const sayArg = say.mock.calls[0]?.[0];
     expect(sayArg?.text).toContain("isn't set up as an enclave yet");
     expect(sayArg?.text).toContain('@Kraken provision');
+  });
+});
+
+describe('createSlackBot — bot identity propagation', () => {
+  beforeEach(() => {
+    mockTeams.setBotUserId.mockClear();
+    mockClient.auth.test.mockClear();
+  });
+
+  it('pushes the resolved bot user id into the team lifecycle manager on start', async () => {
+    const bot = await getSlackBot();
+    await bot.start();
+    expect(mockClient.auth.test).toHaveBeenCalled();
+    expect(mockTeams.setBotUserId).toHaveBeenCalledWith('UBOTRESOLVED');
   });
 });

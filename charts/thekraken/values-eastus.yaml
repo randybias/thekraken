@@ -56,3 +56,10 @@ registry: 'ghcr.io/randybias'
 # Chroma (enclave UI) — deep-linked from Home Tab per enclave.
 chroma:
   baseUrl: 'https://chroma.eastus-dev1.ospo-dev.miralabs.dev'
+
+# Age private key for tentacle-secret decryption. INERT until ops provisions
+# the Secret WITH SIGN-OFF (eastus is production). After creating the
+# 'tentacle-age-key' Secret (key 'key.txt'), flip enabled: true.
+ageKey:
+  enabled: false
+  existingSecret: 'tentacle-age-key'

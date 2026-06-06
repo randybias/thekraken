@@ -6,3 +6,10 @@ gitState:
 llm:
   defaultProvider: 'anthropic'
   defaultModel: 'claude-sonnet-4-6'
+
+# Age private key for tentacle-secret decryption. INERT until ops provisions
+# the 'tentacle-age-key' Secret (key 'key.txt'), then flip enabled: true.
+# nats-weu (E2E) is validated first (P5), eastus only after sign-off.
+ageKey:
+  enabled: false
+  existingSecret: 'tentacle-age-key'

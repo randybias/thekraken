@@ -59,6 +59,11 @@ spec:
             - name: git-credentials
               mountPath: /app/.git-credentials
               readOnly: true
+            {{- if .Values.ageKey.enabled }}
+            - name: age-key
+              mountPath: {{ dir .Values.ageKey.mountPath | default "/app/.age" }}
+              readOnly: true
+            {{- end }}
       volumes:
         - name: data
           {{- if .Values.persistence.enabled }}
@@ -71,6 +76,12 @@ spec:
           secret:
             secretName: {{ .Values.gitState.credentialsSecret }}
             defaultMode: 0400
+        {{- if .Values.ageKey.enabled }}
+        - name: age-key
+          secret:
+            secretName: {{ required "ageKey.existingSecret is required when ageKey.enabled=true" .Values.ageKey.existingSecret }}
+            defaultMode: 0400
+        {{- end }}
       {{- with .Values.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}

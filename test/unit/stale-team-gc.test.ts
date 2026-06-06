@@ -117,6 +117,7 @@ function makeConfig(teamsDir: string): KrakenConfig {
       disallowedModels: [],
       anthropicApiKey: 'sk-ant-test',
     },
+    chroma: { baseUrl: '' },
     server: { port: 3000 },
     observability: { otlpEndpoint: '', logLevel: 'silent' },
   } as KrakenConfig;

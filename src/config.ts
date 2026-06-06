@@ -335,9 +335,11 @@ export function loadConfig(): KrakenConfig {
       dir: optional('GIT_STATE_DIR', '/app/data/git-state'),
     },
     chroma: {
-      // Enclave UI base URL. No trailing slash. If unset, Home Tab
-      // renders enclave rows without "Open in Chroma" buttons.
-      baseUrl: optional('CHROMA_BASE_URL', '').replace(/\/$/, ''),
+      // Enclave UI base URL. Trimmed (a whitespace-only value is treated as
+      // unset, never a URL) and stripped of any trailing slash. If empty, the
+      // Home Tab renders enclave rows without "Open in Chroma" buttons and the
+      // manager treats Chroma as not configured.
+      baseUrl: optional('CHROMA_BASE_URL', '').trim().replace(/\/+$/, ''),
     },
     teamsDir: optional('KRAKEN_TEAMS_DIR', '/app/data/teams'),
     server: {
